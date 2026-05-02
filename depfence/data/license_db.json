@@ -1,0 +1,497 @@
+{
+  "0BSD": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "0BSD"
+  },
+  "AFL-2.1": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "AFL-2.1"
+  },
+  "AFL-3.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "AFL-3.0"
+  },
+  "AGPL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "AGPL-1.0"
+  },
+  "AGPL-3.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "AGPL-3.0"
+  },
+  "AGPL-3.0-only": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "AGPL-3.0-only"
+  },
+  "AGPL-3.0-or-later": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "AGPL-3.0-or-later"
+  },
+  "APSL-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "APSL-2.0"
+  },
+  "Abstyles": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "Abstyles"
+  },
+  "Apache-2.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Apache-2.0"
+  },
+  "Artistic-1.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Artistic-1.0"
+  },
+  "Artistic-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "Artistic-2.0"
+  },
+  "BSD-2-Clause": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "BSD-2-Clause"
+  },
+  "BSD-3-Clause": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "BSD-3-Clause"
+  },
+  "BSL-1.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "BSL-1.0"
+  },
+  "CC-BY-3.0": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-3.0"
+  },
+  "CC-BY-4.0": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-4.0"
+  },
+  "CC-BY-NC-3.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-NC-3.0"
+  },
+  "CC-BY-NC-4.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-NC-4.0"
+  },
+  "CC-BY-NC-ND-4.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-NC-ND-4.0"
+  },
+  "CC-BY-NC-SA-3.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-NC-SA-3.0"
+  },
+  "CC-BY-NC-SA-4.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-NC-SA-4.0"
+  },
+  "CC-BY-SA-3.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-SA-3.0"
+  },
+  "CC-BY-SA-4.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "CC-BY-SA-4.0"
+  },
+  "CC0-1.0": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "CC0-1.0"
+  },
+  "CDDL-1.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "CDDL-1.0"
+  },
+  "CDDL-1.1": {
+    "category": "weak_copyleft",
+    "osi_approved": false,
+    "spdx_id": "CDDL-1.1"
+  },
+  "CPAL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "CPAL-1.0"
+  },
+  "CPL-1.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "CPL-1.0"
+  },
+  "EPL-1.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "EPL-1.0"
+  },
+  "EPL-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "EPL-2.0"
+  },
+  "EUDatagrid": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "EUDatagrid"
+  },
+  "EUPL-1.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "EUPL-1.0"
+  },
+  "EUPL-1.1": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "EUPL-1.1"
+  },
+  "EUPL-1.2": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "EUPL-1.2"
+  },
+  "Entessa": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Entessa"
+  },
+  "FTL": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "FTL"
+  },
+  "Fair": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Fair"
+  },
+  "GPL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "GPL-1.0"
+  },
+  "GPL-1.0-only": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "GPL-1.0-only"
+  },
+  "GPL-2.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-2.0"
+  },
+  "GPL-2.0-only": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-2.0-only"
+  },
+  "GPL-2.0-or-later": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-2.0-or-later"
+  },
+  "GPL-3.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-3.0"
+  },
+  "GPL-3.0-only": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-3.0-only"
+  },
+  "GPL-3.0-or-later": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "GPL-3.0-or-later"
+  },
+  "Giftware": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "Giftware"
+  },
+  "HPND": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "HPND"
+  },
+  "IJG": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "IJG"
+  },
+  "ISC": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "ISC"
+  },
+  "LGPL-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.0"
+  },
+  "LGPL-2.0-only": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.0-only"
+  },
+  "LGPL-2.0-or-later": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.0-or-later"
+  },
+  "LGPL-2.1": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.1"
+  },
+  "LGPL-2.1-only": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.1-only"
+  },
+  "LGPL-2.1-or-later": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-2.1-or-later"
+  },
+  "LGPL-3.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-3.0"
+  },
+  "LGPL-3.0-only": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-3.0-only"
+  },
+  "LGPL-3.0-or-later": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LGPL-3.0-or-later"
+  },
+  "LPPL-1.3c": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "LPPL-1.3c"
+  },
+  "Libpng": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "Libpng"
+  },
+  "LicenseRef-Proprietary": {
+    "category": "unknown",
+    "osi_approved": false,
+    "spdx_id": "LicenseRef-Proprietary"
+  },
+  "LicenseRef-scancode-unknown": {
+    "category": "unknown",
+    "osi_approved": false,
+    "spdx_id": "LicenseRef-scancode-unknown"
+  },
+  "MIT": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "MIT"
+  },
+  "MIT-0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "MIT-0"
+  },
+  "MPL-1.1": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "MPL-1.1"
+  },
+  "MPL-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "MPL-2.0"
+  },
+  "MS-PL": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "MS-PL"
+  },
+  "MS-RL": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "MS-RL"
+  },
+  "NCSA": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "NCSA"
+  },
+  "NIST-PD": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "NIST-PD"
+  },
+  "NOASSERTION": {
+    "category": "unknown",
+    "osi_approved": false,
+    "spdx_id": "NOASSERTION"
+  },
+  "ODbL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "ODbL-1.0"
+  },
+  "OFL-1.1": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "OFL-1.1"
+  },
+  "OSL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "OSL-1.0"
+  },
+  "OSL-2.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "OSL-2.0"
+  },
+  "OSL-2.1": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "OSL-2.1"
+  },
+  "OSL-3.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "OSL-3.0"
+  },
+  "OpenSSL": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "OpenSSL"
+  },
+  "PHP-3.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "PHP-3.0"
+  },
+  "PHP-3.01": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "PHP-3.01"
+  },
+  "PSF-2.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "PSF-2.0"
+  },
+  "PolyForm-Noncommercial-1.0.0": {
+    "category": "non_commercial",
+    "osi_approved": false,
+    "spdx_id": "PolyForm-Noncommercial-1.0.0"
+  },
+  "PostgreSQL": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "PostgreSQL"
+  },
+  "Python-2.0": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Python-2.0"
+  },
+  "RPL-1.5": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "RPL-1.5"
+  },
+  "Ruby": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Ruby"
+  },
+  "SPL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "SPL-1.0"
+  },
+  "SSPL-1.0": {
+    "category": "strong_copyleft",
+    "osi_approved": false,
+    "spdx_id": "SSPL-1.0"
+  },
+  "SimPL-2.0": {
+    "category": "weak_copyleft",
+    "osi_approved": true,
+    "spdx_id": "SimPL-2.0"
+  },
+  "Sleepycat": {
+    "category": "strong_copyleft",
+    "osi_approved": true,
+    "spdx_id": "Sleepycat"
+  },
+  "Unlicense": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "Unlicense"
+  },
+  "Vim": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "Vim"
+  },
+  "W3C": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "W3C"
+  },
+  "WTFPL": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "WTFPL"
+  },
+  "Xnet": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Xnet"
+  },
+  "Zlib": {
+    "category": "permissive",
+    "osi_approved": true,
+    "spdx_id": "Zlib"
+  },
+  "blessing": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "blessing"
+  },
+  "curl": {
+    "category": "permissive",
+    "osi_approved": false,
+    "spdx_id": "curl"
+  }
+}

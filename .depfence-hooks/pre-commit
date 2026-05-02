@@ -1,0 +1,70 @@
+#!/bin/sh
+# depfence pre-commit secrets scanner
+# Source: .depfence-hooks/pre-commit
+# Install with: depfence secrets hook install
+#
+# Blocks commits containing CRITICAL or HIGH severity secrets.
+# Use --no-verify to bypass in emergencies (not recommended).
+
+set -e
+
+# Only run if python3 and depfence are available
+if ! command -v python3 >/dev/null 2>&1; then
+    exit 0
+fi
+
+# Get staged files (added, copied, modified) that are regular files
+STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+echo '[depfence] Scanning staged files for secrets...'
+
+BLOCKED=0
+FINDINGS=''
+
+for STAGED_FILE in $STAGED; do
+    [ -f "$STAGED_FILE" ] || continue
+
+    RESULT=$(python3 -c "
+import sys
+from pathlib import Path
+try:
+    from depfence.scanners.secrets import SecretsScanner
+    scanner = SecretsScanner()
+    path = Path('$STAGED_FILE')
+    matches = scanner.scan_file(path)
+    bad = [m for m in matches if m.severity.value in ('critical', 'high')]
+    if bad:
+        for m in bad:
+            print(f'  [{m.severity.value.upper()}] {m.path}:L{m.line_num}: {m.secret_type} -- {m.masked_preview}')
+        sys.exit(1)
+except ImportError:
+    # depfence not installed in this environment, skip silently
+    sys.exit(0)
+except Exception as e:
+    sys.exit(0)
+" 2>/dev/null)
+    STATUS=$?
+    if [ $STATUS -ne 0 ]; then
+        BLOCKED=1
+        FINDINGS="${FINDINGS}\n  File: $STAGED_FILE\n$RESULT"
+    fi
+done
+
+if [ "$BLOCKED" = "1" ]; then
+    echo '[depfence] COMMIT BLOCKED: Secrets detected in staged files'
+    printf '%b\n' "$FINDINGS"
+    echo ''
+    echo '[depfence] Action required:'
+    echo '  1. Remove or rotate the exposed credentials'
+    echo '  2. Run: depfence secrets scan  (to verify clean)'
+    echo '  3. Run: depfence secrets sanitize --write  (to auto-redact)'
+    echo ''
+    echo '[depfence] To bypass (emergencies only): git commit --no-verify'
+    exit 1
+fi
+
+echo '[depfence] No secrets detected in staged files. Commit allowed.'
+exit 0

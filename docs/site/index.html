@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>depfence — AI-Aware Dependency Security Scanner</title>
+  <meta name="description" content="depfence is an AI-aware dependency security scanner. Detects slopsquatting, MCP server threats, supply chain attacks, and behavioral malware across npm, PyPI, Cargo, Go, and 5 more ecosystems.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="canonical" href="https://ericrihm.github.io/depfence/">
+  <meta property="og:title" content="depfence — AI-Aware Dependency Security">
+  <meta property="og:description" content="The only scanner that catches slopsquatting, MCP rug-pulls, and ML model supply chain attacks. 30 scanners. 9 ecosystems. Open source MIT.">
+  <meta property="og:type" content="website">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="shield">⛨</div>
+      depfence
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html" class="active">Home</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="api.html">API</a></li>
+      <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">PyPI v0.4.0</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      AI-Aware Security — Slopsquatting &amp; MCP Protection
+    </div>
+
+    <h1>
+      <span class="brand">depfence</span>
+      <span class="tagline-inline">Dependency security for the AI era</span>
+    </h1>
+
+    <p class="hero-desc">
+      Traditional scanners match CVEs and stop there. depfence goes further:
+      behavioral analysis, slopsquatting detection, MCP server auditing,
+      ML model provenance, and supply chain intelligence — across 9 package ecosystems.
+    </p>
+
+    <div class="hero-actions">
+      <a href="docs.html" class="btn-primary">Get Started →</a>
+      <a href="https://github.com/ericrihm/depfence" class="btn-secondary">
+        ★ GitHub
+      </a>
+    </div>
+
+    <div class="install-block">
+      <div class="install-block-header">
+        <div class="install-block-dots">
+          <span class="dot-red"></span>
+          <span class="dot-yellow"></span>
+          <span class="dot-green"></span>
+        </div>
+        <span class="install-block-title">terminal</span>
+      </div>
+      <pre><span class="cmd-prefix">$</span> <span class="cmd-key">pip</span> <span class="cmd-arg">install</span> depfence
+<span class="cmd-prefix">$</span> <span class="cmd-key">depfence</span> <span class="cmd-arg">scan</span> .
+
+<span class="cmd-output">  Scanning 142 packages across npm, PyPI …</span>
+<span class="cmd-output">  ✗ CRITICAL  pytorch-cuda-nightly — slopsquat (torch, score 0.94)</span>
+<span class="cmd-output">  ✗ HIGH      req-utils — preinstall exfiltrates $HOME/.ssh</span>
+<span class="cmd-output">  ✓ BLOCKED   by firewall before reaching disk</span>
+
+<span class="cmd-output">  Findings: 2 critical · 0 high · 3 medium</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-value">43</div>
+        <div class="stat-label">CLI commands</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">9</div>
+        <div class="stat-label">Ecosystems</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">1,590+</div>
+        <div class="stat-label">Tests</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">MIT</div>
+        <div class="stat-label">Open source</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES GRID -->
+<section class="features">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">What depfence detects</div>
+      <h2>Security built for modern stacks</h2>
+      <p>30 scanners covering the full threat surface of a production software supply chain.</p>
+    </div>
+
+    <div class="features-grid">
+
+      <div class="feature-card" style="--card-accent: #58a6ff;">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.1);">🔍</div>
+        <h3>Vulnerability Scanning</h3>
+        <p>OSV + GitHub Advisory Database enriched with EPSS probability scores and CISA KEV status. Know which CVEs are actively exploited — not just theoretically dangerous.</p>
+        <div class="tag-list">
+          <span class="tag">OSV</span>
+          <span class="tag">EPSS</span>
+          <span class="tag">KEV</span>
+          <span class="tag">GHSA</span>
+        </div>
+      </div>
+
+      <div class="feature-card" style="--card-accent: #f85149;">
+        <div class="feature-icon" style="--icon-bg: rgba(248,81,73,0.1);">🎯</div>
+        <h3>Slopsquatting Detection</h3>
+        <p>LLMs hallucinate package names. Attackers register those names with malicious payloads. depfence flags packages that look suspiciously like AI-generated typos of popular dependencies.</p>
+        <div class="tag-list">
+          <span class="tag">slopsquat</span>
+          <span class="tag">typosquat</span>
+          <span class="tag">scope-squat</span>
+        </div>
+      </div>
+
+      <div class="feature-card" style="--card-accent: #d29922;">
+        <div class="feature-icon" style="--icon-bg: rgba(210,153,34,0.1);">🔄</div>
+        <h3>Dependency Confusion</h3>
+        <p>Private registry misconfiguration can let a public package shadow your internal one. depfence detects namespace hijacking vectors before they reach your build.</p>
+        <div class="tag-list">
+          <span class="tag">dep-confusion</span>
+          <span class="tag">registry</span>
+          <span class="tag">namespace</span>
+        </div>
+      </div>
+
+      <div class="feature-card" style="--card-accent: #bc8cff;">
+        <div class="feature-icon" style="--icon-bg: rgba(188,140,255,0.1);">⚖️</div>
+        <h3>License Compliance</h3>
+        <p>Block copyleft (GPL, AGPL) in commercial projects. Detect license conflicts — like a GPL dependency inside an MIT library — before legal review flags them in production.</p>
+        <div class="tag-list">
+          <span class="tag">GPL</span>
+          <span class="tag">AGPL</span>
+          <span class="tag">SPDX</span>
+          <span class="tag">compat</span>
+        </div>
+      </div>
+
+      <div class="feature-card" style="--card-accent: #3fb950;">
+        <div class="feature-icon" style="--icon-bg: rgba(63,185,80,0.1);">🔑</div>
+        <h3>Secret Detection</h3>
+        <p>Scans your dependency tree for AWS keys, GitHub PATs, Stripe tokens, private keys, and database connection strings accidentally committed inside packages or CI configs.</p>
+        <div class="tag-list">
+          <span class="tag">secrets</span>
+          <span class="tag">AWS</span>
+          <span class="tag">GH-PAT</span>
+          <span class="tag">CI</span>
+        </div>
+      </div>
+
+      <div class="feature-card" style="--card-accent: #39d353;">
+        <div class="feature-icon" style="--icon-bg: rgba(57,211,83,0.1);">📋</div>
+        <h3>SBOM Generation</h3>
+        <p>Generate CycloneDX 1.5 and SPDX 2.3 SBOMs with full vulnerability enrichment. Diff two SBOMs to audit what changed between releases. Upload SARIF to GitHub Code Scanning.</p>
+        <div class="tag-list">
+          <span class="tag">CycloneDX</span>
+          <span class="tag">SPDX</span>
+          <span class="tag">SARIF</span>
+          <span class="tag">VEX</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- AI / MCP SECTION -->
+<section class="ai-section">
+  <div class="container">
+    <div class="ai-grid">
+      <div>
+        <div class="section-label">AI-era threats</div>
+        <h2 style="font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 800; letter-spacing: -0.025em; margin: 12px 0 20px;">The CVE database<br>doesn't cover AI supply chains</h2>
+        <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.75; margin-bottom: 28px;">
+          LLMs hallucinate package names. Attackers register them.
+          MCP servers run with broad filesystem access and no auditing.
+          Model weight files in pickle format are arbitrary code execution.
+          None of this shows up in advisory databases.
+        </p>
+        <a href="docs.html#ai-scanning" class="btn-secondary" style="font-size: 0.875rem;">Read the threat model →</a>
+      </div>
+      <ul class="ai-list">
+        <li>
+          <div class="bullet">✦</div>
+          <div>
+            <strong>Slopsquatting &amp; LLM hallucinations</strong>
+            <span>Packages hallucinated by ChatGPT, Claude, and Copilot that attackers register within hours. depfence scores edit-distance against the 5,000 most-downloaded packages.</span>
+          </div>
+        </li>
+        <li>
+          <div class="bullet">✦</div>
+          <div>
+            <strong>MCP server rug-pull detection</strong>
+            <span>Schema fingerprinting detects when an MCP server silently gains new capabilities after installation — a rug-pull attack. Audits Claude Desktop, Cursor, VS Code, and Windsurf configs.</span>
+          </div>
+        </li>
+        <li>
+          <div class="bullet">✦</div>
+          <div>
+            <strong>ML model supply chain</strong>
+            <span>Flags unsafe <code>torch.load</code> calls, detects pickle opcodes in model weight files, and verifies HuggingFace model provenance before weights reach disk.</span>
+          </div>
+        </li>
+        <li>
+          <div class="bullet">✦</div>
+          <div>
+            <strong>Behavioral &amp; network analysis</strong>
+            <span>Static AST inspection catches eval-on-download, DNS tunneling, webhook exfiltration, and environment variable theft inside install scripts — before <code>npm install</code> runs.</span>
+          </div>
+        </li>
+        <li>
+          <div class="bullet">✦</div>
+          <div>
+            <strong>Obfuscation detection</strong>
+            <span>Base64-exec chains, hex-encoded strings, charcode patterns, and high-entropy payload detection to catch obfuscated malware that bypasses signature scanners.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- SCANNERS -->
+<section class="scanners-section">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">30 scanners</div>
+      <h2>Full threat surface coverage</h2>
+      <p>Each scanner is independently runnable, testable, and overridable via policy-as-code.</p>
+    </div>
+
+    <div class="scanner-groups">
+      <div class="scanner-group">
+        <h4><span class="group-icon">🔎</span>Vulnerability</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">npm_advisory</span><span class="scanner-desc">OSV + GHSA for npm</span></li>
+          <li><span class="scanner-name">pypi_advisory</span><span class="scanner-desc">OSV + GHSA for PyPI</span></li>
+          <li><span class="scanner-name">osv</span><span class="scanner-desc">Cross-ecosystem OSV</span></li>
+          <li><span class="scanner-name">reachability</span><span class="scanner-desc">Which vulns are actually imported</span></li>
+          <li><span class="scanner-name">ai_vulns</span><span class="scanner-desc">AI/ML-specific CVEs</span></li>
+        </ul>
+      </div>
+      <div class="scanner-group">
+        <h4><span class="group-icon">⛓️</span>Supply Chain</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">slopsquat</span><span class="scanner-desc">LLM hallucinated names</span></li>
+          <li><span class="scanner-name">scope_squatting</span><span class="scanner-desc">npm scope typosquatting</span></li>
+          <li><span class="scanner-name">dep_confusion</span><span class="scanner-desc">Private registry hijacking</span></li>
+          <li><span class="scanner-name">ownership</span><span class="scanner-desc">Maintainer account takeovers</span></li>
+          <li><span class="scanner-name">preinstall</span><span class="scanner-desc">Malicious install scripts</span></li>
+          <li><span class="scanner-name">provenance</span><span class="scanner-desc">SLSA attestation verification</span></li>
+          <li><span class="scanner-name">provenance_checker</span><span class="scanner-desc">Sigstore + SLSA validation</span></li>
+        </ul>
+      </div>
+      <div class="scanner-group">
+        <h4><span class="group-icon">🧠</span>AI / ML</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">model_scanner</span><span class="scanner-desc">Unsafe torch.load + pickle</span></li>
+          <li><span class="scanner-name">model_integrity</span><span class="scanner-desc">Weight file provenance</span></li>
+          <li><span class="scanner-name">mcp_scanner</span><span class="scanner-desc">MCP server misconfigs</span></li>
+          <li><span class="scanner-name">mcp_fingerprint</span><span class="scanner-desc">Rug-pull schema detection</span></li>
+        </ul>
+      </div>
+      <div class="scanner-group">
+        <h4><span class="group-icon">🔬</span>Behavioral</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">behavioral</span><span class="scanner-desc">Suspicious AST patterns</span></li>
+          <li><span class="scanner-name">reputation</span><span class="scanner-desc">Low-trust package signals</span></li>
+          <li><span class="scanner-name">obfuscation</span><span class="scanner-desc">Base64-exec, hex payloads</span></li>
+          <li><span class="scanner-name">network</span><span class="scanner-desc">Mining pools, DNS exfil</span></li>
+          <li><span class="scanner-name">ci_secrets</span><span class="scanner-desc">CI secret exposure risk</span></li>
+        </ul>
+      </div>
+      <div class="scanner-group">
+        <h4><span class="group-icon">🏗️</span>Infrastructure</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">gha_scanner</span><span class="scanner-desc">Unpinned GH Actions</span></li>
+          <li><span class="scanner-name">gha_workflow</span><span class="scanner-desc">Script injection, PWSH risks</span></li>
+          <li><span class="scanner-name">dockerfile</span><span class="scanner-desc">Base image + secrets audit</span></li>
+          <li><span class="scanner-name">terraform</span><span class="scanner-desc">Unpinned modules/providers</span></li>
+          <li><span class="scanner-name">secrets</span><span class="scanner-desc">AWS keys, PATs, DB strings</span></li>
+          <li><span class="scanner-name">pinning</span><span class="scanner-desc">Wildcard versions, lockfiles</span></li>
+        </ul>
+      </div>
+      <div class="scanner-group">
+        <h4><span class="group-icon">📊</span>Compliance</h4>
+        <ul class="scanner-list">
+          <li><span class="scanner-name">license_scanner</span><span class="scanner-desc">AGPL/GPL detection</span></li>
+          <li><span class="scanner-name">license_compat</span><span class="scanner-desc">Conflict analysis</span></li>
+          <li><span class="scanner-name">freshness</span><span class="scanner-desc">Abandoned + EOL packages</span></li>
+          <li><span class="scanner-name">phantom_deps</span><span class="scanner-desc">Declared but never imported</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUICK START -->
+<section class="quickstart">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Quick start</div>
+      <h2>Running in 60 seconds</h2>
+      <p>Install, scan, and ship to CI — no account required, no telemetry, no licensing.</p>
+    </div>
+
+    <div class="quickstart-steps">
+      <div class="step-card">
+        <div class="step-num">01</div>
+        <h4>Install</h4>
+        <p>Requires Python 3.10+. Runs offline after install.</p>
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-lang">bash</span>
+          </div>
+          <pre><span class="cmd-key">pip</span> install depfence
+<span class="cmd-comment"># or with ML behavioral scoring:</span>
+<span class="cmd-key">pip</span> install "depfence[ml]"</pre>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">02</div>
+        <h4>Scan your project</h4>
+        <p>Finds lockfiles automatically across all supported ecosystems.</p>
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-lang">bash</span>
+          </div>
+          <pre><span class="cmd-key">depfence</span> scan .
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--fail-on</span> high
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> sarif</pre>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">03</div>
+        <h4>Ship to CI</h4>
+        <p>One-line composite action with SARIF upload to GitHub Security tab.</p>
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-lang">yaml</span>
+          </div>
+          <pre>- uses: ericrihm/depfence@v1
+  with:
+    fail-on: high
+    upload-sarif: true</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block" style="margin-top: 0;">
+      <div class="code-block-header">
+        <span class="code-block-lang">bash — common commands</span>
+      </div>
+      <pre><span class="cmd-comment"># Core scanning</span>
+<span class="cmd-key">depfence</span> scan .                           <span class="cmd-comment"># full scan, all scanners</span>
+<span class="cmd-key">depfence</span> audit .                          <span class="cmd-comment"># advisory-only (fast)</span>
+<span class="cmd-key">depfence</span> diff .                           <span class="cmd-comment"># delta scan — only changed packages</span>
+<span class="cmd-key">depfence</span> fix . <span class="cmd-flag">--apply</span>                   <span class="cmd-comment"># auto-fix version bumps</span>
+
+<span class="cmd-comment"># Specialized scans</span>
+<span class="cmd-key">depfence</span> mcp-scan .                       <span class="cmd-comment"># MCP server configs</span>
+<span class="cmd-key">depfence</span> model-scan .                     <span class="cmd-comment"># ML model supply chain</span>
+<span class="cmd-key">depfence</span> gha-scan .                       <span class="cmd-comment"># GitHub Actions workflows</span>
+<span class="cmd-key">depfence</span> license-scan .                   <span class="cmd-comment"># license compliance</span>
+
+<span class="cmd-comment"># SBOM + reporting</span>
+<span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">-o</span> sbom.json             <span class="cmd-comment"># CycloneDX 1.5</span>
+<span class="cmd-key">depfence</span> report . <span class="cmd-flag">--format</span> html          <span class="cmd-comment"># full HTML report</span>
+<span class="cmd-key">depfence</span> sbom-diff before.json after.json  <span class="cmd-comment"># compare two SBOMs</span>
+
+<span class="cmd-comment"># Registry firewall</span>
+<span class="cmd-key">depfence</span> firewall enable .                <span class="cmd-comment"># block at install time</span>
+<span class="cmd-key">depfence</span> firewall check-pip transformers  <span class="cmd-comment"># pre-check before install</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARISON -->
+<section class="comparison">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Comparison</div>
+      <h2>vs. Snyk, Socket, and npm audit</h2>
+      <p>depfence covers attack categories that advisory-only scanners structurally cannot detect.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th class="highlight-col">depfence</th>
+            <th>Snyk</th>
+            <th>Socket.dev</th>
+            <th>npm audit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature-name">CVE / advisory scanning</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">EPSS + CISA KEV enrichment</td>
+            <td><span class="check-strong">✓ built-in</span></td>
+            <td><span class="paid">paid</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Behavioral / AST analysis</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="partial">partial</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Slopsquatting (LLM hallucinations)</td>
+            <td><span class="check-strong">✓ unique</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">MCP server security auditing</td>
+            <td><span class="check-strong">✓ unique</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">MCP rug-pull detection</td>
+            <td><span class="check-strong">✓ unique</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">ML model supply chain (pickle, weights)</td>
+            <td><span class="check-strong">✓ unique</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Reachability analysis</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="paid">paid</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Policy-as-code</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="paid">paid</span></td>
+            <td><span class="paid">paid</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Registry firewall</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="paid">paid</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">GHA workflow scanning</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">SLSA provenance verification</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">partial</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Inline suppression syntax</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">CycloneDX + SPDX SBOM generation</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Auto-fix (write to manifest)</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">Self-hosted / fully offline</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td class="feature-name">License</td>
+            <td><span class="check-strong">MIT open source</span></td>
+            <td><span class="paid">freemium</span></td>
+            <td><span class="paid">freemium</span></td>
+            <td><span class="check">built-in</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ECOSYSTEMS -->
+<section style="background: var(--bg-secondary); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Supported ecosystems</div>
+      <h2>9 package ecosystems</h2>
+      <p>Lockfile-based parsing with zero false positives from loose manifest matching.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">📦</div>
+        <h3>npm / Node.js</h3>
+        <p>Parses <code>package-lock.json</code>, <code>yarn.lock</code>, and <code>pnpm-lock.yaml</code> with full transitive dependency resolution.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">🐍</div>
+        <h3>PyPI / Python</h3>
+        <p>Supports <code>requirements.txt</code>, <code>poetry.lock</code>, <code>Pipfile.lock</code>, and <code>uv.lock</code>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">⚙️</div>
+        <h3>Cargo / Rust</h3>
+        <p>Full <code>Cargo.lock</code> parsing with crates.io advisory integration.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">🐹</div>
+        <h3>Go modules</h3>
+        <p>Parses <code>go.sum</code> and resolves the full module graph for vulnerability matching.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">☕</div>
+        <h3>Maven / Gradle (JVM)</h3>
+        <p>Java ecosystem lockfile support with NVD and OSS advisory correlation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="--icon-bg: rgba(88,166,255,0.08); font-size:1.3rem;">🟦</div>
+        <h3>NuGet (.NET) · Ruby · PHP · Swift</h3>
+        <p>Composer, Gemfile.lock, packages.lock.json, and Swift Package.resolved support complete the ecosystem coverage.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="index.html" class="nav-logo" style="font-size: 1rem;">
+          <div class="shield" style="width:24px; height:24px; font-size:12px;">⛨</div>
+          depfence
+        </a>
+        <p>AI-aware dependency security scanner. Detects the threats advisory databases miss.</p>
+        <div class="badge-row" style="margin-top: 16px;">
+          <span class="badge badge-green">MIT License</span>
+          <span class="badge badge-blue">v0.4.0</span>
+          <span class="badge">Python 3.10+</span>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="index.html">Overview</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="api.html">API Reference</a></li>
+          <li><a href="docs.html#changelog">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Resources</h5>
+        <ul>
+          <li><a href="docs.html#quickstart">Quick start</a></li>
+          <li><a href="docs.html#ci">CI/CD integration</a></li>
+          <li><a href="docs.html#policy">Policy-as-code</a></li>
+          <li><a href="api.html#python">Python API</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Community</h5>
+        <ul>
+          <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+          <li><a href="https://github.com/ericrihm/depfence/issues">Issues</a></li>
+          <li><a href="https://pypi.org/project/depfence/">PyPI</a></li>
+          <li><a href="https://github.com/ericrihm/depfence/blob/main/LICENSE">License</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2025 depfence contributors. MIT License.</span>
+      <span>Built by security engineers, not marketers.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
