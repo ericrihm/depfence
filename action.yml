@@ -1,0 +1,137 @@
+name: 'depfence'
+description: 'AI-aware dependency security scanner — CVE, behavioral, supply chain, EPSS, CISA KEV, and MCP scanning'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to scan (default: current directory)'
+    required: false
+    default: '.'
+  fail-on:
+    description: 'Minimum severity to fail the check (critical, high, medium, low, any, none)'
+    required: false
+    default: 'high'
+  format:
+    description: 'Output format (table, json, sarif)'
+    required: false
+    default: 'sarif'
+  scanners:
+    description: 'Comma-separated scanners to skip (no-advisory, no-behavioral, no-reputation)'
+    required: false
+    default: ''
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Code Scanning (requires security-events: write)'
+    required: false
+    default: 'true'
+  enrich-epss:
+    description: 'Enrich findings with EPSS exploit probability scores'
+    required: false
+    default: 'true'
+  enrich-kev:
+    description: 'Flag CISA Known Exploited Vulnerabilities'
+    required: false
+    default: 'true'
+  sbom:
+    description: 'Generate CycloneDX SBOM alongside scan results'
+    required: false
+    default: 'false'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+
+outputs:
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.scan.outputs.findings-count }}
+  critical-count:
+    description: 'Number of critical findings'
+    value: ${{ steps.scan.outputs.critical-count }}
+  sarif-file:
+    description: 'Path to SARIF output file'
+    value: ${{ steps.scan.outputs.sarif-file }}
+  sbom-file:
+    description: 'Path to CycloneDX SBOM file (if generated)'
+    value: ${{ steps.scan.outputs.sbom-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install depfence
+      shell: bash
+      run: pip install depfence
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      run: |
+        ARGS="${{ inputs.path }}"
+        ARGS="$ARGS --fail-on ${{ inputs.fail-on }}"
+
+        if [[ "${{ inputs.format }}" == "sarif" ]]; then
+          ARGS="$ARGS --format sarif -o depfence-results.sarif"
+          echo "sarif-file=depfence-results.sarif" >> $GITHUB_OUTPUT
+        else
+          ARGS="$ARGS --format ${{ inputs.format }}"
+        fi
+
+        SCANNERS="${{ inputs.scanners }}"
+        if [[ "$SCANNERS" == *"no-advisory"* ]]; then ARGS="$ARGS --no-advisory"; fi
+        if [[ "$SCANNERS" == *"no-behavioral"* ]]; then ARGS="$ARGS --no-behavioral"; fi
+        if [[ "$SCANNERS" == *"no-reputation"* ]]; then ARGS="$ARGS --no-reputation"; fi
+
+        depfence scan $ARGS || EXIT_CODE=$?
+
+        if [[ -f depfence-results.sarif ]]; then
+          FINDINGS=$(python3 -c "import json; d=json.load(open('depfence-results.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+          CRITICAL=$(python3 -c "import json; d=json.load(open('depfence-results.sarif')); print(sum(1 for r in d.get('runs',[]) for res in r.get('results',[]) if res.get('level')=='error'))" 2>/dev/null || echo "0")
+          echo "findings-count=$FINDINGS" >> $GITHUB_OUTPUT
+          echo "critical-count=$CRITICAL" >> $GITHUB_OUTPUT
+        fi
+
+        exit ${EXIT_CODE:-0}
+
+    - name: Generate SBOM
+      if: ${{ inputs.sbom == 'true' }}
+      shell: bash
+      run: |
+        depfence sbom ${{ inputs.path }} -o depfence-sbom.json
+        echo "sbom-file=depfence-sbom.json" >> $GITHUB_OUTPUT
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' && inputs.format == 'sarif' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: depfence-results.sarif
+        category: depfence
+
+    - name: Job Summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## depfence Security Scan" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [[ -f depfence-results.sarif ]]; then
+          FINDINGS=$(python3 -c "import json; d=json.load(open('depfence-results.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
+          CRITICAL=$(python3 -c "import json; d=json.load(open('depfence-results.sarif')); print(sum(1 for r in d.get('runs',[]) for res in r.get('results',[]) if res.get('level')=='error'))" 2>/dev/null || echo "0")
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total findings | $FINDINGS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical/High | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          if [[ "$CRITICAL" -gt 0 ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> :warning: **Action required:** Critical vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$FINDINGS" -eq 0 ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> :white_check_mark: No security issues found" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "Scan completed. Use \ for detailed metrics." >> $GITHUB_STEP_SUMMARY
+        fi

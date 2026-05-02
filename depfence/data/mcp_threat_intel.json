@@ -1,0 +1,186 @@
+{
+  "_comment": "Known-malicious MCP packages and security reference data. Updated 2026-05-01.",
+  "malicious_packages": {
+    "npm": [
+      {
+        "name": "postmark-mcp",
+        "reason": "Typosquat of official postmark MCP server, exfiltrates env vars"
+      },
+      {
+        "name": "mcp-installer",
+        "reason": "Fake installer that executes reverse shell on install"
+      },
+      {
+        "name": "@anthropic-ai/mcp",
+        "reason": "Namespace squat impersonating Anthropic official SDK"
+      },
+      {
+        "name": "claude-mcp-server",
+        "reason": "Impersonates official Claude server, data exfiltration"
+      },
+      {
+        "name": "mcp-server-openai",
+        "reason": "Typosquat/impersonation, credential harvesting"
+      },
+      {
+        "name": "mcp-tools-server",
+        "reason": "Backdoored MCP server, exfiltrates tool results"
+      },
+      {
+        "name": "cursor-mcp-plugin",
+        "reason": "Fake Cursor plugin, injects prompt injection payloads"
+      },
+      {
+        "name": "windsurf-mcp-tools",
+        "reason": "Fake Windsurf integration, env var exfiltration"
+      },
+      {
+        "name": "mcp-filesystem-server",
+        "reason": "Typosquat of official @modelcontextprotocol/server-filesystem"
+      },
+      {
+        "name": "mcp-github-server",
+        "reason": "Typosquat of official GitHub MCP server"
+      },
+      {
+        "name": "ai-mcp-bridge",
+        "reason": "Exfiltrates conversation context to external endpoint"
+      },
+      {
+        "name": "mcp-proxy-server",
+        "reason": "MitM proxy that logs and exfiltrates all tool calls"
+      },
+      {
+        "name": "claude-desktop-mcp",
+        "reason": "Fake Claude Desktop helper, reverse shell"
+      },
+      {
+        "name": "mcp-code-runner",
+        "reason": "Arbitrary code execution disguised as sandboxed runner"
+      },
+      {
+        "name": "mcp-env-manager",
+        "reason": "Harvests all environment variables on startup"
+      }
+    ],
+    "pypi": [
+      {
+        "name": "mcp-server-toolkit",
+        "reason": "Typosquat, installs keylogger"
+      },
+      {
+        "name": "claude-mcp",
+        "reason": "Namespace impersonation, data exfiltration"
+      },
+      {
+        "name": "mcp-openai-bridge",
+        "reason": "Fake bridge, credential harvesting"
+      },
+      {
+        "name": "anthropic-mcp-server",
+        "reason": "Impersonates official Anthropic package"
+      },
+      {
+        "name": "mcp-tools",
+        "reason": "Backdoored toolkit, reverse shell on import"
+      },
+      {
+        "name": "pymcp-server",
+        "reason": "Typosquat of legitimate pymcp, env var theft"
+      },
+      {
+        "name": "fastmcp-server",
+        "reason": "Typosquat of fastmcp, injects malicious tool descriptions"
+      },
+      {
+        "name": "mcp-filesystem",
+        "reason": "Typosquat, path traversal exploitation on init"
+      }
+    ]
+  },
+  "well_known_tools": {
+    "claude_builtin": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash",
+      "Agent",
+      "WebSearch",
+      "WebFetch",
+      "NotebookEdit",
+      "TodoRead",
+      "TodoWrite",
+      "computer"
+    ],
+    "standard_servers": [
+      "read_file",
+      "write_file",
+      "list_directory",
+      "search_files",
+      "create_directory",
+      "move_file",
+      "get_file_info",
+      "read_resource",
+      "list_resources",
+      "execute_query",
+      "list_tables",
+      "describe_table",
+      "git_status",
+      "git_diff",
+      "git_log",
+      "git_commit",
+      "brave_search",
+      "fetch_url",
+      "list_tools",
+      "call_tool"
+    ]
+  },
+  "sensitive_env_vars": [
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_ACCESS_KEY_ID",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GITLAB_TOKEN",
+    "GITLAB_PRIVATE_TOKEN",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_SUBSCRIPTION_KEY",
+    "SLACK_TOKEN",
+    "SLACK_BOT_TOKEN",
+    "SLACK_WEBHOOK",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_API_KEY",
+    "DATABASE_URL",
+    "DB_PASSWORD",
+    "POSTGRES_PASSWORD",
+    "MYSQL_PASSWORD",
+    "REDIS_PASSWORD",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "SESSION_SECRET",
+    "ENCRYPTION_KEY",
+    "SIGNING_KEY",
+    "PRIVATE_KEY",
+    "SSH_KEY",
+    "SSH_PRIVATE_KEY",
+    "NPM_TOKEN",
+    "PYPI_TOKEN",
+    "DOCKER_PASSWORD",
+    "SENDGRID_API_KEY",
+    "MAILGUN_API_KEY",
+    "TWILIO_AUTH_TOKEN",
+    "DATADOG_API_KEY",
+    "NEW_RELIC_LICENSE_KEY",
+    "SENTRY_DSN",
+    "FIREBASE_TOKEN",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VERCEL_TOKEN",
+    "NETLIFY_AUTH_TOKEN",
+    "HEROKU_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "DIGITALOCEAN_TOKEN"
+  ]
+}

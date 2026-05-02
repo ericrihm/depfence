@@ -1,0 +1,104 @@
+# depfence.yml — Policy-as-code configuration
+# Place this at your project root. Rules evaluate on every scan.
+
+# Severity threshold for CI failure (overridden by --fail-on flag)
+fail_on: high
+
+# Scanners to enable/disable
+scanners:
+  enabled:
+    - advisory          # CVE/GHSA lookup
+    - behavioral        # Suspicious API pattern detection
+    - slopsquat         # LLM hallucinated package detection
+    - reputation        # Package trust scoring
+    - provenance        # Build provenance verification
+    - secrets           # Secret detection in source
+    - license           # License compliance
+    - terraform         # IaC security
+    - dockerfile        # Container security
+    - gha_workflow      # GitHub Actions security
+    - mcp_scanner       # MCP server audit
+    - freshness         # Stale dependency detection
+  disabled: []
+
+# Policy rules — block or warn on specific conditions
+rules:
+  - name: no-copyleft-in-production
+    description: Block GPL/AGPL licensed packages in production deps
+    match:
+      license_category: copyleft
+      is_dev_dependency: false
+    action: block
+
+  - name: require-provenance-popular
+    description: Require SLSA/Sigstore provenance for high-download packages
+    match:
+      weekly_downloads_min: 100000
+      has_provenance: false
+    action: warn
+
+  - name: block-known-malicious
+    description: Immediately block packages in threat intelligence DB
+    match:
+      in_threat_db: true
+    action: block
+
+  - name: warn-ownership-change
+    description: Flag packages whose maintainers changed recently
+    match:
+      ownership_changed_days: 30
+    action: warn
+
+  - name: no-install-scripts-npm
+    description: Block npm packages that execute code at install time
+    match:
+      has_install_scripts: true
+    action: block
+    ecosystems: [npm]
+
+  - name: block-unpinned-actions
+    description: Block GitHub Actions not pinned to commit SHA
+    match:
+      unpinned_action: true
+    action: block
+
+  - name: warn-stale-deps
+    description: Flag dependencies with no release in 2+ years
+    match:
+      last_release_days_min: 730
+    action: warn
+
+  - name: require-lockfile
+    description: Fail if lockfile is missing for detected ecosystem
+    match:
+      missing_lockfile: true
+    action: block
+
+# Trusted registries — packages from these sources skip certain checks
+trusted_registries:
+  - "https://registry.internal.example.com"
+  - "https://npm.pkg.github.com/@your-org"
+
+# Ignore patterns — suppress findings for specific packages
+ignore:
+  - package: "internal-*"
+    reason: "Internal packages are pre-vetted"
+  - cve: "CVE-2023-00000"
+    reason: "Not exploitable in our configuration"
+    expires: "2025-12-31"
+
+# EPSS enrichment settings
+epss:
+  enabled: true
+  escalate_above: 0.5  # Annotate findings with EPSS score > 50%
+
+# KEV (Known Exploited Vulnerabilities) settings  
+kev:
+  enabled: true
+  severity_override: true  # Upgrade severity for KEV-listed CVEs
+
+# Reporting
+reporting:
+  formats: [sarif, json]
+  sbom: true
+  sbom_format: cyclonedx

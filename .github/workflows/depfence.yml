@@ -1,0 +1,59 @@
+name: Dependency Security Scan
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "**/package-lock.json"
+      - "**/yarn.lock"
+      - "**/pnpm-lock.yaml"
+      - "**/requirements*.txt"
+      - "**/poetry.lock"
+      - "**/Cargo.lock"
+      - "**/go.sum"
+  pull_request:
+    paths:
+      - "**/package-lock.json"
+      - "**/yarn.lock"
+      - "**/pnpm-lock.yaml"
+      - "**/requirements*.txt"
+      - "**/poetry.lock"
+      - "**/Cargo.lock"
+      - "**/go.sum"
+  schedule:
+    # Weekly scan every Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  depfence:
+    name: depfence scan
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Required to upload SARIF to GitHub Code Scanning
+      security-events: write
+      # Required to check out private repos
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install depfence
+        run: pip install depfence
+
+      - name: Run dependency security scan
+        run: depfence scan . --format sarif -o results.sarif
+        # Continue so the SARIF upload step always runs, even on findings
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: depfence

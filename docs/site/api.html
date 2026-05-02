@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API &amp; Integration Reference &mdash; depfence</title>
+  <meta name="description" content="depfence API reference: Python API, SARIF output, CycloneDX/SPDX SBOM format, plugin development, and CI/CD integration.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="shield">&#x26E8;</div>
+      depfence
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="api.html" class="active">API</a></li>
+      <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">PyPI v0.4.0</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div style="background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 24px 0;">
+  <div class="container">
+    <div class="section-label" style="margin-bottom: 6px;">API &amp; Integration</div>
+    <h1 style="font-size: 2rem; font-weight: 800; letter-spacing: -0.025em;">API Reference</h1>
+    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 0.9rem;">Python API &nbsp;&middot;&nbsp; SARIF &nbsp;&middot;&nbsp; CycloneDX/SPDX &nbsp;&middot;&nbsp; Plugins</p>
+  </div>
+</div>
+
+<section style="padding: 48px 0 80px;">
+  <div class="container">
+    <div class="docs-layout">
+
+      <aside class="docs-sidebar">
+        <nav>
+          <ul>
+            <li class="section-title">Python API</li>
+            <li><a href="#python" class="active">Basic usage</a></li>
+            <li><a href="#scanner-api">Scanner interface</a></li>
+            <li><a href="#models">Data models</a></li>
+            <li class="section-title">Output Formats</li>
+            <li><a href="#sarif">SARIF output</a></li>
+            <li><a href="#json">JSON output</a></li>
+            <li><a href="#sbom">CycloneDX SBOM</a></li>
+            <li><a href="#spdx">SPDX SBOM</a></li>
+            <li class="section-title">Plugins</li>
+            <li><a href="#plugin-dev">Writing a scanner plugin</a></li>
+            <li><a href="#plugin-register">Registering a plugin</a></li>
+            <li class="section-title">Integration</li>
+            <li><a href="#webhook">Webhook / event hooks</a></li>
+            <li><a href="#eventbus">Event bus</a></li>
+            <li><a href="#env-vars">Environment variables</a></li>
+          </ul>
+        </nav>
+      </aside>
+
+      <article class="docs-content">
+
+        <h2 id="python">Python API &mdash; basic usage</h2>
+        <p>depfence exposes a public Python API via the <code>depfence</code> package. The core entry point is the <code>Orchestrator</code>, which coordinates all scanner execution.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>import asyncio
+from depfence.core.orchestrator import Orchestrator
+from depfence.core.models import ScanConfig
+
+async def main():
+    config = ScanConfig(
+        path=".",
+        fail_on="high",
+        format="json",
+        scanners=None,        # None = all scanners
+    )
+
+    orchestrator = Orchestrator(config)
+    result = await orchestrator.scan()
+
+    print(f"Findings: {len(result.findings)}")
+    for finding in result.findings:
+        print(f"  [{finding.severity}] {finding.package} - {finding.title}")
+
+asyncio.run(main())</pre>
+        </div>
+
+        <h3>Running a specific scanner directly</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>from depfence.scanners.slopsquat import SlopsquatScanner
+from depfence.core.models import PackageMeta
+import asyncio
+
+scanner = SlopsquatScanner()
+
+packages = [
+    PackageMeta(name="pytorch-cuda-nightly", version="2.0.0", ecosystem="pypi"),
+    PackageMeta(name="langchian", version="0.1.0", ecosystem="pypi"),
+]
+
+findings = asyncio.run(scanner.scan(packages))
+for f in findings:
+    print(f.title, f.severity, f.metadata)</pre>
+        </div>
+
+        <h3>Accessing EPSS and KEV data</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>from depfence.core.epss import EpssClient
+from depfence.core.kev import KevClient
+import asyncio
+
+async def main():
+    epss = EpssClient()
+    kev = KevClient()
+
+    # EPSS probability for a CVE (0.0 to 1.0)
+    score = await epss.get_score("CVE-2024-3094")
+    print(f"EPSS: {score.probability:.4f} ({score.percentile:.1f}th percentile)")
+
+    # Check if CVE is in CISA KEV
+    is_kev = await kev.is_known_exploited("CVE-2024-3094")
+    print(f"In KEV: {is_kev}")
+
+asyncio.run(main())</pre>
+        </div>
+
+        <h2 id="scanner-api">Scanner interface</h2>
+        <p>Every scanner implements a common async interface. Custom scanners registered via the plugin system use the same interface.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>from depfence.core.models import Finding, PackageMeta, Severity
+from typing import Protocol
+
+class ScannerProtocol(Protocol):
+    name: str                          # e.g. "my_scanner"
+    ecosystems: list[str]              # e.g. ["npm", "pypi"] or ["*"]
+
+    async def scan(
+        self,
+        packages: list[PackageMeta],
+    ) -> list[Finding]:
+        # Return zero or more Finding objects
+        ...</pre>
+        </div>
+
+        <h2 id="models">Data models</h2>
+
+        <h3>PackageMeta</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>from pydantic import BaseModel
+
+class PackageMeta(BaseModel):
+    name: str
+    version: str
+    ecosystem: str                  # "npm" | "pypi" | "cargo" | "go" | ...
+    registry: str | None = None
+    lockfile_path: str | None = None
+    is_direct: bool = True          # vs transitive dependency
+    metadata: dict = {}             # raw registry metadata</pre>
+        </div>
+
+        <h3>Finding</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre>class Finding(BaseModel):
+    id: str                         # e.g. "GHSA-xxxx-xxxx-xxxx"
+    title: str
+    severity: Severity              # CRITICAL | HIGH | MEDIUM | LOW | INFO
+    scanner: str                    # scanner name
+    package: str
+    version: str
+    ecosystem: str
+    description: str
+    remediation: str | None = None
+    cve_ids: list[str] = []
+    cvss_score: float | None = None
+    epss_score: float | None = None
+    is_kev: bool = False            # in CISA KEV list
+    file_path: str | None = None    # for secrets/IaC findings
+    line: int | None = None
+    metadata: dict = {}             # scanner-specific extras</pre>
+        </div>
+
+        <h2 id="sarif">SARIF output format</h2>
+        <p>depfence produces SARIF 2.1.0 compatible with GitHub Code Scanning, Azure DevOps, and any SARIF-aware tooling.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> sarif <span class="cmd-flag">-o</span> depfence.sarif</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [{
+    "tool": {
+      "driver": {
+        "name": "depfence",
+        "version": "0.4.0",
+        "informationUri": "https://github.com/ericrihm/depfence",
+        "rules": [
+          {
+            "id": "DEP001",
+            "name": "SlopsquatDetection",
+            "shortDescription": { "text": "Slopsquatting - LLM hallucinated package" },
+            "properties": { "tags": ["supply-chain", "ai"] }
+          }
+        ]
+      }
+    },
+    "results": [
+      {
+        "ruleId": "DEP001",
+        "level": "error",
+        "message": {
+          "text": "pytorch-cuda-nightly matches slopsquat pattern for torch (score: 0.94)"
+        },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "requirements.txt" },
+            "region": { "startLine": 4 }
+          }
+        }],
+        "properties": {
+          "severity": "CRITICAL",
+          "scanner": "slopsquat",
+          "package": "pytorch-cuda-nightly",
+          "version": "2.0.0"
+        }
+      }
+    ]
+  }]
+}</pre>
+        </div>
+
+        <h3>Uploading to GitHub Code Scanning</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre>- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: depfence.sarif
+    category: depfence</pre>
+        </div>
+
+        <h2 id="json">JSON output</h2>
+        <p>Machine-readable JSON for piping into dashboards or custom automation.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> json | jq '.findings[] | select(.severity == "CRITICAL")'
+
+<span class="cmd-comment"># Count critical findings</span>
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> json | jq '.summary.critical'
+
+<span class="cmd-comment"># Filter by scanner</span>
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> json | jq '[.findings[] | select(.scanner == "slopsquat")]'</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "depfence_version": "0.4.0",
+  "scan_time": "2025-05-01T12:00:00Z",
+  "path": "/path/to/project",
+  "summary": {
+    "total": 5,
+    "critical": 1,
+    "high": 2,
+    "medium": 2,
+    "low": 0,
+    "packages_scanned": 142
+  },
+  "findings": [
+    {
+      "id": "DF-SLOP-001",
+      "title": "Slopsquatting - pytorch-cuda-nightly",
+      "severity": "CRITICAL",
+      "scanner": "slopsquat",
+      "package": "pytorch-cuda-nightly",
+      "version": "2.0.0",
+      "ecosystem": "pypi",
+      "description": "...",
+      "remediation": "Remove pytorch-cuda-nightly. Use torch instead.",
+      "metadata": { "similarity_score": 0.94, "target": "torch" }
+    }
+  ]
+}</pre>
+        </div>
+
+        <h2 id="sbom">CycloneDX SBOM format</h2>
+        <p>depfence generates CycloneDX 1.5 SBOMs with vulnerability enrichment, license data, and SLSA provenance metadata.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">-o</span> sbom.cyclonedx.json
+<span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">--vex</span> <span class="cmd-flag">-o</span> sbom-vex.cyclonedx.json   <span class="cmd-comment"># with VEX data</span>
+<span class="cmd-key">depfence</span> sbom-diff v1-sbom.json v2-sbom.json          <span class="cmd-comment"># diff two SBOMs</span></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:...",
+  "metadata": {
+    "timestamp": "2025-05-01T12:00:00Z",
+    "tools": [{ "vendor": "depfence", "name": "depfence", "version": "0.4.0" }]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.31.0",
+      "name": "requests",
+      "version": "2.31.0",
+      "purl": "pkg:pypi/requests@2.31.0",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }]
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "CVE-2023-32681",
+      "ratings": [
+        { "source": { "name": "CVSS" }, "score": 6.1, "severity": "medium" },
+        { "source": { "name": "EPSS" }, "score": 0.00412 }
+      ],
+      "affects": [{ "ref": "pkg:pypi/requests@2.31.0" }]
+    }
+  ]
+}</pre>
+        </div>
+
+        <h2 id="spdx">SPDX SBOM format</h2>
+        <p>SPDX 2.3 JSON output for toolchains that prefer SPDX over CycloneDX.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">--format</span> spdx <span class="cmd-flag">-o</span> sbom.spdx.json</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "spdxVersion": "SPDX-2.3",
+  "creationInfo": {
+    "creators": ["Tool: depfence-0.4.0"],
+    "created": "2025-05-01T12:00:00Z"
+  },
+  "name": "depfence-sbom",
+  "dataLicense": "CC0-1.0",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-requests-2.31.0",
+      "name": "requests",
+      "versionInfo": "2.31.0",
+      "downloadLocation": "https://pypi.org/project/requests/2.31.0/",
+      "licenseConcluded": "Apache-2.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/requests@2.31.0"
+        }
+      ]
+    }
+  ]
+}</pre>
+        </div>
+
+        <h2 id="plugin-dev">Writing a scanner plugin</h2>
+        <p>Plugins are discovered via pip entry points, <code>DEPFENCE_PLUGIN_PATH</code>, or <code>~/.depfence/plugins/</code>.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">python</span></div>
+          <pre># mypackage/scanners.py
+from depfence.core.models import Finding, PackageMeta, Severity
+
+SUSPICIOUS_TLDS = [".ru", ".cn", ".xyz"]
+
+class TldScanner:
+    name = "tld_scanner"
+    ecosystems = ["npm", "pypi"]    # or ["*"] for all
+
+    async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
+        findings = []
+        for pkg in packages:
+            homepage = pkg.metadata.get("homepage", "")
+            for tld in SUSPICIOUS_TLDS:
+                if homepage.endswith(tld):
+                    findings.append(Finding(
+                        id=f"TLD-{pkg.name}-{pkg.version}",
+                        title=f"Suspicious homepage TLD: {tld}",
+                        severity=Severity.MEDIUM,
+                        scanner=self.name,
+                        package=pkg.name,
+                        version=pkg.version,
+                        ecosystem=pkg.ecosystem,
+                        description=f"Package homepage uses {tld} TLD: {homepage}",
+                        remediation="Verify package legitimacy before use.",
+                    ))
+        return findings</pre>
+        </div>
+
+        <h2 id="plugin-register">Registering a plugin</h2>
+        <p>Register your scanner in <code>pyproject.toml</code> using the <code>depfence.scanners</code> entry point group.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">toml</span></div>
+          <pre>[project.entry-points."depfence.scanners"]
+tld_scanner = "mypackage.scanners:TldScanner"</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> plugins
+<span class="cmd-comment"># Scanners: npm_advisory, pypi_advisory, behavioral ... tld_scanner</span></pre>
+        </div>
+
+        <div class="callout">
+          <strong>Dynamic loading:</strong> Set <code>DEPFENCE_PLUGIN_PATH=/path/to/plugins</code> to load plugins from a directory without a pip install. Useful during local development.
+        </div>
+
+        <h2 id="webhook">Webhook / event hooks</h2>
+        <p>Configure depfence to POST structured JSON events to a webhook URL when findings are produced.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre><span class="cmd-comment"># depfence.yml</span>
+webhook:
+  url: https://your-service.example.com/depfence/events
+  on:
+    - finding.critical
+    - finding.high
+    - scan.complete
+  headers:
+    Authorization: "Bearer ${WEBHOOK_TOKEN}"</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "event": "finding.critical",
+  "timestamp": "2025-05-01T12:00:00Z",
+  "project": "my-app",
+  "finding": {
+    "id": "DF-SLOP-001",
+    "title": "Slopsquatting - pytorch-cuda-nightly",
+    "severity": "CRITICAL",
+    "scanner": "slopsquat",
+    "package": "pytorch-cuda-nightly",
+    "version": "2.0.0"
+  }
+}</pre>
+        </div>
+
+        <h2 id="eventbus">Event bus integration</h2>
+        <p>depfence can emit finding events to any HTTP event bus or webhook endpoint for automated triage, alerting, and cross-repo security posture tracking.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre><span class="cmd-comment"># depfence.yml</span>
+integrations:
+  eventbus:
+    enabled: true
+    url: ${DEPFENCE_EVENT_BUS_URL}
+    auth_header: "Bearer ${DEPFENCE_EVENT_BUS_TOKEN}"
+    emit_on:
+      - finding.critical
+      - scan.complete
+    tags:
+      project: my-app
+      env: production</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json &mdash; event envelope</span></div>
+          <pre>{
+  "source": "depfence",
+  "source_version": "0.4.0",
+  "event_type": "security.finding",
+  "timestamp": "2025-05-01T12:00:00Z",
+  "payload": {
+    "finding": { "...": "..." },
+    "project_tags": { "project": "my-app", "env": "production" },
+    "scan_id": "scan-uuid-here"
+  }
+}</pre>
+        </div>
+
+        <h2 id="env-vars">Environment variables</h2>
+        <table class="cli-table">
+          <thead>
+            <tr><th>Variable</th><th>Description</th><th>Default</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DEPFENCE_PLUGIN_PATH</code></td>
+              <td>Colon-separated directories to search for scanner plugins</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_CACHE_DIR</code></td>
+              <td>Cache directory for diff baselines, MCP fingerprints, and advisory data</td>
+              <td><code>~/.depfence/cache</code></td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_TIMEOUT</code></td>
+              <td>HTTP timeout for registry and advisory API requests (seconds)</td>
+              <td><code>30</code></td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_NO_COLOR</code></td>
+              <td>Disable ANSI color in terminal output</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_FAIL_ON</code></td>
+              <td>Override --fail-on for all invocations in this environment</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_EVENT_BUS_URL</code></td>
+              <td>Event bus / webhook endpoint URL for finding emission</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>DEPFENCE_EVENT_BUS_TOKEN</code></td>
+              <td>Bearer token for event bus authentication</td>
+              <td>&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+
+      </article>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="index.html" class="nav-logo" style="font-size: 1rem;">
+          <div class="shield" style="width:24px; height:24px; font-size:12px;">&#x26E8;</div>
+          depfence
+        </a>
+        <p>AI-aware dependency security scanner. Detects the threats advisory databases miss.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="index.html">Overview</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="api.html">API Reference</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Community</h5>
+        <ul>
+          <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+          <li><a href="https://github.com/ericrihm/depfence/issues">Issues</a></li>
+          <li><a href="https://pypi.org/project/depfence/">PyPI</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Docs</h5>
+        <ul>
+          <li><a href="docs.html#installation">Installation</a></li>
+          <li><a href="docs.html#cli">CLI Reference</a></li>
+          <li><a href="docs.html#policy">Policy-as-code</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2025 depfence contributors. MIT License.</span>
+      <span>v0.4.0 &nbsp;&middot;&nbsp; Python 3.10+</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

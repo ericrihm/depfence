@@ -1,0 +1,8 @@
+- id: depfence
+  name: depfence dependency security scan
+  entry: python -m depfence.integrations.pre_commit_hook
+  language: python
+  types: [file]
+  files: '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|uv\.lock)$'
+  pass_filenames: false
+  additional_dependencies: ['depfence']

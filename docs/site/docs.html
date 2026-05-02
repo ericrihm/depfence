@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — depfence</title>
+  <meta name="description" content="depfence documentation: installation, CLI reference, configuration, CI/CD integration, policy-as-code, and inline suppression syntax.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="shield">⛨</div>
+      depfence
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="docs.html" class="active">Docs</a></li>
+      <li><a href="api.html">API</a></li>
+      <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">PyPI v0.4.0</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div style="background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 24px 0;">
+  <div class="container">
+    <div class="section-label" style="margin-bottom: 6px;">Documentation</div>
+    <h1 style="font-size: 2rem; font-weight: 800; letter-spacing: -0.025em;">depfence docs</h1>
+    <p style="color: var(--text-secondary); margin-top: 6px; font-size: 0.9rem;">v0.4.0 &nbsp;·&nbsp; Python 3.10+ &nbsp;·&nbsp; MIT License</p>
+  </div>
+</div>
+
+<section style="padding: 48px 0 80px;">
+  <div class="container">
+    <div class="docs-layout">
+
+      <!-- SIDEBAR -->
+      <aside class="docs-sidebar">
+        <nav>
+          <ul>
+            <li class="section-title">Getting started</li>
+            <li><a href="#installation" class="active">Installation</a></li>
+            <li><a href="#quickstart">Quick start</a></li>
+            <li class="section-title">CLI Reference</li>
+            <li><a href="#scan">scan</a></li>
+            <li><a href="#audit">audit / diff / fix</a></li>
+            <li><a href="#sbom">sbom / report</a></li>
+            <li><a href="#specialized">Specialized scans</a></li>
+            <li><a href="#firewall">firewall</a></li>
+            <li><a href="#all-commands">All commands</a></li>
+            <li class="section-title">Configuration</li>
+            <li><a href="#config-file">depfence.yml</a></li>
+            <li><a href="#policy">Policy-as-code</a></li>
+            <li><a href="#inline-suppress">Inline suppression</a></li>
+            <li class="section-title">Integration</li>
+            <li><a href="#ci">GitHub Actions</a></li>
+            <li><a href="#ai-scanning">AI scanning</a></li>
+            <li><a href="#pre-commit">Pre-commit hook</a></li>
+            <li><a href="#exit-codes">Exit codes</a></li>
+          </ul>
+        </nav>
+      </aside>
+
+      <!-- CONTENT -->
+      <article class="docs-content">
+
+        <!-- INSTALLATION -->
+        <h2 id="installation">Installation</h2>
+        <p>depfence requires Python 3.10 or later. It has no mandatory compiled dependencies — pure Python wheels install everywhere.</p>
+
+        <h3>pip (recommended)</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">pip</span> install depfence</pre>
+        </div>
+
+        <h3>With ML behavioral scoring</h3>
+        <p>The optional <code>ml</code> extra adds scikit-learn-powered behavioral scoring for higher-accuracy obfuscation detection.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">pip</span> install "depfence[ml]"</pre>
+        </div>
+
+        <h3>pipx (isolated environment)</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">pipx</span> install depfence
+<span class="cmd-comment"># or run without installing:</span>
+<span class="cmd-key">pipx</span> run depfence scan .</pre>
+        </div>
+
+        <h3>uv</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">uv</span> tool install depfence
+<span class="cmd-comment"># or run ephemerally:</span>
+<span class="cmd-key">uvx</span> depfence scan .</pre>
+        </div>
+
+        <div class="callout">
+          <strong>Offline use:</strong> depfence caches all advisory data locally at <code>~/.depfence/cache</code>. After the first run, behavioral scanners work fully offline. Network scanners degrade gracefully.
+        </div>
+
+        <!-- QUICK START -->
+        <h2 id="quickstart">Quick start</h2>
+        <p>Run a full scan against your project directory. depfence auto-discovers all supported lockfiles.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-comment"># Full scan — all ecosystems, all 30 scanners</span>
+<span class="cmd-key">depfence</span> scan .
+
+<span class="cmd-comment"># Fail CI on high+ severity findings</span>
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--fail-on</span> high
+
+<span class="cmd-comment"># Output SARIF for GitHub Code Scanning</span>
+<span class="cmd-key">depfence</span> scan . <span class="cmd-flag">--format</span> sarif <span class="cmd-flag">-o</span> depfence.sarif
+
+<span class="cmd-comment"># Quick advisory-only scan (no behavioral analysis)</span>
+<span class="cmd-key">depfence</span> audit .
+
+<span class="cmd-comment"># Generate a health summary (pass / warn / critical)</span>
+<span class="cmd-key">depfence</span> summary .</pre>
+        </div>
+
+        <!-- SCAN -->
+        <h2 id="scan">depfence scan</h2>
+        <p>The primary command. Runs all 30 scanners in parallel, aggregates findings, and outputs in the requested format.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre>depfence scan [PATH] [OPTIONS]
+
+OPTIONS:
+  --fail-on     critical|high|medium|low|any|none  (default: none)
+  --format      table|json|sarif                   (default: table)
+  -o, --output  Path for output file
+  --scanner     Comma-separated list of scanners to run (default: all)
+  --exclude     Comma-separated scanner names to skip</pre>
+        </div>
+
+        <p><code>--fail-on</code> sets the minimum severity that triggers exit code 1. Policy <code>block</code> rules always trigger exit code 1 regardless of this flag.</p>
+
+        <!-- AUDIT / DIFF / FIX -->
+        <h2 id="audit">audit · diff · fix</h2>
+
+        <h3>audit</h3>
+        <p>Advisory-only scan — faster than <code>scan</code> because it skips behavioral analysis. Good for fast CI gates where you want pure CVE coverage.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> audit .
+<span class="cmd-key">depfence</span> audit . <span class="cmd-flag">--fail-on</span> critical</pre>
+        </div>
+
+        <h3>diff</h3>
+        <p>Delta scan — only checks packages that changed since the last baseline. Ideal for pull request checks where full scans are too slow.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> diff .        <span class="cmd-comment"># delta vs last saved baseline</span>
+<span class="cmd-key">depfence</span> baseline .    <span class="cmd-comment"># save current state as baseline</span></pre>
+        </div>
+
+        <h3>fix</h3>
+        <p>Analyzes findings and generates minimum-bump version upgrades. Preview as a diff or apply directly to lockfiles.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> fix .                <span class="cmd-comment"># preview as diff</span>
+<span class="cmd-key">depfence</span> fix . <span class="cmd-flag">--apply</span>         <span class="cmd-comment"># write changes to manifests</span>
+<span class="cmd-key">depfence</span> update-plan .        <span class="cmd-comment"># analyze which updates are safe to merge</span></pre>
+        </div>
+
+        <!-- SBOM -->
+        <h2 id="sbom">sbom · report</h2>
+
+        <h3>sbom</h3>
+        <p>Generates a CycloneDX 1.5 SBOM with full vulnerability enrichment (EPSS, KEV, GHSA). Use <code>--format spdx</code> for SPDX 2.3 output.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">-o</span> sbom.cyclonedx.json
+<span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">--format</span> spdx <span class="cmd-flag">-o</span> sbom.spdx.json
+<span class="cmd-key">depfence</span> sbom-diff before.json after.json   <span class="cmd-comment"># compare two SBOMs</span></pre>
+        </div>
+
+        <h3>report</h3>
+        <p>Full interactive HTML security report — dependency tree, severity breakdown, finding detail with remediation advice.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> report . <span class="cmd-flag">--format</span> html <span class="cmd-flag">-o</span> report.html
+<span class="cmd-key">depfence</span> compliance . <span class="cmd-flag">-f</span> json <span class="cmd-flag">-o</span> compliance.json</pre>
+        </div>
+
+        <!-- SPECIALIZED -->
+        <h2 id="specialized">Specialized scan commands</h2>
+        <table class="cli-table">
+          <thead>
+            <tr><th>Command</th><th>What it scans</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>mcp-scan .</code></td><td>MCP server configs (Claude Desktop, Cursor, VS Code, Windsurf) — hardcoded secrets, pipe-to-shell, known-malicious entries</td></tr>
+            <tr><td><code>mcp-fingerprint .</code></td><td>Detects schema changes in MCP servers between runs (rug-pull attack detection)</td></tr>
+            <tr><td><code>model-scan .</code></td><td>ML model supply chain — unsafe <code>torch.load</code>, pickle opcodes in weight files, unverified HuggingFace pulls</td></tr>
+            <tr><td><code>ai-scan .</code></td><td>AI/ML-specific CVEs and model integrity combined</td></tr>
+            <tr><td><code>gha-scan .</code></td><td>GitHub Actions workflow audit — unpinned actions, compromised action hashes</td></tr>
+            <tr><td><code>scan-workflows .</code></td><td>Full GHA workflow audit including script injection and permission analysis</td></tr>
+            <tr><td><code>scan-docker .</code></td><td>Dockerfile audit — unpinned base images, root user, secrets in ENV/ARG, EOL images</td></tr>
+            <tr><td><code>license-scan .</code></td><td>License compliance — SPDX classification, copyleft detection, conflict analysis</td></tr>
+            <tr><td><code>reachability .</code></td><td>Import reachability — which vulnerable dependencies are actually imported in your code</td></tr>
+            <tr><td><code>ci-audit .</code></td><td>CI secret exposure risk correlated with suspicious package behavior</td></tr>
+            <tr><td><code>monorepo-scan .</code></td><td>Workspace/monorepo scan — discovers and scans all sub-packages</td></tr>
+          </tbody>
+        </table>
+
+        <!-- FIREWALL -->
+        <h2 id="firewall">Registry firewall</h2>
+        <p>The registry firewall intercepts <code>npm install</code> and <code>pip install</code> before packages reach disk. It runs depfence checks on each incoming package in real time.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> firewall enable .     <span class="cmd-comment"># install hooks for this project</span>
+<span class="cmd-key">depfence</span> firewall disable .    <span class="cmd-comment"># remove hooks</span>
+<span class="cmd-key">depfence</span> firewall status .     <span class="cmd-comment"># check hook state</span>
+
+<span class="cmd-comment"># Pre-check a package before installing</span>
+<span class="cmd-key">depfence</span> firewall check-pip transformers
+<span class="cmd-key">depfence</span> firewall check-npm @scope/pkg</pre>
+        </div>
+
+        <p>When a blocked package is caught at install time:</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">output</span></div>
+          <pre><span class="cmd-output">[depfence] BLOCKED: pytorch-cuda-nightly</span>
+<span class="cmd-output">           slopsquat match for 'torch' (score: 0.94)</span>
+<span class="cmd-output">           published 2 days ago · single maintainer · no repository</span>
+<span class="cmd-output">[depfence] BLOCKED: req-utils</span>
+<span class="cmd-output">           preinstall script exfiltrates environment variables</span>
+<span class="cmd-output">           pattern: os.environ → requests.post(hardcoded-ip)</span></pre>
+        </div>
+
+        <!-- ALL COMMANDS -->
+        <h2 id="all-commands">All CLI commands</h2>
+        <table class="cli-table">
+          <thead>
+            <tr><th>Command</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>scan</code></td><td>Full scan — all ecosystems, all 30 scanners in parallel</td></tr>
+            <tr><td><code>audit</code></td><td>Advisory-only scan (OSV + GHSA, no behavioral)</td></tr>
+            <tr><td><code>diff</code></td><td>Delta scan — only changed packages since baseline</td></tr>
+            <tr><td><code>fix</code></td><td>Auto-fix vulnerable dependencies (preview or apply)</td></tr>
+            <tr><td><code>sbom</code></td><td>Generate CycloneDX 1.5 or SPDX 2.3 SBOM</td></tr>
+            <tr><td><code>sbom-diff</code></td><td>Compare two SBOM files and report changes</td></tr>
+            <tr><td><code>report</code></td><td>Full HTML / JSON security report</td></tr>
+            <tr><td><code>compliance</code></td><td>Compliance report (license, pinning, provenance)</td></tr>
+            <tr><td><code>baseline</code></td><td>Save current findings as baseline for diff scans</td></tr>
+            <tr><td><code>check</code></td><td>Single package lookup with reputation score</td></tr>
+            <tr><td><code>mcp-scan</code></td><td>MCP server configuration audit</td></tr>
+            <tr><td><code>mcp-fingerprint</code></td><td>MCP rug-pull schema change detection</td></tr>
+            <tr><td><code>model-scan</code></td><td>ML model supply chain audit</td></tr>
+            <tr><td><code>ai-scan</code></td><td>AI/ML CVE + model integrity combined</td></tr>
+            <tr><td><code>gha-scan</code></td><td>GitHub Actions workflow audit</td></tr>
+            <tr><td><code>scan-workflows</code></td><td>Full GHA workflow analysis</td></tr>
+            <tr><td><code>scan-docker</code></td><td>Dockerfile security audit</td></tr>
+            <tr><td><code>license-scan</code></td><td>License compliance analysis</td></tr>
+            <tr><td><code>reachability</code></td><td>Import reachability analysis</td></tr>
+            <tr><td><code>ci-audit</code></td><td>CI secret exposure risk audit</td></tr>
+            <tr><td><code>risk-score</code></td><td>Composite risk score A–F per package</td></tr>
+            <tr><td><code>update-plan</code></td><td>Safe update analysis</td></tr>
+            <tr><td><code>monorepo-scan</code></td><td>Workspace / monorepo scan</td></tr>
+            <tr><td><code>graph</code></td><td>Dependency graph visualization</td></tr>
+            <tr><td><code>health</code></td><td>Project security health dashboard</td></tr>
+            <tr><td><code>epss</code></td><td>EPSS exploit probability lookup</td></tr>
+            <tr><td><code>kev</code></td><td>CISA KEV database check</td></tr>
+            <tr><td><code>scorecard</code></td><td>OpenSSF Scorecard integration</td></tr>
+            <tr><td><code>trust</code></td><td>Package trust score breakdown</td></tr>
+            <tr><td><code>stats</code></td><td>Scan statistics and coverage report</td></tr>
+            <tr><td><code>threat-sync</code></td><td>Sync threat intelligence database</td></tr>
+            <tr><td><code>info</code></td><td>Package info and history</td></tr>
+            <tr><td><code>why</code></td><td>Why is this package in the dependency tree?</td></tr>
+            <tr><td><code>policy</code></td><td>Validate policy file</td></tr>
+            <tr><td><code>doctor</code></td><td>Diagnose depfence installation</td></tr>
+            <tr><td><code>outdated</code></td><td>Show outdated dependencies</td></tr>
+            <tr><td><code>ignore</code></td><td>Add inline suppression to a finding</td></tr>
+            <tr><td><code>init</code></td><td>Scaffold CI workflow + pre-commit hook</td></tr>
+            <tr><td><code>watch</code></td><td>Auto-scan on lockfile changes</td></tr>
+            <tr><td><code>plugins</code></td><td>List loaded scanners, analyzers, reporters</td></tr>
+            <tr><td><code>summary</code></td><td>Quick posture check (pass / warn / critical)</td></tr>
+            <tr><td><code>firewall enable|disable|status|check-pip|check-npm</code></td><td>Registry firewall management</td></tr>
+          </tbody>
+        </table>
+
+        <!-- CONFIG FILE -->
+        <h2 id="config-file">depfence.yml configuration</h2>
+        <p>Place <code>depfence.yml</code> at your project root. All fields are optional.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre><span class="cmd-comment"># depfence.yml</span>
+
+<span class="cmd-comment"># Scanners to run (default: all)</span>
+scanners:
+  - slopsquat
+  - behavioral
+  - npm_advisory
+  - pypi_advisory
+  - osv
+  - license_scanner
+  - secrets
+  - mcp_scanner
+
+<span class="cmd-comment"># Fail CI on these severities</span>
+fail_on: high
+
+<span class="cmd-comment"># Output format for CI</span>
+format: sarif
+output: depfence.sarif
+
+<span class="cmd-comment"># Ecosystems to include (default: auto-detect)</span>
+ecosystems:
+  - npm
+  - pypi
+  - cargo
+
+<span class="cmd-comment"># Cache directory</span>
+cache_dir: ~/.depfence/cache
+
+<span class="cmd-comment"># Ignore specific CVE IDs globally</span>
+ignore:
+  - GHSA-xxxx-xxxx-xxxx
+  - CVE-2024-12345</pre>
+        </div>
+
+        <!-- POLICY -->
+        <h2 id="policy">Policy-as-code</h2>
+        <p>Policy rules evaluate on every scan and can block CI independently of <code>--fail-on</code>. <code>block</code> rules always produce exit code 1. <code>warn</code> rules add findings without blocking.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre>rules:
+  - name: no-gpl-in-production
+    description: Block copyleft-licensed packages
+    match:
+      license_category: copyleft
+    action: block
+
+  - name: require-provenance-for-popular
+    description: Require SLSA provenance for high-download packages
+    match:
+      weekly_downloads_min: 100000
+      has_provenance: false
+    action: block
+
+  - name: warn-on-ownership-change
+    description: Flag packages whose maintainers changed recently
+    match:
+      ownership_changed_days: 30
+    action: warn
+
+  - name: no-install-scripts-npm
+    description: Block npm packages with install scripts
+    match:
+      has_install_scripts: true
+    action: block
+    ecosystems: [npm]
+
+  - name: allow-internal-registry
+    description: Trust packages from the private registry
+    match:
+      registry: "https://registry.internal.example.com"
+    action: allow</pre>
+        </div>
+
+        <div class="callout">
+          <strong>Initialize a starter policy:</strong> <code>depfence init .</code> scaffolds a <code>depfence.yml</code> with sensible defaults based on your project type.
+        </div>
+
+        <!-- INLINE SUPPRESS -->
+        <h2 id="inline-suppress">Inline suppression</h2>
+        <p>Suppress individual findings inline without modifying config files. Use the <code>depfence: ignore</code> comment syntax adjacent to the dependency declaration.</p>
+
+        <h3>requirements.txt</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">text</span></div>
+          <pre>requests==2.28.0  # depfence: ignore CVE-2023-32681 until:2025-12-31
+urllib3==1.26.18  # depfence: ignore reason:"internal use only, not internet-facing"</pre>
+        </div>
+
+        <h3>package.json</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">json</span></div>
+          <pre>{
+  "dependencies": {
+    "lodash": "4.17.19"  // depfence: ignore GHSA-p6mc-m468-83gw
+  }
+}</pre>
+        </div>
+
+        <h3>CLI helper</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-comment"># Add suppression to a finding interactively</span>
+<span class="cmd-key">depfence</span> ignore GHSA-xxxx-xxxx-xxxx <span class="cmd-flag">--reason</span> "false positive in test env" <span class="cmd-flag">--until</span> 2026-01-01</pre>
+        </div>
+
+        <div class="callout callout-warn">
+          <strong>Warning:</strong> Suppressions should include a reason and expiry date. depfence warns when suppressions expire to prevent permanently silenced findings.
+        </div>
+
+        <!-- CI/CD -->
+        <h2 id="ci">GitHub Actions integration</h2>
+
+        <h3>Composite action (recommended)</h3>
+        <p>One line. SARIF results appear in the repository Security tab under Code Scanning alerts.</p>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre>- uses: ericrihm/depfence@v1
+  with:
+    fail-on: high           <span class="cmd-comment"># critical|high|medium|low|any|none</span>
+    format: sarif           <span class="cmd-comment"># table|json|sarif</span>
+    upload-sarif: true      <span class="cmd-comment"># upload to GitHub Code Scanning</span></pre>
+        </div>
+
+        <h3>Full workflow</h3>
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre>name: Dependency Security
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/requirements.txt'
+      - '**/poetry.lock'
+      - '**/Cargo.lock'
+      - '**/go.sum'
+  pull_request:
+    paths:
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/requirements.txt'
+      - '**/poetry.lock'
+  schedule:
+    - cron: '0 6 * * 1'     <span class="cmd-comment"># weekly advisory refresh</span>
+
+jobs:
+  depfence:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install depfence
+      - run: depfence scan . --format sarif -o depfence.sarif --fail-on high
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: depfence.sarif
+          category: depfence</pre>
+        </div>
+
+        <!-- AI SCANNING -->
+        <h2 id="ai-scanning">AI-specific scanning</h2>
+        <p>depfence's AI scanning module covers three distinct threat categories that traditional advisory databases do not address.</p>
+
+        <h3>Slopsquatting</h3>
+        <p>LLMs regularly suggest package names that don't exist. Attackers monitor AI assistant outputs and register those names within hours of popular queries. The <code>slopsquat</code> scanner scores edit-distance similarity against the 5,000 most-downloaded packages in each ecosystem and flags packages that look like probable hallucination targets.</p>
+
+        <h3>MCP server security</h3>
+        <p>Model Context Protocol servers execute with broad filesystem and network access. The <code>mcp_scanner</code> audits configs for Claude Desktop, Cursor, VS Code, and Windsurf, looking for hardcoded secrets, pipe-to-shell entrypoints, and entries matching the known-malicious server list. The <code>mcp_fingerprint</code> scanner takes a snapshot of each server's tool schema and alerts when it changes between runs — a rug-pull attack vector.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> mcp-scan .           <span class="cmd-comment"># audit all MCP configs in cwd</span>
+<span class="cmd-key">depfence</span> mcp-fingerprint .    <span class="cmd-comment"># snapshot + change detection</span></pre>
+        </div>
+
+        <h3>ML model supply chain</h3>
+        <p>The <code>model_scanner</code> detects unsafe patterns in Python ML code and model files. It flags <code>torch.load()</code> calls without <code>weights_only=True</code>, scans pickle-format model files for embedded opcodes (OS commands, eval chains), and verifies that HuggingFace model pulls use pinned commit hashes rather than mutable branch refs.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">bash</span></div>
+          <pre><span class="cmd-key">depfence</span> model-scan .         <span class="cmd-comment"># scan ML code + model files</span>
+<span class="cmd-key">depfence</span> ai-scan .            <span class="cmd-comment"># model-scan + AI CVE lookup combined</span></pre>
+        </div>
+
+        <!-- PRE-COMMIT -->
+        <h2 id="pre-commit">Pre-commit hook</h2>
+        <p>Add depfence to your pre-commit configuration to scan dependency changes before every commit.</p>
+
+        <div class="code-block">
+          <div class="code-block-header"><span class="code-block-lang">yaml</span></div>
+          <pre><span class="cmd-comment"># .pre-commit-config.yaml</span>
+repos:
+  - repo: https://github.com/ericrihm/depfence
+    rev: v0.4.0
+    hooks:
+      - id: depfence
+        args: ['--fail-on', 'high']</pre>
+        </div>
+
+        <!-- EXIT CODES -->
+        <h2 id="exit-codes">Exit codes</h2>
+        <table class="cli-table">
+          <thead>
+            <tr><th>Code</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>0</code></td><td>No findings above threshold, or <code>--fail-on none</code></td></tr>
+            <tr><td><code>1</code></td><td>Findings at or above <code>--fail-on</code> threshold, or policy <code>block</code> rule triggered</td></tr>
+            <tr><td><code>2</code></td><td>Scan error — parse failure, network error, or configuration problem</td></tr>
+          </tbody>
+        </table>
+
+      </article>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="index.html" class="nav-logo" style="font-size: 1rem;">
+          <div class="shield" style="width:24px; height:24px; font-size:12px;">⛨</div>
+          depfence
+        </a>
+        <p>AI-aware dependency security scanner. Detects the threats advisory databases miss.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="index.html">Overview</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="api.html">API Reference</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Community</h5>
+        <ul>
+          <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+          <li><a href="https://github.com/ericrihm/depfence/issues">Issues</a></li>
+          <li><a href="https://pypi.org/project/depfence/">PyPI</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="api.html#python">Python API</a></li>
+          <li><a href="api.html#sarif">SARIF format</a></li>
+          <li><a href="api.html#sbom">SBOM format</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2025 depfence contributors. MIT License.</span>
+      <span>v0.4.0 &nbsp;·&nbsp; Python 3.10+</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

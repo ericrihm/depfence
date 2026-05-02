@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "depfence"
+version = "0.5.0"
+description = "AI-aware dependency security scanner. 30+ scanners, red-team simulation, secret detection, SLSA provenance, SBOM generation (CycloneDX/SPDX/SARIF), policy-as-code, and 50+ CLI commands for securing npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, and Swift ecosystems."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "depfence contributors"}
+]
+keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "packaging>=24.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+ml = [
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
+]
+all = ["depfence[dev,ml]"]
+
+[project.scripts]
+depfence = "depfence.cli.main:cli"
+depfence-mcp = "depfence.mcp.server:main"
+
+[project.entry-points."depfence.scanners"]
+npm_advisory = "depfence.scanners.npm_advisory:NpmAdvisoryScanner"
+pypi_advisory = "depfence.scanners.pypi_advisory:PypiAdvisoryScanner"
+behavioral = "depfence.scanners.behavioral:BehavioralScanner"
+reputation = "depfence.scanners.reputation:ReputationScanner"
+slopsquat = "depfence.scanners.slopsquat:SlopsquatScanner"
+mcp_scanner = "depfence.scanners.mcp_scanner:McpScanner"
+gha_scanner = "depfence.scanners.gha_scanner:GhaScanner"
+mcp_fingerprint = "depfence.scanners.mcp_fingerprint:McpFingerprintScanner"
+dep_confusion = "depfence.scanners.depconfusion:DepConfusionScanner"
+preinstall = "depfence.scanners.preinstall:PreinstallScanner"
+provenance = "depfence.scanners.provenance:ProvenanceScanner"
+model_scanner = "depfence.scanners.model_scanner:ModelScanner"
+ci_secrets = "depfence.scanners.ci_secrets:CiSecretsScanner"
+license_scanner = "depfence.scanners.license_scanner:LicenseScanner"
+reachability = "depfence.scanners.reachability:ReachabilityScanner"
+ownership = "depfence.scanners.ownership_scanner:OwnershipScanner"
+scope_squatting = "depfence.scanners.scope_scanner:ScopeScanner"
+dockerfile = "depfence.scanners.dockerfile_scanner:DockerfileScanner"
+gha_workflow = "depfence.scanners.gha_workflow_scanner:GhaWorkflowScanner"
+freshness = "depfence.scanners.freshness_scanner:FreshnessScanner"
+secrets = "depfence.scanners.secrets_scanner:SecretsScanner"
+terraform = "depfence.scanners.terraform_scanner:TerraformScanner"
+pinning = "depfence.scanners.pinning_scanner:PinningScanner"
+osv = "depfence.scanners.osv_scanner:OsvScanner"
+obfuscation = "depfence.scanners.obfuscation:ObfuscationScanner"
+network = "depfence.scanners.network_scanner:NetworkScanner"
+phantom_deps = "depfence.scanners.phantom_deps:PhantomDepsScanner"
+ai_vulns = "depfence.scanners.ai_vulns:AiVulnScanner"
+model_integrity = "depfence.scanners.model_integrity:ModelIntegrityScanner"
+provenance_checker = "depfence.scanners.provenance_checker:ProvenanceChecker"
+
+[project.entry-points."depfence.analyzers"]
+ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"
+install_script = "depfence.analyzers.install_script:InstallScriptAnalyzer"
+
+[project.entry-points."depfence.reporters"]
+json_reporter = "depfence.reporters.json_out:JsonReporter"
+table_reporter = "depfence.reporters.table_out:TableReporter"
+sarif_reporter = "depfence.reporters.sarif_out:SarifReporter"
+cyclonedx_reporter = "depfence.reporters.cyclonedx:generate_sbom"
+spdx_reporter = "depfence.reporters.spdx_out:generate_spdx"
+compliance_reporter = "depfence.reporters.compliance_report:generate_compliance_report"
+html_reporter = "depfence.core.html_report:generate_html_report"
+
+[project.urls]
+Homepage = "https://github.com/ericrihm/depfence"
+Issues = "https://github.com/ericrihm/depfence/issues"
+
+[tool.setuptools.packages.find]
+include = ["depfence*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
