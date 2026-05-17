@@ -739,20 +739,23 @@ async def test_full_pipeline_end_to_end(full_project: Path) -> None:
     async def _mock_fetch_batch(packages, concurrency=20):  # noqa: ARG001
         return [PackageMeta(pkg=p) for p in packages]
 
-    # Also mock any scanner that performs external HTTP calls
-    def _make_empty_scanner_scan():
-        async def _scan(self_or_packages, *args, **kwargs):
-            return []
-        return _scan
+    class _ProjectOnlyRegistry:
+        scanners: dict[str, Any] = {}
+        analyzers: dict[str, Any] = {}
+
+        async def fire_hook(self, event: str, **kwargs: Any) -> None:  # noqa: ARG002
+            return None
 
     with (
         patch("depfence.core.engine.fetch_batch", side_effect=_mock_fetch_batch),
+        patch("depfence.core.engine.get_registry", return_value=_ProjectOnlyRegistry()),
     ):
         result = await scan_directory(
             full_project,
             skip_advisory=True,   # skip live OSV/npm advisory calls
             skip_behavioral=False,
-            fetch_metadata=False,  # use PackageMeta stubs
+            fetch_metadata=True,   # use mocked PackageMeta stubs
+            enrich=False,          # skip live EPSS/KEV enrichment calls
         )
 
     # Basic assertions
@@ -763,10 +766,8 @@ async def test_full_pipeline_end_to_end(full_project: Path) -> None:
     # Should have found packages from both lockfiles (npm + pypi)
     assert result.packages_scanned >= 20  # at least npm packages
 
-    # Findings may come from project-level scanners (dockerfile, gha, secrets)
-    # Since behavioral scanners are enabled, expect at least 0 findings
-    # (network-dependent scanners return [] without real data)
-    assert isinstance(result.findings, list)
+    # Findings come from project-level scanners (dockerfile, gha, secrets, pinning)
+    assert len(result.findings) > 0
     assert isinstance(result.errors, list)
 
     # No catastrophic errors (parse errors are OK but scanner crashes should not happen)
