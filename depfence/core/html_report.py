@@ -93,7 +93,7 @@ def _determine_status(findings: list[Finding]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Badge helpers (kept for backward compatibility with existing tests)
+# Badge helpers
 # ---------------------------------------------------------------------------
 
 def _sev_badge(severity: str) -> str:
@@ -103,17 +103,6 @@ def _sev_badge(severity: str) -> str:
         f'style="background:{cfg["bg"]};color:{cfg["color"]};'
         f'border:1px solid {cfg["color"]};">'
         f'{cfg["label"]}</span>'
-    )
-
-
-def _status_badge(status: str) -> str:
-    cfg = _STATUS_CONFIG.get(status, _STATUS_CONFIG["PASS"])
-    return (
-        f'<span class="status-badge" '
-        f'style="background:{cfg["color"]}22;color:{cfg["color"]};'
-        f'border:2px solid {cfg["color"]};padding:6px 18px;border-radius:20px;'
-        f'font-size:1rem;font-weight:700;letter-spacing:0.08em;">'
-        f'{cfg["icon"]} {cfg["label"]}</span>'
     )
 
 
@@ -400,64 +389,91 @@ def _build_supply_chain_health(enrichments: dict | None) -> str:
   </section>"""
 
 
-def _build_recommendations(findings: list[Finding]) -> str:
-    recs: list[str] = []
-    counts = _count_by_severity(findings)
-
+def _rec_fixable_packages(findings: list[Finding]) -> str | None:
     fixable = [
         f for f in findings
         if f.fix_version and f.severity in (Severity.CRITICAL, Severity.HIGH)
     ]
-    if fixable:
-        names = ", ".join(
-            f"<code>{_h(f.package.name)}</code> &#8594; <code>{_h(f.fix_version)}</code>"
-            for f in sorted(fixable, key=lambda x: _SEV_ORDER.get(x.severity.name.upper(), 9))[:3]
-        )
-        recs.append(
-            f"<strong>Update vulnerable packages immediately.</strong> "
-            f"Fix versions are available: {names}."
-        )
+    if not fixable:
+        return None
+    names = ", ".join(
+        f"<code>{_h(f.package.name)}</code> &#8594; <code>{_h(f.fix_version)}</code>"
+        for f in sorted(fixable, key=lambda x: _SEV_ORDER.get(x.severity.name.upper(), 9))[:3]
+    )
+    return (
+        f"<strong>Update vulnerable packages immediately.</strong> "
+        f"Fix versions are available: {names}."
+    )
 
-    if counts["CRITICAL"] > 0:
-        recs.append(
-            f"<strong>Block deployments on {counts['CRITICAL']} critical finding(s).</strong> "
-            "Add a CI gate: <code>depfence --fail-on critical</code>."
-        )
 
+def _rec_critical_gate(counts: dict[str, int]) -> str | None:
+    if counts["CRITICAL"] == 0:
+        return None
+    return (
+        f"<strong>Block deployments on {counts['CRITICAL']} critical finding(s).</strong> "
+        "Add a CI gate: <code>depfence --fail-on critical</code>."
+    )
+
+
+def _rec_malicious_packages(findings: list[Finding]) -> str | None:
     malicious = [f for f in findings if f.finding_type == FindingType.MALICIOUS]
-    if malicious:
-        pkgs = ", ".join(f"<code>{_h(f.package.name)}</code>" for f in malicious[:3])
-        recs.append(
-            f"<strong>Remove malicious package(s) immediately: {pkgs}.</strong> "
-            "Treat the environment as potentially compromised."
-        )
+    if not malicious:
+        return None
+    pkgs = ", ".join(f"<code>{_h(f.package.name)}</code>" for f in malicious[:3])
+    return (
+        f"<strong>Remove malicious package(s) immediately: {pkgs}.</strong> "
+        "Treat the environment as potentially compromised."
+    )
 
+
+def _rec_typosquats(findings: list[Finding]) -> str | None:
     typo = [f for f in findings if f.finding_type == FindingType.TYPOSQUAT]
-    if typo:
-        recs.append(
-            f"<strong>Verify {len(typo)} possible typosquat(s).</strong> "
-            "Check each package name against the intended dependency."
-        )
+    if not typo:
+        return None
+    return (
+        f"<strong>Verify {len(typo)} possible typosquat(s).</strong> "
+        "Check each package name against the intended dependency."
+    )
 
+
+def _rec_provenance(findings: list[Finding]) -> str | None:
     no_prov = [f for f in findings if f.finding_type == FindingType.PROVENANCE]
-    if no_prov:
-        recs.append(
-            f"<strong>Enable provenance attestations.</strong> "
-            f"{len(no_prov)} package(s) lack verified build provenance. "
-            "Prefer packages with SLSA or Sigstore signatures."
-        )
+    if not no_prov:
+        return None
+    return (
+        f"<strong>Enable provenance attestations.</strong> "
+        f"{len(no_prov)} package(s) lack verified build provenance. "
+        "Prefer packages with SLSA or Sigstore signatures."
+    )
 
-    if counts["MEDIUM"] + counts["HIGH"] > 10:
-        recs.append(
-            "<strong>Adopt continuous dependency monitoring.</strong> "
-            "Run depfence on every pull request and block merges on new high/critical findings."
-        )
 
+def _rec_monitoring(counts: dict[str, int]) -> str | None:
+    if counts["MEDIUM"] + counts["HIGH"] <= 10:
+        return None
+    return (
+        "<strong>Adopt continuous dependency monitoring.</strong> "
+        "Run depfence on every pull request and block merges on new high/critical findings."
+    )
+
+
+def _build_recommendations(findings: list[Finding]) -> str:
+    counts = _count_by_severity(findings)
+    recs = [
+        r for r in [
+            _rec_fixable_packages(findings),
+            _rec_critical_gate(counts),
+            _rec_malicious_packages(findings),
+            _rec_typosquats(findings),
+            _rec_provenance(findings),
+            _rec_monitoring(counts),
+        ]
+        if r is not None
+    ]
     if not recs:
-        recs.append(
+        recs = [
             "<strong>No immediate action required.</strong> "
             "Continue running depfence on each release to maintain this security posture."
-        )
+        ]
 
     items = "\n".join(
         f'    <li class="rec-item">'

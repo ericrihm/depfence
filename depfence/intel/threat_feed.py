@@ -6,13 +6,11 @@ Powers the ``depfence threat-brief`` CLI command.
 
 from __future__ import annotations
 
-import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from depfence.core.models import Finding
     from depfence.intel.epss_tracker import EPSSTracker
 
 
@@ -114,99 +112,22 @@ class ThreatFeed:
                 total_findings=0,
             )
 
-        # ---- KEV cross-reference -----------------------------------------
         kev_hits = self._kev_monitor.check_local_kev(findings)
         kev_cves = {e.cve for e in kev_hits}
         ransomware_kev_cves = {e.cve for e in kev_hits if e.known_ransomware}
 
-        # ---- EPSS data lookup --------------------------------------------
-        epss_data: dict[str, float] = {}
-        epss_trends: dict[str, object] = {}
-        if epss_tracker is not None:
-            for cve in {f.cve for f in findings if getattr(f, "cve", None)}:
-                trend = epss_tracker.get_trend(cve)
-                epss_data[cve] = trend.current_score
-                epss_trends[cve] = trend
+        epss_data, coverage = self._gather_epss(epss_tracker, findings)
+        scored = self._score_findings(findings, epss_data, kev_cves, ransomware_kev_cves, Severity)
+        trending = self._gather_trending(epss_tracker)
+        new_advisories = self._format_advisories(kev_hits)
+        total_risk = self._compute_risk(scored, kev_hits)
 
-        # ---- Coverage score ----------------------------------------------
-        cve_findings = [f for f in findings if getattr(f, "cve", None)]
-        covered = sum(1 for f in cve_findings if f.cve in epss_data)
-        coverage = covered / len(cve_findings) if cve_findings else 1.0
-
-        # ---- Severity mapping to numeric ---------------------------------
-        sev_scores = {
-            Severity.CRITICAL: 1.0,
-            Severity.HIGH: 0.75,
-            Severity.MEDIUM: 0.4,
-            Severity.LOW: 0.15,
-            Severity.INFO: 0.05,
-        }
-
-        # ---- Per-finding urgency -----------------------------------------
-        scored: list[dict] = []
-        for f in findings:
-            sev_num = sev_scores.get(f.severity, 0.1)
-            epss_num = epss_data.get(getattr(f, "cve", None) or "", 0.0)
-            kev_bonus = 0.3 if getattr(f, "cve", None) in kev_cves else 0.0
-            urgency = (
-                self._W_SEVERITY * sev_num
-                + self._W_EPSS * epss_num
-                + self._W_KEV * kev_bonus
-            )
-            scored.append({
-                "cve": getattr(f, "cve", None),
-                "package": str(f.package),
-                "title": f.title,
-                "severity": f.severity.value,
-                "epss_score": epss_num,
-                "in_kev": getattr(f, "cve", None) in kev_cves,
-                "ransomware": getattr(f, "cve", None) in ransomware_kev_cves,
-                "urgency": round(urgency, 4),
-            })
-
-        scored.sort(key=lambda x: x["urgency"], reverse=True)
-        top_risks = scored[:5]
-
-        # ---- Trending CVEs (from EPSS tracker) ---------------------------
-        trending: list[dict] = []
-        if epss_tracker is not None:
-            rising = epss_tracker.get_rising(threshold=0.05, days=7)
-            for r in rising[:10]:
-                trending.append({
-                    "cve": r.cve,
-                    "current_score": r.current_score,
-                    "delta_7d": r.delta_7d,
-                    "affected_packages": r.affected_packages,
-                })
-
-        # ---- New advisories (KEV intersect findings) ----------------------
-        new_advisories: list[dict] = []
-        for entry in kev_hits:
-            new_advisories.append({
-                "cve": entry.cve,
-                "vendor": entry.vendor,
-                "product": entry.product,
-                "date_added": entry.date_added,
-                "due_date": entry.due_date,
-                "ransomware": entry.known_ransomware,
-            })
-        new_advisories.sort(key=lambda x: x["date_added"], reverse=True)
-
-        # ---- Overall risk score (0–100) ----------------------------------
-        if scored:
-            mean_urgency = sum(s["urgency"] for s in scored) / len(scored)
-            kev_factor = 1.0 + 0.2 * min(len(kev_hits), 5)
-            total_risk = min(mean_urgency * kev_factor * 100, 100.0)
-        else:
-            total_risk = 0.0
-
-        # ---- Counts ------------------------------------------------------
         critical_count = sum(1 for f in findings if f.severity == Severity.CRITICAL)
         high_count = sum(1 for f in findings if f.severity == Severity.HIGH)
 
         return ThreatSnapshot(
             total_risk_score=round(total_risk, 2),
-            top_risks=top_risks,
+            top_risks=scored[:5],
             trending_cves=trending,
             new_advisories=new_advisories,
             coverage_score=round(coverage, 4),
@@ -216,6 +137,102 @@ class ThreatFeed:
             kev_count=len(kev_hits),
             ransomware_kev_count=len(ransomware_kev_cves),
         )
+
+    # ------------------------------------------------------------------
+    # Private aggregate helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _gather_epss(
+        epss_tracker: "EPSSTracker | None",
+        findings: list,
+    ) -> tuple[dict[str, float], float]:
+        epss_data: dict[str, float] = {}
+        if epss_tracker is not None:
+            for cve in {f.cve for f in findings if getattr(f, "cve", None)}:
+                trend = epss_tracker.get_trend(cve)
+                epss_data[cve] = trend.current_score
+        cve_findings = [f for f in findings if getattr(f, "cve", None)]
+        covered = sum(1 for f in cve_findings if f.cve in epss_data)
+        coverage = covered / len(cve_findings) if cve_findings else 1.0
+        return epss_data, coverage
+
+    def _score_findings(
+        self,
+        findings: list,
+        epss_data: dict[str, float],
+        kev_cves: set[str],
+        ransomware_kev_cves: set[str],
+        Severity: object,
+    ) -> list[dict]:
+        sev_scores = {
+            Severity.CRITICAL: 1.0,  # type: ignore[attr-defined]
+            Severity.HIGH: 0.75,     # type: ignore[attr-defined]
+            Severity.MEDIUM: 0.4,    # type: ignore[attr-defined]
+            Severity.LOW: 0.15,      # type: ignore[attr-defined]
+            Severity.INFO: 0.05,     # type: ignore[attr-defined]
+        }
+        scored: list[dict] = []
+        for f in findings:
+            cve = getattr(f, "cve", None)
+            sev_num = sev_scores.get(f.severity, 0.1)
+            epss_num = epss_data.get(cve or "", 0.0)
+            kev_bonus = 0.3 if cve in kev_cves else 0.0
+            urgency = (
+                self._W_SEVERITY * sev_num
+                + self._W_EPSS * epss_num
+                + self._W_KEV * kev_bonus
+            )
+            scored.append({
+                "cve": cve,
+                "package": str(f.package),
+                "title": f.title,
+                "severity": f.severity.value,
+                "epss_score": epss_num,
+                "in_kev": cve in kev_cves,
+                "ransomware": cve in ransomware_kev_cves,
+                "urgency": round(urgency, 4),
+            })
+        scored.sort(key=lambda x: x["urgency"], reverse=True)
+        return scored
+
+    @staticmethod
+    def _gather_trending(epss_tracker: "EPSSTracker | None") -> list[dict]:
+        if epss_tracker is None:
+            return []
+        return [
+            {
+                "cve": r.cve,
+                "current_score": r.current_score,
+                "delta_7d": r.delta_7d,
+                "affected_packages": r.affected_packages,
+            }
+            for r in epss_tracker.get_rising(threshold=0.05, days=7)[:10]
+        ]
+
+    @staticmethod
+    def _format_advisories(kev_hits: list) -> list[dict]:
+        advisories = [
+            {
+                "cve": entry.cve,
+                "vendor": entry.vendor,
+                "product": entry.product,
+                "date_added": entry.date_added,
+                "due_date": entry.due_date,
+                "ransomware": entry.known_ransomware,
+            }
+            for entry in kev_hits
+        ]
+        advisories.sort(key=lambda x: x["date_added"], reverse=True)
+        return advisories
+
+    @staticmethod
+    def _compute_risk(scored: list[dict], kev_hits: list) -> float:
+        if not scored:
+            return 0.0
+        mean_urgency = sum(s["urgency"] for s in scored) / len(scored)
+        kev_factor = 1.0 + 0.2 * min(len(kev_hits), 5)
+        return min(mean_urgency * kev_factor * 100, 100.0)
 
     def generate_brief(self, snapshot: ThreatSnapshot | None = None) -> str:
         """Generate a plain-text executive summary block.
