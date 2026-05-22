@@ -4,7 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.dep_graph import DependencyGraph, build_graph_from_package_lock
 from depfence.core.models import PackageId

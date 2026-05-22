@@ -6,7 +6,22 @@ import json
 import re
 from pathlib import Path
 
-from depfence.core.models import Finding, PackageId
+from depfence.core.models import Finding
+
+# (ecosystem, section heading, per-fix line format with {package}/{fix_version}/{current}/{severity})
+_ECOSYSTEM_SECTIONS: list[tuple[str, str, str]] = [
+    ("npm",   "## npm (package.json)",                       "  {package}: {current} → ^{fix_version}  [{severity}]"),
+    ("pypi",  "## PyPI (requirements.txt / pyproject.toml)", "  {package}: {current} → >={fix_version}  [{severity}]"),
+    ("cargo", "## Cargo (Cargo.toml)",                       "  {package}: {current} → {fix_version}  [{severity}]"),
+    ("go",    "## Go (go.mod — run commands below)",         "  go get {package}@v{fix_version}  [{severity}]"),
+]
+
+_CARGO_PATTERNS = (
+    re.compile(r'^(\s*)(\S+)(\s*=\s*)"([^"]*)"(.*)$'),
+    re.compile(r'^(\s*)(\S+)(\s*=\s*\{.*version\s*=\s*)"([^"]*)"(.*)$'),
+)
+
+_CARGO_DEP_SECTIONS = frozenset({"[dependencies]", "[dev-dependencies]", "[build-dependencies]"})
 
 
 def generate_fixes(findings: list[Finding], project_dir: Path) -> list[dict]:
@@ -154,7 +169,6 @@ def apply_fixes_pyproject_toml(pyproject_path: Path, fixes: list[dict]) -> list[
                     new_constraint = fv
                 else:
                     new_constraint = f">={fv}"
-                old_line = line
                 new_line = f'{indent}{pkg_name}{eq_part}"{new_constraint}"{trailing}'
                 new_lines.append(new_line)
                 changes.append(f"{pkg_name}: \"{version_str}\" → \"{new_constraint}\"")
@@ -168,6 +182,32 @@ def apply_fixes_pyproject_toml(pyproject_path: Path, fixes: list[dict]) -> list[
     return changes
 
 
+def _cargo_new_version(version_str: str, fix_version: str) -> str:
+    """Preserve the leading version sigil (^, =, >=) when bumping a Cargo version."""
+    if version_str.startswith("^"):
+        return f"^{fix_version}"
+    if version_str.startswith("="):
+        return f"={fix_version}"
+    if version_str.startswith(">="):
+        return f">={fix_version}"
+    return fix_version
+
+
+def _apply_cargo_fix(line: str, fix_map: dict) -> tuple[str, list[str]]:
+    """Try to apply a fix to one Cargo.toml dependency line.
+
+    Returns (replacement_line, changes_list). changes_list is empty when no fix applied.
+    """
+    m = next(filter(None, (p.match(line) for p in _CARGO_PATTERNS)), None)
+    if not m:
+        return line, []
+    indent, crate, prefix, version_str, suffix = m.groups()
+    if crate.lower() not in fix_map:
+        return line, []
+    new_ver = _cargo_new_version(version_str, fix_map[crate.lower()]["fix_version"])
+    return f'{indent}{crate}{prefix}"{new_ver}"{suffix}', [f'{crate}: "{version_str}" → "{new_ver}"']
+
+
 def apply_fixes_cargo_toml(cargo_path: Path, fixes: list[dict]) -> list[str]:
     """Apply fixes to Cargo.toml [dependencies] section. Returns list of changes made.
 
@@ -176,72 +216,24 @@ def apply_fixes_cargo_toml(cargo_path: Path, fixes: list[dict]) -> list[str]:
     if not cargo_path.exists():
         return []
 
-    content = cargo_path.read_text()
-    changes: list[str] = []
-
     fix_map = {f["package"].lower(): f for f in fixes if f["ecosystem"] == "cargo"}
     if not fix_map:
         return []
 
-    lines = content.splitlines()
     in_deps = False
     new_lines: list[str] = []
+    changes: list[str] = []
 
-    for line in lines:
+    for line in cargo_path.read_text().splitlines():
         stripped = line.strip()
-
         if stripped.startswith("["):
-            # [dependencies] or [dev-dependencies] / [build-dependencies]
-            in_deps = stripped in ("[dependencies]", "[dev-dependencies]", "[build-dependencies]")
+            in_deps = stripped in _CARGO_DEP_SECTIONS
             new_lines.append(line)
             continue
 
-        if not in_deps:
-            new_lines.append(line)
-            continue
-
-        # Simple string value: serde = "1.0.100"
-        m = re.match(r'^(\s*)(\S+)(\s*=\s*)"([^"]*)"(.*)$', line)
-        if m:
-            indent, crate, eq_part, version_str, trailing = m.groups()
-            if crate.lower() in fix_map:
-                fix = fix_map[crate.lower()]
-                fv = fix["fix_version"]
-                # Preserve leading ^ or = sigil if present
-                if version_str.startswith("^"):
-                    new_ver = f"^{fv}"
-                elif version_str.startswith("="):
-                    new_ver = f"={fv}"
-                elif version_str.startswith(">="):
-                    new_ver = f">={fv}"
-                else:
-                    new_ver = fv
-                new_line = f'{indent}{crate}{eq_part}"{new_ver}"{trailing}'
-                new_lines.append(new_line)
-                changes.append(f"{crate}: \"{version_str}\" → \"{new_ver}\"")
-                continue
-
-        # Table value: serde = { version = "1.0.100", features = [...] }
-        m2 = re.match(r'^(\s*)(\S+)(\s*=\s*\{.*version\s*=\s*)"([^"]*)"(.*)$', line)
-        if m2:
-            indent, crate, prefix, version_str, suffix = m2.groups()
-            if crate.lower() in fix_map:
-                fix = fix_map[crate.lower()]
-                fv = fix["fix_version"]
-                if version_str.startswith("^"):
-                    new_ver = f"^{fv}"
-                elif version_str.startswith("="):
-                    new_ver = f"={fv}"
-                elif version_str.startswith(">="):
-                    new_ver = f">={fv}"
-                else:
-                    new_ver = fv
-                new_line = f'{indent}{crate}{prefix}"{new_ver}"{suffix}'
-                new_lines.append(new_line)
-                changes.append(f"{crate}: \"{version_str}\" → \"{new_ver}\"")
-                continue
-
-        new_lines.append(line)
+        new_line, line_changes = _apply_cargo_fix(line, fix_map) if in_deps else (line, [])
+        new_lines.append(new_line)
+        changes.extend(line_changes)
 
     if changes:
         cargo_path.write_text("\n".join(new_lines) + "\n")
@@ -306,6 +298,19 @@ def apply_fixes(project_dir: Path, fixes: list[dict]) -> list[str]:
     return descriptions
 
 
+def _diff_section_lines(eco_fixes: list[dict], heading: str, line_fmt: str) -> list[str]:
+    out = [heading]
+    for f in eco_fixes:
+        out.append(line_fmt.format(
+            package=f["package"],
+            fix_version=f["fix_version"],
+            severity=f["severity"],
+            current=f["current_version"] or "current",
+        ))
+    out.append("")
+    return out
+
+
 def generate_diff(findings: list[Finding], project_dir: Path) -> str:
     """Generate a unified diff showing recommended changes."""
     fixes = generate_fixes(findings, project_dir)
@@ -314,37 +319,10 @@ def generate_diff(findings: list[Finding], project_dir: Path) -> str:
 
     lines = ["# depfence recommended fixes", ""]
 
-    npm_fixes = [f for f in fixes if f["ecosystem"] == "npm"]
-    pypi_fixes = [f for f in fixes if f["ecosystem"] == "pypi"]
-    cargo_fixes = [f for f in fixes if f["ecosystem"] == "cargo"]
-    go_fixes = [f for f in fixes if f["ecosystem"] == "go"]
-
-    if npm_fixes:
-        lines.append("## npm (package.json)")
-        for f in npm_fixes:
-            cur = f["current_version"] or "current"
-            lines.append(f"  {f['package']}: {cur} → ^{f['fix_version']}  [{f['severity']}]")
-        lines.append("")
-
-    if pypi_fixes:
-        lines.append("## PyPI (requirements.txt / pyproject.toml)")
-        for f in pypi_fixes:
-            cur = f["current_version"] or "current"
-            lines.append(f"  {f['package']}: {cur} → >={f['fix_version']}  [{f['severity']}]")
-        lines.append("")
-
-    if cargo_fixes:
-        lines.append("## Cargo (Cargo.toml)")
-        for f in cargo_fixes:
-            cur = f["current_version"] or "current"
-            lines.append(f"  {f['package']}: {cur} → {f['fix_version']}  [{f['severity']}]")
-        lines.append("")
-
-    if go_fixes:
-        lines.append("## Go (go.mod — run commands below)")
-        for f in go_fixes:
-            lines.append(f"  go get {f['package']}@v{f['fix_version']}  [{f['severity']}]")
-        lines.append("")
+    for ecosystem, heading, line_fmt in _ECOSYSTEM_SECTIONS:
+        eco_fixes = [f for f in fixes if f["ecosystem"] == ecosystem]
+        if eco_fixes:
+            lines.extend(_diff_section_lines(eco_fixes, heading, line_fmt))
 
     lines.append(f"\nTotal: {len(fixes)} packages to update")
     return "\n".join(lines)

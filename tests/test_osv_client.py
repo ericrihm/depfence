@@ -1,6 +1,6 @@
 """Tests for OSV.dev client (unit tests with mocked HTTP)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 

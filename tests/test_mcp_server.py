@@ -19,10 +19,8 @@ Covers:
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -36,7 +34,6 @@ from depfence.mcp.server import (
     _require_str,
 )
 from depfence.mcp.tools import (
-    Advisory,
     AlternativeResult,
     CheckResult,
     LicenseResult,
@@ -45,7 +42,6 @@ from depfence.mcp.tools import (
     TyposquatResult,
     _build_recommendation,
     _compute_risk_score,
-    _finding_to_dict,
     _severity_to_score,
 )
 from depfence.core.models import Finding, FindingType, PackageId, Severity

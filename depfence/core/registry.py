@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from depfence.core.models import Finding, PackageId, PackageMeta, ScanResult
+from depfence.core.models import Finding, PackageMeta, ScanResult
 
 
 @runtime_checkable

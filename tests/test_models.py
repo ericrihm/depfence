@@ -4,7 +4,6 @@ from depfence.core.models import (
     Finding,
     FindingType,
     PackageId,
-    PackageMeta,
     ScanResult,
     Severity,
 )

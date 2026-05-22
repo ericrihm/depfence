@@ -4,10 +4,9 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.models import PackageId
-from depfence.core.sbom_diff import SbomDiff, diff_sbom_files, diff_sboms
+from depfence.core.sbom_diff import diff_sbom_files, diff_sboms
 
 
 def test_no_changes():

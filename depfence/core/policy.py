@@ -119,10 +119,8 @@ class PolicyEngine:
         result = PolicyResult()
 
         for finding in findings:
-            matched = False
             for rule in self._rules:
                 if self._matches(rule, finding):
-                    matched = True
                     if rule.action == "allow":
                         result.allowed.append(finding)
                         break
@@ -203,7 +201,6 @@ class PolicyEngine:
 
     def _load_simple(self, path: Path) -> None:
         """Fallback parser when PyYAML not available."""
-        import re
 
         content = path.read_text()
         current_rule: dict = {}

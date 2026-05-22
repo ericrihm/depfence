@@ -6,7 +6,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.core.monorepo import (

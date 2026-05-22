@@ -11,12 +11,10 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from depfence.core.parallel import (
     LockfileEntry,

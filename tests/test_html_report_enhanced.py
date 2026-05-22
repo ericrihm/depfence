@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
 
-import pytest
 
 from depfence.core.html_report import generate_html_report
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity

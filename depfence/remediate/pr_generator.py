@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from depfence.core.models import Finding, FindingType, Severity
+from depfence.core.models import Finding, Severity
 from depfence.remediate.strategies import (
     AnyStrategy,
     RemoveStrategy,

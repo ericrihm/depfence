@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from depfence.core.models import FindingType, Severity
+from depfence.core.models import Severity
 from depfence.scanners.reachability import ReachabilityScanner, _extract_calls, _extract_imports
 
 

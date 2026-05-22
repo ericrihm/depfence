@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -17,7 +14,6 @@ from depfence.core.drift import (
     DriftReport,
     LockfileDiff,
     VersionChange,
-    _parse_packages_from_bytes,
     _run_git,
 )
 from depfence.core.history import ScanDelta, ScanHistory, ScanSnapshot, _project_hash
@@ -402,7 +398,7 @@ class TestCompareLockfiles:
 
 class TestScanHistory:
     def test_db_created(self, tmp_dir):
-        h = ScanHistory(db_dir=tmp_dir)
+        ScanHistory(db_dir=tmp_dir)
         assert (tmp_dir / "scan_history.db").exists()
 
     def test_record_scan_returns_id(self, history_db, tmp_dir):

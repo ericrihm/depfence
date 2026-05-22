@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from depfence.core.models import Finding, FindingType, ScanResult, Severity
-from depfence.core.risk_scorer import score_all_packages
 
 
 @dataclass

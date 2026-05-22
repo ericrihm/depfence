@@ -1,9 +1,6 @@
 """Tests for compliance report generator."""
 
-from datetime import datetime
-from pathlib import Path
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, ScanResult, Severity
 from depfence.reporters.compliance_report import (

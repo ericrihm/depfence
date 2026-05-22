@@ -15,11 +15,8 @@ Architecture:
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
-from depfence.core.models import PackageId
 from depfence.core.threat_db import ThreatDB
 
 
@@ -64,11 +61,6 @@ def check_package(ecosystem: str, name: str, version: str | None = None) -> dict
         "details": {},
         "package": f"{ecosystem}:{name}@{version or 'any'}",
     }
-
-
-def check_batch(packages: list[tuple[str, str, str | None]]) -> list[dict]:
-    """Check multiple packages. Returns list of decisions."""
-    return [check_package(eco, name, ver) for eco, name, ver in packages]
 
 
 def enable_npm_firewall(project_dir: Path) -> str:
@@ -118,7 +110,6 @@ done
 """)
     constraint_script.chmod(0o755)
 
-    pip_conf = project_dir / "pip.conf"
     return f"pip firewall enabled (use: pip install --constraint .depfence/constraints.txt)"
 
 

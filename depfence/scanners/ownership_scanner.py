@@ -112,7 +112,6 @@ def check_version_anomaly(
 
     for i, entry in enumerate(sorted_by_time):
         ver = entry.get("version", "")
-        published = entry.get("published_at", "")
         ver_tuple = _version_tuple(ver)
 
         if ver_tuple[0] < latest_major and i > len(sorted_by_time) // 2:

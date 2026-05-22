@@ -8,7 +8,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.parsers.nuget_lockfiles import parse_packages_lock_json
 from depfence.parsers.gemfile_lockfile import parse_gemfile_lock

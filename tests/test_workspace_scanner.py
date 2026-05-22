@@ -4,7 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.workspace_scanner import (
     WorkspaceInfo,

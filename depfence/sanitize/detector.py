@@ -17,9 +17,8 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
-from depfence.scanners.secrets import SecretMatch, SecretsScanner, _shannon_entropy
+from depfence.scanners.secrets import SecretMatch, SecretsScanner
 
 
 @dataclass
@@ -162,15 +161,6 @@ class SecretsDetector:
                             )
                         )
         return findings
-
-    # ------------------------------------------------------------------
-    # Severity helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def classify_severity(match: SecretMatch) -> str:
-        """Return severity label for display."""
-        return match.severity.value.upper()
 
     # ------------------------------------------------------------------
     # Internal git helpers

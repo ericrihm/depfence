@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.inline_suppress import filter_findings, parse_suppressions
 from depfence.core.models import Finding, FindingType, PackageId, Severity

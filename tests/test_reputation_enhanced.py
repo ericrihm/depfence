@@ -216,7 +216,6 @@ class TestDetectMaliciousPatterns:
     def test_severity_escalation_on_env_exfil(self):
         code = "os.environ['SECRET'] ... requests.get(url)"
         results = detect_malicious_patterns(code)
-        severities = [r[1] for r in results]
         # At least one finding, possibly CRITICAL for env exfil
         assert len(results) > 0
 

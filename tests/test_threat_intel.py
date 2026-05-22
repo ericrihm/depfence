@@ -288,7 +288,6 @@ def test_get_recent_filters_by_date(tmp_path):
     # Do NOT load — start fresh with no seed
     db._entries = {}
 
-    today = datetime.now(tz=timezone.utc).date()
     recent_date = (datetime.now(tz=timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
     old_date = (datetime.now(tz=timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%d")
 

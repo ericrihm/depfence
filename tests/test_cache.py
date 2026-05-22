@@ -10,13 +10,11 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -561,7 +559,7 @@ class TestOsvScannerCacheIntegration:
         """By default, OsvScanner should attempt to initialise a cache."""
         from depfence.scanners.osv_scanner import OsvScanner
 
-        scanner = OsvScanner(use_cache=True)
+        OsvScanner(use_cache=True)
         # _cache may be None if import fails in the test env, but shouldn't error
         # Just check no exception was raised during construction.
         assert True  # reached here = no exception

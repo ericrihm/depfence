@@ -14,8 +14,6 @@ Detection approach:
 
 from __future__ import annotations
 
-import re
-from itertools import product
 
 from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 

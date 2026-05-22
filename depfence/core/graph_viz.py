@@ -6,19 +6,7 @@ color-coded by risk level.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-
 from depfence.core.models import Finding, Severity
-
-
-@dataclass
-class GraphNode:
-    name: str
-    version: str | None = None
-    severity: Severity | None = None
-    is_direct: bool = False
-    findings_count: int = 0
 
 
 def generate_mermaid(

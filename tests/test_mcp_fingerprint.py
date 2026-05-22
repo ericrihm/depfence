@@ -8,7 +8,6 @@ from pathlib import Path
 
 import asyncio
 
-import pytest
 
 from depfence.core.models import FindingType, Severity
 from depfence.scanners.mcp_fingerprint import (

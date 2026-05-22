@@ -7,7 +7,6 @@ short-circuit expensive network calls when possible.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 
-from depfence.analyzers.version_diff import DiffSignal, VersionDiffResult, analyze_diff
+from depfence.analyzers.version_diff import VersionDiffResult, analyze_diff
 
 
 # ---------------------------------------------------------------------------

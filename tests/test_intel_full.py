@@ -7,11 +7,8 @@ Covers KEVMonitor, ThreatFeed/ThreatSnapshot, and the threat-brief CLI command.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.intel.kev_monitor import KEVEntry, KEVMonitor

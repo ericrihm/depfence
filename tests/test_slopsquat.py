@@ -38,7 +38,7 @@ async def test_typosquat_char_confusion(scanner):
 @pytest.mark.asyncio
 async def test_separator_swap(scanner):
     meta = PackageMeta(pkg=PackageId("npm", "express_js", "1.0.0"))
-    findings = await scanner.scan([meta])
+    await scanner.scan([meta])
     # express_js vs express should not trigger (different normalized form)
     # but expressjs vs express should trigger separator score
 

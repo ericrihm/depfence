@@ -36,13 +36,6 @@ _SUSPICIOUS_SCRIPT_PATTERNS = [
     (r"compile\s*\(.*exec", "Compiles and executes dynamic code"),
 ]
 
-_NAME_TYPOSQUAT_INDICATORS = [
-    (r"^[a-z]+-[a-z]+s$", 0.3),  # pluralized suffix
-    (r"^(node|npm|pip|yarn|react|vue|angular|express|django|flask|torch|tensor)[-_]", 0.4),
-    (r"[-_](cli|tool|util|helper|kit|lib|core|sdk)$", 0.2),
-]
-
-
 class BehavioralScanner:
     name = "behavioral"
     ecosystems = ["npm", "pypi", "cargo", "go"]

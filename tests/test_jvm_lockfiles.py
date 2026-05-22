@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.parsers.jvm_lockfiles import (
     detect_jvm_lockfiles,

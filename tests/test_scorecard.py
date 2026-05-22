@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.core.scorecard_client import (
     ScorecardCheck,
     ScorecardClient,
@@ -315,8 +315,6 @@ class TestScorecardClientContextManager:
 class TestBatchScores:
     @pytest.mark.asyncio
     async def test_batch_returns_dict_keyed_by_url(self):
-        api_data = _make_api_response(score=6.5)
-
         with patch(
             "depfence.core.scorecard_client.ScorecardClient.get_score",
             new_callable=AsyncMock,

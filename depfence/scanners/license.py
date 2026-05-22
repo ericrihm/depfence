@@ -32,8 +32,7 @@ from __future__ import annotations
 
 import json
 import re
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -69,13 +68,6 @@ _CATEGORY_LABELS: dict[str, str] = {
     "non_commercial": "Non-Commercial",
     "unknown":        "Unknown",
 }
-
-# SPDX identifiers that have permissive-override exceptions commonly used
-_WITH_EXCEPTIONS: dict[str, str] = {
-    "Classpath-exception-2.0": "permissive",  # GPL + Classpath = effectively permissive in JVM
-    "FOSS-exception-2.0": "permissive",
-}
-
 
 # ---------------------------------------------------------------------------
 # License DB loader

@@ -1,9 +1,7 @@
 """Tests for dependency update safety advisor."""
 
-import pytest
 
 from depfence.core.update_advisor import (
-    UpdateRecommendation,
     UpdateRisk,
     analyze_update,
     batch_analyze,

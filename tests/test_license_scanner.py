@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.license_scanner import LicenseScanner
 
 if sys.version_info >= (3, 11):
-    import tomllib
+    pass
 else:
-    import tomli as tomllib  # type: ignore[no-reuse-declared-type]
+    pass  # type: ignore[no-reuse-declared-type]
 
 
 @pytest.fixture

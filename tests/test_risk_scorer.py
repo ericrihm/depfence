@@ -1,10 +1,8 @@
 """Tests for risk scoring engine."""
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, Severity
 from depfence.core.risk_scorer import (
-    PackageRiskScore,
     risk_summary,
     score_all_packages,
     score_package,

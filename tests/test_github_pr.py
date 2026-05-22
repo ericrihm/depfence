@@ -1,6 +1,6 @@
 """Tests for GitHub PR annotation integration."""
 
-from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
+from depfence.core.models import Finding, FindingType, ScanResult, Severity
 from depfence.integrations.github_pr import format_pr_comment
 
 

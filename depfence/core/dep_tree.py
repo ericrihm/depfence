@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,7 +121,6 @@ def build_tree_from_package_lock(lockfile_path: Path) -> list[DepNode]:
         canonical_key = nested_key if nested_key in pkg_by_path else f"node_modules/{name}"
 
         # Avoid infinite recursion from circular references
-        cycle_key = f"{canonical_key}@{depth}"
         if canonical_key in visited or depth >= 50:
             return node
 

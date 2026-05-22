@@ -216,18 +216,6 @@ class DepfenceMcpServer:
 
         await self._serve(reader, _write)
 
-    async def run_with_streams(
-        self,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-    ) -> None:
-        """Run the server with explicit stream objects (for testing)."""
-        async def _write(data: bytes) -> None:
-            writer.write(data)
-            await writer.drain()
-
-        await self._serve(reader, _write)
-
     # ------------------------------------------------------------------
     # Core serve loop
     # ------------------------------------------------------------------
@@ -428,70 +416,6 @@ def _require_str(args: dict[str, Any], key: str) -> str:
     if not isinstance(val, str) or not val.strip():
         raise McpError(-32602, f"Invalid params: '{key}' is required and must be a non-empty string")
     return val
-
-
-# ---------------------------------------------------------------------------
-# Self-test
-# ---------------------------------------------------------------------------
-
-async def _self_test() -> None:
-    """Run a quick self-test to verify tools work end-to-end."""
-    import sys
-
-    server = DepfenceMcpServer()
-
-    print("depfence MCP self-test", file=sys.stderr)
-    print("=" * 40, file=sys.stderr)
-
-    # 1. initialize
-    resp = await server.handle_request({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": PROTOCOL_VERSION, "clientInfo": {"name": "test"}},
-    })
-    assert resp and resp.get("result", {}).get("serverInfo", {}).get("name") == "depfence"
-    print("[OK] initialize", file=sys.stderr)
-
-    # 2. tools/list
-    resp = await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-    tools = resp["result"]["tools"]
-    assert len(tools) == 6
-    print(f"[OK] tools/list — {len(tools)} tools registered", file=sys.stderr)
-
-    # 3. check_package (fast, may use cached results)
-    resp = await server.handle_request({
-        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-        "params": {"name": "check_package", "arguments": {"name": "requests", "ecosystem": "pypi"}},
-    })
-    content_str = resp["result"]["content"][0]["text"]
-    content = json.loads(content_str)
-    print(f"[OK] check_package requests/pypi — risk_score={content['risk_score']}", file=sys.stderr)
-
-    # 4. is_typosquat
-    resp = await server.handle_request({
-        "jsonrpc": "2.0", "id": 4, "method": "tools/call",
-        "params": {"name": "is_typosquat", "arguments": {"name": "reqests", "ecosystem": "pypi"}},
-    })
-    ts = json.loads(resp["result"]["content"][0]["text"])
-    print(f"[OK] is_typosquat 'reqests' — is_typosquat={ts['is_typosquat']}", file=sys.stderr)
-
-    # 5. suggest_alternative
-    resp = await server.handle_request({
-        "jsonrpc": "2.0", "id": 5, "method": "tools/call",
-        "params": {"name": "suggest_alternative", "arguments": {"package": "requests", "ecosystem": "pypi"}},
-    })
-    alts = json.loads(resp["result"]["content"][0]["text"])
-    print(f"[OK] suggest_alternative — {alts['alternatives']}", file=sys.stderr)
-
-    # 6. check_license
-    resp = await server.handle_request({
-        "jsonrpc": "2.0", "id": 6, "method": "tools/call",
-        "params": {"name": "check_license", "arguments": {"package": "requests", "ecosystem": "pypi"}},
-    })
-    lic = json.loads(resp["result"]["content"][0]["text"])
-    print(f"[OK] check_license requests — {lic['license']} ({lic['tier']})", file=sys.stderr)
-
-    print("", file=sys.stderr)
-    print("All self-tests passed.", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

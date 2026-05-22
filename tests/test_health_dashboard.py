@@ -1,9 +1,7 @@
 """Tests for project health dashboard."""
 
-import pytest
 
 from depfence.core.health_dashboard import (
-    HealthDashboard,
     compute_health,
     render_health_text,
 )

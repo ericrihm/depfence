@@ -1,6 +1,5 @@
 """Tests for Dockerfile security scanner."""
 
-import asyncio
 import tempfile
 from pathlib import Path
 

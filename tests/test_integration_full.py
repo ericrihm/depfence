@@ -7,11 +7,10 @@ are mocked throughout to avoid real API hits.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -259,7 +258,6 @@ async def test_full_scan_finds_dockerfile_issues(full_project: Path) -> None:
     assert len(findings) > 0
 
     titles = [f.title for f in findings]
-    title_str = " ".join(titles).lower()
 
     # Should detect unpinned :latest tag
     assert any("latest" in t.lower() or "unpinned" in t.lower() for t in titles), (
@@ -940,11 +938,6 @@ async def test_pinning_scanner_on_range_requirements(tmp_path: Path) -> None:
     findings = await scanner.scan_project(tmp_path)
 
     assert len(findings) >= 2  # requests and django at least
-
-    pkg_names_found = {
-        finding.package.split(":")[-1] if ":" in finding.package else finding.package
-        for finding in findings
-    }
 
     # requests>=2.25.0 → loosely pinned
     assert any("requests" in str(f.package) for f in findings), (

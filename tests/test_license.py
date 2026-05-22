@@ -13,14 +13,12 @@ Covers:
 
 from __future__ import annotations
 
-import json
-import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
 
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.license import (
     LicenseScanner,
     LicensePolicyResult,

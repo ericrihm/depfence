@@ -11,7 +11,7 @@ import ast
 import re
 from pathlib import Path
 
-from depfence.core.models import Finding, FindingType, PackageId, Severity
+from depfence.core.models import Finding, FindingType, Severity
 
 _DANGEROUS_IMPORTS = {
     "subprocess", "os", "shutil", "ctypes", "socket", "http.client",

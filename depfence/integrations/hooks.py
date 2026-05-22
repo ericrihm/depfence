@@ -10,19 +10,3 @@ Available hooks:
   - on_finding: When a finding is created (kwargs: finding)
   - on_threat: When a high-confidence threat is detected (kwargs: finding, meta)
 """
-
-from __future__ import annotations
-
-from depfence.core.models import Finding, Severity
-from depfence.core.registry import get_registry
-
-
-async def notify_threat(finding: Finding) -> None:
-    if finding.severity in (Severity.CRITICAL, Severity.HIGH) and finding.confidence >= 0.7:
-        registry = get_registry()
-        await registry.fire_hook("on_threat", finding=finding)
-
-
-def register_defaults() -> None:
-    """Register default hook handlers. Extended by plugins at load time."""
-    pass

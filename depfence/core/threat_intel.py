@@ -10,15 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 import httpx
-
-if TYPE_CHECKING:
-    pass
 
 from depfence.core.models import PackageId
 

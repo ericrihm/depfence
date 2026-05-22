@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.core.policy import (
     PolicyConfig,
-    PolicyRule,
     evaluate_policy,
     find_config,
     generate_default_config,

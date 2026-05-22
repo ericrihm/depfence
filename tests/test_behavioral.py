@@ -2,7 +2,7 @@
 
 import pytest
 
-from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import FindingType, PackageId, PackageMeta
 from depfence.scanners.behavioral import BehavioralScanner, check_source_patterns
 
 

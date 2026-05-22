@@ -1,9 +1,7 @@
 """Tests for ScanCache diff scanning."""
 
-import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.core.models import PackageId
 from depfence.core.scan_cache import ScanCache

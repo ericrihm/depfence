@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 
-import pytest
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity, ScanResult
 from depfence.reporters.sarif_out import SarifReporter, _partial_fingerprint

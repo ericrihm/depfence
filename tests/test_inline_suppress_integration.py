@@ -200,7 +200,6 @@ class TestInlineSuppressIntegration:
         assert "CVE-2024-1234" in suppressed_cves
         assert "CVE-2024-9999" not in suppressed_cves
 
-        active_names = [f.package.name for f in result.findings]
         flask_active = [f for f in result.findings if f.package.name == "flask"]
         assert len(flask_active) == 1
 

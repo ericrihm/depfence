@@ -236,7 +236,6 @@ def check(package_name: str, ecosystem: str, pkg_version: str | None) -> None:
     """Check a single package by name."""
     from depfence.core.fetcher import fetch_meta
     from depfence.core.models import PackageId
-    from depfence.core.registry import get_registry
     from depfence.scanners.reputation import ReputationScanner
 
     pkg = PackageId(ecosystem, package_name, pkg_version)
@@ -289,7 +288,6 @@ def sbom(path: str, fmt: str, output: str | None) -> None:
         from depfence.reporters.spdx_out import generate_spdx_with_packages
         sbom_data = generate_spdx_with_packages(result, all_packages, project_name=project_dir.name)
         label = "SPDX 2.3 SBOM"
-        default_filename = "depfence-sbom.spdx.json"
     else:
         from depfence.reporters.cyclonedx import generate_sbom
         sbom_data = generate_sbom(
@@ -299,7 +297,6 @@ def sbom(path: str, fmt: str, output: str | None) -> None:
             project_version="",
         )
         label = "CycloneDX SBOM"
-        default_filename = "depfence-sbom.json"
 
     rendered = json.dumps(sbom_data, indent=2)
     if output:
@@ -315,7 +312,7 @@ def sbom(path: str, fmt: str, output: str | None) -> None:
 @click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif"]))
 def ci_audit(path: str, fmt: str) -> None:
     """Audit CI environment for secret exposure risks."""
-    from depfence.core.models import Finding, FindingType, PackageId, Severity, ScanResult
+    from depfence.core.models import ScanResult
     from depfence.scanners.ci_secrets import CiSecretsScanner
 
     scanner = CiSecretsScanner()
@@ -1581,7 +1578,6 @@ def update_plan(path: str, fmt: str) -> None:
         click.echo(json.dumps(plan, indent=2))
     else:
         from rich.console import Console
-        from rich.table import Table
 
         console = Console()
         if plan["auto_merge"]:
@@ -1793,7 +1789,6 @@ def stats(path: str, fmt: str) -> None:
     else:
         from rich.console import Console
         from rich.table import Table
-        from rich.panel import Panel
 
         console = Console()
 
@@ -2098,8 +2093,6 @@ def info() -> None:
 @click.argument("path", default=".", type=click.Path(exists=True))
 def policy_check(path: str) -> None:
     """Evaluate scan findings against policy rules in depfence.yml."""
-    import asyncio
-
     from depfence.core.engine import scan_directory
     from depfence.core.policy import find_config, load_config, evaluate_policy
 
@@ -2126,7 +2119,6 @@ def policy_check(path: str) -> None:
             click.echo(f"  [{f.severity.name}] {f.package.name}: {f.title}")
         if len(blocked) > 10:
             click.echo(f"  ... and {len(blocked) - 10} more")
-        import sys
         sys.exit(1)
     else:
         click.echo("\nAll findings within policy threshold.")
@@ -2137,12 +2129,10 @@ def policy_check(path: str) -> None:
 def doctor() -> None:
     """Self-check: verify depfence installation, plugins, and connectivity."""
     import importlib
-    import shutil
 
     checks = []
 
     # Check Python version
-    import sys
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     checks.append(("Python version", py_ver, sys.version_info >= (3, 10)))
 
@@ -2669,7 +2659,6 @@ def red_team(path: str, fmt: str, fail_below: int) -> None:
     report = run_red_team(project_dir)
 
     if fmt == "json":
-        import json as _json
         click.echo(report.to_json())
         if fail_below and report.score < fail_below:
             sys.exit(1)

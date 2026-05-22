@@ -35,7 +35,6 @@ from depfence.core.models import Finding, FindingType, Severity
 # Helpers
 # ---------------------------------------------------------------------------
 
-_EXACT_RE = re.compile(r"^[0-9]+\.[0-9]")  # bare "1.2.3" style (Cargo)
 _CARGO_OPEN_RE = re.compile(r"^(>=|>|\*)")  # open-ended Cargo range
 
 
@@ -289,7 +288,6 @@ class PinningScanner:
             stripped = line.strip()
             if dep_section_re.match(stripped):
                 in_deps = True
-                section = dep_section_re.match(stripped).group(1).lower()
                 continue
             if other_section_re.match(stripped) and not dep_section_re.match(stripped):
                 in_deps = False

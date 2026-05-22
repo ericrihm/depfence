@@ -16,19 +16,9 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from depfence.core.models import Finding
-
 log = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = Path.home() / ".depfence" / "cache" / "epss_history.db"
-
-# CISA KEV JSON feed URL
-CISA_KEV_URL = (
-    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-)
 
 
 # ---------------------------------------------------------------------------

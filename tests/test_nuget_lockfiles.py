@@ -4,7 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from depfence.parsers.nuget_lockfiles import (
     detect_nuget_lockfiles,

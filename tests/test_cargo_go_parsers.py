@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from depfence.parsers.cargo_lockfile import parse_cargo_lock
 from depfence.parsers.go_sum import parse_go_mod, parse_go_sum

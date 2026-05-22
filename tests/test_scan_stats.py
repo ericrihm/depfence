@@ -1,6 +1,5 @@
 """Tests for scan statistics module."""
 
-import pytest
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.core.scan_stats import comparison_summary, compute_stats
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 # ---------------------------------------------------------------------------
 # Popular package lists (top ~200 per ecosystem)
 # ---------------------------------------------------------------------------
@@ -205,9 +204,6 @@ _HOMOGLYPHS: dict[str, list[str]] = {
     "d": ["cl"],
 }
 
-# Separator characters used in package names
-_SEPARATORS = ["-", "_", ".", ""]
-
 
 # ---------------------------------------------------------------------------
 # Dataclass
@@ -286,7 +282,7 @@ def keyboard_distance(a: str, b: str) -> float:
     if not b:
         return float(len(a))
 
-    la, lb = len(a), len(b)
+    lb = len(b)
     prev = [float(j) for j in range(lb + 1)]
     curr = [0.0] * (lb + 1)
 
@@ -315,6 +311,73 @@ def keyboard_distance(a: str, b: str) -> float:
 # Variant generation
 # ---------------------------------------------------------------------------
 
+def _transposition_variants(name: str) -> set[str]:
+    variants: set[str] = set()
+    chars = list(name)
+    for i in range(len(name) - 1):
+        chars[i], chars[i + 1] = chars[i + 1], chars[i]
+        v = "".join(chars)
+        if v != name:
+            variants.add(v)
+        chars[i], chars[i + 1] = chars[i + 1], chars[i]
+    return variants
+
+
+def _omission_variants(name: str) -> set[str]:
+    return {name[:i] + name[i + 1:] for i in range(len(name)) if name[:i] + name[i + 1:] != name}
+
+
+def _insertion_variants(name: str) -> set[str]:
+    return {name[:i] + name[i] + name[i:] for i in range(len(name))} - {name}
+
+
+def _homoglyph_variants(name: str) -> set[str]:
+    variants: set[str] = set()
+    for i, ch in enumerate(name):
+        for replacement in _HOMOGLYPHS.get(ch.lower(), []):
+            v = name[:i] + replacement + name[i + 1:]
+            if v != name:
+                variants.add(v)
+    for pattern, replacements in _HOMOGLYPHS.items():
+        if len(pattern) <= 1:
+            continue
+        idx = 0
+        while True:
+            idx = name.find(pattern, idx)
+            if idx == -1:
+                break
+            for rep in replacements:
+                v = name[:idx] + rep + name[idx + len(pattern):]
+                if v != name:
+                    variants.add(v)
+            idx += 1
+    return variants
+
+
+def _separator_variants(name: str) -> set[str]:
+    variants: set[str] = set()
+    if not any(s in name for s in ("-", "_", ".")):
+        return variants
+    bare = name.replace("-", "").replace("_", "").replace(".", "")
+    if bare != name:
+        variants.add(bare)
+    for sep in ("-", "_", "."):
+        if sep not in name:
+            continue
+        for alt_sep in ("-", "_", ".", ""):
+            if alt_sep != sep:
+                v = name.replace(sep, alt_sep)
+                if v != name:
+                    variants.add(v)
+    return variants
+
+
+def _scope_variants(name: str) -> set[str]:
+    if "/" in name:
+        return set()
+    return {f"{scope}/{name}" for scope in ("@attacker", "@evil", "@malware")}
+
+
 def common_substitutions(name: str) -> list[str]:
     """Generate common typosquat variants of *name*.
 
@@ -326,74 +389,14 @@ def common_substitutions(name: str) -> list[str]:
     - Separator confusion        ("my-package" → "mypackage" → "my_package")
     - Scope squatting            ("package" → "@someuser/package")
     """
-    variants: set[str] = set()
-    n = len(name)
-
-    # 1. Adjacent transpositions
-    for i in range(n - 1):
-        swapped = list(name)
-        swapped[i], swapped[i + 1] = swapped[i + 1], swapped[i]
-        v = "".join(swapped)
-        if v != name:
-            variants.add(v)
-
-    # 2. Character omissions (drop one character)
-    for i in range(n):
-        v = name[:i] + name[i + 1:]
-        if v and v != name:
-            variants.add(v)
-
-    # 3. Character insertions (duplicate a character)
-    for i in range(n):
-        v = name[:i] + name[i] + name[i:]
-        if v != name:
-            variants.add(v)
-
-    # 4. Homoglyph substitutions
-    # Single-character homoglyphs
-    for i, ch in enumerate(name):
-        ch_lower = ch.lower()
-        for replacement in _HOMOGLYPHS.get(ch_lower, []):
-            v = name[:i] + replacement + name[i + 1:]
-            if v != name:
-                variants.add(v)
-    # Multi-character homoglyphs (e.g. "rn"→"m", "m"→"rn")
-    for pattern, replacements in _HOMOGLYPHS.items():
-        if len(pattern) > 1:
-            idx = 0
-            while True:
-                idx = name.find(pattern, idx)
-                if idx == -1:
-                    break
-                for rep in replacements:
-                    v = name[:idx] + rep + name[idx + len(pattern):]
-                    if v != name:
-                        variants.add(v)
-                idx += 1
-
-    # 5. Separator confusion – normalise the name then re-emit with all separators
-    # Detect which separator is present (if any)
-    has_sep = any(s in name for s in ("-", "_", "."))
-    # Build the "bare" form (no separators)
-    bare = name.replace("-", "").replace("_", "").replace(".", "")
-    if has_sep and bare != name:
-        variants.add(bare)  # no separator
-    # Add all separator variants
-    for sep in ("-", "_", "."):
-        if sep in name:
-            # Replace existing separators with alternatives
-            for alt_sep in ("-", "_", ".", ""):
-                if alt_sep != sep:
-                    v = name.replace(sep, alt_sep)
-                    if v != name:
-                        variants.add(v)
-
-    # 6. Scope squatting – add fake npm-style scope prefix variants
-    # (These are illustrative; the caller may filter by ecosystem)
-    if "/" not in name:
-        for scope in ("@attacker", "@evil", "@malware"):
-            variants.add(f"{scope}/{name}")
-
+    variants = (
+        _transposition_variants(name)
+        | _omission_variants(name)
+        | _insertion_variants(name)
+        | _homoglyph_variants(name)
+        | _separator_variants(name)
+        | _scope_variants(name)
+    )
     return sorted(variants)
 
 

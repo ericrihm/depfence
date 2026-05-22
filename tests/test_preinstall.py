@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from depfence.core.models import FindingType, Severity
+from depfence.core.models import Severity
 from depfence.scanners.preinstall import PreinstallScanner
 
 

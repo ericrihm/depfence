@@ -20,9 +20,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import math
-import re
 import tempfile
 from pathlib import Path
 
@@ -608,7 +605,7 @@ def test_sanitizer_report_save(tmp_path):
 # ===========================================================================
 
 def test_detector_from_project_no_yml(tmp_path):
-    from depfence.sanitize.detector import DetectorConfig, SecretsDetector
+    from depfence.sanitize.detector import SecretsDetector
     detector = SecretsDetector.from_project(tmp_path)
     assert detector is not None
 

@@ -8,12 +8,187 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from depfence.core.fetcher import fetch_batch
-from depfence.core.inline_suppress import filter_findings as _inline_filter, parse_suppressions
+from depfence.core.inline_suppress import filter_findings as _inline_filter
+from depfence.core.inline_suppress import parse_suppressions
 from depfence.core.lockfile import detect_ecosystem, parse_lockfile
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, ScanResult, Severity
 from depfence.core.registry import get_registry
 
 log = logging.getLogger(__name__)
+
+
+def _parse_lockfiles(
+    project_dir: Path,
+    ecosystems: list[str] | None,
+) -> tuple[list, list[PackageId], list[str]]:
+    """Detect, filter, and parse lockfiles. Returns (lockfiles, packages, errors)."""
+    lockfiles = detect_ecosystem(project_dir)
+    if not lockfiles:
+        return [], [], [f"No lockfiles found in {project_dir}"]
+    if ecosystems:
+        lockfiles = [(eco, p) for eco, p in lockfiles if eco in ecosystems]
+    packages: list[PackageId] = []
+    errors: list[str] = []
+    for eco, lockfile_path in lockfiles:
+        try:
+            packages.extend(parse_lockfile(eco, lockfile_path))
+        except Exception as e:
+            errors.append(f"Error parsing {lockfile_path}: {e}")
+    return lockfiles, packages, errors
+
+
+def _configure_cache(registry: object, use_cache: bool) -> None:
+    if use_cache:
+        return
+    for scanner in registry.scanners.values():  # type: ignore[attr-defined]
+        if hasattr(scanner, "_use_cache"):
+            scanner._use_cache = False
+        if hasattr(scanner, "_cache"):
+            scanner._cache = None
+
+
+async def _run_scanners(
+    registry: object,
+    metas: list,
+    skip_advisory: bool,
+    skip_behavioral: bool,
+    skip_reputation: bool,
+) -> tuple[list[Finding], list[str]]:
+    skip = {
+        "behavioral": skip_behavioral,
+        "reputation": skip_reputation,
+    }
+    tasks = []
+    for name, scanner in registry.scanners.items():  # type: ignore[attr-defined]
+        if skip_advisory and "advisory" in name:
+            continue
+        if skip.get(name, False):
+            continue
+        relevant = [m for m in metas if m.pkg.ecosystem in scanner.ecosystems]
+        if relevant:
+            tasks.append(scanner.scan(relevant))
+    if not tasks:
+        return [], []
+    findings: list[Finding] = []
+    errors: list[str] = []
+    for sr in await asyncio.gather(*tasks, return_exceptions=True):
+        if isinstance(sr, list):
+            findings.extend(sr)
+        elif isinstance(sr, Exception):
+            errors.append(str(sr))
+    return findings, errors
+
+
+async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], list[str]]:
+    tasks = [
+        analyzer.analyze(meta, None)
+        for _name, analyzer in registry.analyzers.items()  # type: ignore[attr-defined]
+        for meta in metas
+    ]
+    if not tasks:
+        return [], []
+    findings: list[Finding] = []
+    errors: list[str] = []
+    for ar in await asyncio.gather(*tasks, return_exceptions=True):
+        if isinstance(ar, list):
+            findings.extend(ar)
+        elif isinstance(ar, Exception):
+            errors.append(str(ar))
+    return findings, errors
+
+
+async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[str]]:
+    from depfence.scanners.dockerfile_scanner import DockerfileScanner
+    from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
+    from depfence.scanners.pinning_scanner import PinningScanner
+    from depfence.scanners.secrets_scanner import SecretsScanner
+    from depfence.scanners.terraform_scanner import TerraformScanner
+
+    instances = [
+        DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
+        SecretsScanner(), PinningScanner(),
+    ]
+    findings: list[Finding] = []
+    errors: list[str] = []
+    proj_tasks = [s.scan_project(project_dir) for s in instances]
+    for pr in await asyncio.gather(*proj_tasks, return_exceptions=True):
+        if isinstance(pr, list):
+            findings.extend(pr)
+        elif isinstance(pr, Exception):
+            log.debug("Project scanner error: %s", pr)
+            errors.append(str(pr))
+    return findings, errors
+
+
+async def _enrich_findings(
+    all_packages: list[PackageId],
+    all_findings: list[Finding],
+) -> tuple[list[Finding], list[str]]:
+    errors: list[str] = []
+
+    try:
+        from depfence.core.threat_intel import ThreatIntelDB
+
+        sev_map = {
+            "critical": Severity.CRITICAL,
+            "high": Severity.HIGH,
+            "medium": Severity.MEDIUM,
+            "low": Severity.LOW,
+        }
+        db = ThreatIntelDB()
+        db.load()
+        for pkg in all_packages:
+            entry = db.lookup(pkg.name, pkg.ecosystem)
+            if entry:
+                all_findings.append(
+                    Finding(
+                        finding_type=FindingType.MALICIOUS,
+                        severity=sev_map.get(entry.severity.lower(), Severity.HIGH),
+                        package=pkg,
+                        title=f"Known malicious package: {entry.threat_type}",
+                        detail=entry.description,
+                        metadata={
+                            "threat_type": entry.threat_type,
+                            "source": entry.source,
+                            "reported_date": entry.reported_date,
+                            "indicators": entry.indicators,
+                        },
+                    )
+                )
+    except Exception as exc:
+        log.debug("Threat intel lookup failed: %s", exc)
+        errors.append(f"Threat intel lookup error: {exc}")
+
+    try:
+        from depfence.core.epss_enricher import enrich_findings
+
+        all_findings = await enrich_findings(all_findings)
+    except Exception as exc:
+        log.debug("EPSS enrichment failed: %s", exc)
+        errors.append(f"EPSS enrichment error: {exc}")
+
+    try:
+        from depfence.core.kev_enricher import enrich_with_kev
+
+        all_findings = await enrich_with_kev(all_findings)
+    except Exception as exc:
+        log.debug("KEV enrichment failed: %s", exc)
+        errors.append(f"KEV enrichment error: {exc}")
+
+    return all_findings, errors
+
+
+def _merge_suppressions(lockfiles: list) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for _eco, lf_path in lockfiles:
+        for pkg, tokens in parse_suppressions(lf_path).items():
+            if pkg not in merged:
+                merged[pkg] = tokens
+            elif not merged[pkg] or not tokens:
+                merged[pkg] = []
+            else:
+                merged[pkg] = list(dict.fromkeys(merged[pkg] + tokens))
+    return merged
 
 
 async def scan_directory(
@@ -27,27 +202,13 @@ async def scan_directory(
     enrich: bool = True,
     use_cache: bool = True,
 ) -> ScanResult:
-    result = ScanResult(
-        target=str(project_dir),
-        ecosystem="multi",
-    )
+    result = ScanResult(target=str(project_dir), ecosystem="multi")
 
-    lockfiles = detect_ecosystem(project_dir)
+    lockfiles, all_packages, parse_errors = _parse_lockfiles(project_dir, ecosystems)
+    result.errors.extend(parse_errors)
     if not lockfiles:
-        result.errors.append(f"No lockfiles found in {project_dir}")
         result.completed_at = datetime.now(tz=timezone.utc)
         return result
-
-    if ecosystems:
-        lockfiles = [(eco, p) for eco, p in lockfiles if eco in ecosystems]
-
-    all_packages: list[PackageId] = []
-    for eco, lockfile_path in lockfiles:
-        try:
-            packages = parse_lockfile(eco, lockfile_path)
-            all_packages.extend(packages)
-        except Exception as e:
-            result.errors.append(f"Error parsing {lockfile_path}: {e}")
 
     result.packages_scanned = len(all_packages)
     if not all_packages:
@@ -60,144 +221,32 @@ async def scan_directory(
         metas = [PackageMeta(pkg=p) for p in all_packages]
 
     registry = get_registry()
+    _configure_cache(registry, use_cache)
+
     all_findings: list[Finding] = []
 
-    # Propagate cache preference to scanners that support it
-    if not use_cache:
-        for scanner in registry.scanners.values():
-            if hasattr(scanner, "_use_cache"):
-                scanner._use_cache = False
-            if hasattr(scanner, "_cache"):
-                scanner._cache = None
+    scanner_findings, scanner_errors = await _run_scanners(
+        registry, metas, skip_advisory, skip_behavioral, skip_reputation
+    )
+    all_findings.extend(scanner_findings)
+    result.errors.extend(scanner_errors)
 
-    scanner_tasks = []
-    for name, scanner in registry.scanners.items():
-        if skip_advisory and "advisory" in name:
-            continue
-        if skip_behavioral and name == "behavioral":
-            continue
-        if skip_reputation and name == "reputation":
-            continue
-        relevant = [m for m in metas if m.pkg.ecosystem in scanner.ecosystems]
-        if relevant:
-            scanner_tasks.append(scanner.scan(relevant))
-
-    if scanner_tasks:
-        scanner_results = await asyncio.gather(*scanner_tasks, return_exceptions=True)
-        for sr in scanner_results:
-            if isinstance(sr, list):
-                all_findings.extend(sr)
-            elif isinstance(sr, Exception):
-                result.errors.append(str(sr))
-
-    analyzer_tasks = []
-    for name, analyzer in registry.analyzers.items():
-        for meta in metas:
-            analyzer_tasks.append(analyzer.analyze(meta, None))
-
-    if analyzer_tasks:
-        analyzer_results = await asyncio.gather(*analyzer_tasks, return_exceptions=True)
-        for ar in analyzer_results:
-            if isinstance(ar, list):
-                all_findings.extend(ar)
-            elif isinstance(ar, Exception):
-                result.errors.append(str(ar))
+    analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
+    all_findings.extend(analyzer_findings)
+    result.errors.extend(analyzer_errors)
 
     await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
 
-    # Step 4: Run project-level scanners (Dockerfile, Terraform, GHA workflow, secrets, pinning)
     if project_scanners:
-        from depfence.scanners.dockerfile_scanner import DockerfileScanner
-        from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
-        from depfence.scanners.pinning_scanner import PinningScanner
-        from depfence.scanners.secrets_scanner import SecretsScanner
-        from depfence.scanners.terraform_scanner import TerraformScanner
-
-        proj_scanner_instances = [
-            DockerfileScanner(),
-            TerraformScanner(),
-            GhaWorkflowScanner(),
-            SecretsScanner(),
-            PinningScanner(),
-        ]
-        proj_tasks = [s.scan_project(project_dir) for s in proj_scanner_instances]
-        proj_results = await asyncio.gather(*proj_tasks, return_exceptions=True)
-        for pr in proj_results:
-            if isinstance(pr, list):
-                all_findings.extend(pr)
-            elif isinstance(pr, Exception):
-                log.debug("Project scanner error: %s", pr)
-                result.errors.append(str(pr))
+        proj_findings, proj_errors = await _run_project_scanners(project_dir)
+        all_findings.extend(proj_findings)
+        result.errors.extend(proj_errors)
 
     if enrich:
-        # Step 5: Threat intel DB lookup — instantly flag known-malicious packages
-        try:
-            from depfence.core.threat_intel import ThreatIntelDB
+        all_findings, enrich_errors = await _enrich_findings(all_packages, all_findings)
+        result.errors.extend(enrich_errors)
 
-            db = ThreatIntelDB()
-            db.load()
-            for pkg in all_packages:
-                entry = db.lookup(pkg.name, pkg.ecosystem)
-                if entry:
-                    sev_map = {
-                        "critical": Severity.CRITICAL,
-                        "high": Severity.HIGH,
-                        "medium": Severity.MEDIUM,
-                        "low": Severity.LOW,
-                    }
-                    severity = sev_map.get(entry.severity.lower(), Severity.HIGH)
-                    all_findings.append(
-                        Finding(
-                            finding_type=FindingType.MALICIOUS,
-                            severity=severity,
-                            package=pkg,
-                            title=f"Known malicious package: {entry.threat_type}",
-                            detail=entry.description,
-                            metadata={
-                                "threat_type": entry.threat_type,
-                                "source": entry.source,
-                                "reported_date": entry.reported_date,
-                                "indicators": entry.indicators,
-                            },
-                        )
-                    )
-        except Exception as exc:
-            log.debug("Threat intel lookup failed: %s", exc)
-            result.errors.append(f"Threat intel lookup error: {exc}")
-
-        # Step 6: Enrich findings with EPSS scores (CVE-backed findings only)
-        try:
-            from depfence.core.epss_enricher import enrich_findings
-
-            all_findings = await enrich_findings(all_findings)
-        except Exception as exc:
-            log.debug("EPSS enrichment failed: %s", exc)
-            result.errors.append(f"EPSS enrichment error: {exc}")
-
-        # Step 7: Enrich findings with CISA KEV data (CVE-backed findings only)
-        try:
-            from depfence.core.kev_enricher import enrich_with_kev
-
-            all_findings = await enrich_with_kev(all_findings)
-        except Exception as exc:
-            log.debug("KEV enrichment failed: %s", exc)
-            result.errors.append(f"KEV enrichment error: {exc}")
-
-    # Apply inline suppression: parse depfence:ignore comments from all lockfiles.
-    merged_suppressions: dict[str, list[str]] = {}
-    for _eco, _lf_path in lockfiles:
-        _file_suppressions = parse_suppressions(_lf_path)
-        for _pkg, _tokens in _file_suppressions.items():
-            if _pkg not in merged_suppressions:
-                merged_suppressions[_pkg] = _tokens
-            else:
-                # Merge: empty list (wildcard) dominates.
-                existing_tokens = merged_suppressions[_pkg]
-                if not existing_tokens or not _tokens:
-                    merged_suppressions[_pkg] = []
-                else:
-                    merged_suppressions[_pkg] = list(dict.fromkeys(existing_tokens + _tokens))
-
+    merged_suppressions = _merge_suppressions(lockfiles)
     if merged_suppressions:
         all_findings, suppressed = _inline_filter(all_findings, merged_suppressions)
         result.suppressed_findings = suppressed
@@ -209,8 +258,6 @@ async def scan_directory(
 
     result.findings = all_findings
     result.completed_at = datetime.now(tz=timezone.utc)
-
-
     return result
 
 

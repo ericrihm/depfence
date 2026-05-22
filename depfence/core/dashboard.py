@@ -26,8 +26,6 @@ _RED = "\033[31m"
 _YELLOW = "\033[33m"
 _GREEN = "\033[32m"
 _CYAN = "\033[36m"
-_MAGENTA = "\033[35m"
-_WHITE = "\033[37m"
 _BRIGHT_RED = "\033[91m"
 _BRIGHT_YELLOW = "\033[93m"
 _BRIGHT_GREEN = "\033[92m"
@@ -193,7 +191,7 @@ def render_dashboard(state: DashboardState) -> str:
             count = snap.findings_by_severity.get(sev, 0)
             colour = _SEV_COLOUR.get(sev, "")
             bar = _severity_bar(count)
-            lines.append(f"    {_c(sev.upper():8s}, colour)}  {bar}  {count}")
+            lines.append(f"    {_c(f'{sev.upper():8s}', colour)}  {bar}  {count}")
         total = snap.total_findings
         status_colour = _BRIGHT_RED if snap.critical > 0 else (_RED if snap.high > 0 else _BRIGHT_GREEN)
         lines.append("")
@@ -256,23 +254,6 @@ def render_status_line(state: DashboardState) -> str:
 # ---------------------------------------------------------------------------
 # Live-update helpers
 # ---------------------------------------------------------------------------
-
-def print_dashboard(state: DashboardState, file: TextIO | None = None) -> None:
-    """Clear screen and reprint the full dashboard."""
-    out = file or sys.stdout
-    # Move cursor to top-left and clear screen
-    if _supports_colour():
-        out.write("\033[2J\033[H")
-    out.write(render_dashboard(state))
-    out.flush()
-
-
-def print_quiet_status(state: DashboardState, file: TextIO | None = None) -> None:
-    """Print a single-line status update (quiet mode)."""
-    out = file or sys.stdout
-    out.write(render_status_line(state) + "\n")
-    out.flush()
-
 
 # ---------------------------------------------------------------------------
 # Private helpers

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 import pytest
 
 from depfence.core.models import (
-    Finding,
     MaintainerInfo,
     PackageId,
     PackageMeta,

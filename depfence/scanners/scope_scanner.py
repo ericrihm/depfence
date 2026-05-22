@@ -14,7 +14,7 @@ Detection rules:
 
 from __future__ import annotations
 
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 
 # ---------------------------------------------------------------------------
 # Known popular npm scopes — the targets for scope typosquatting attacks.
