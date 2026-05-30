@@ -107,12 +107,17 @@ _SOURCE_EXTENSIONS = {
     ".rb",
     ".go",
     ".md", ".rst", ".txt",
+    ".gradle", ".cmake",
+    ".yaml", ".yml",
+    ".toml", ".cfg", ".ini",
 }
 
 _METADATA_FILES = {
     "README.md", "README.rst", "README.txt", "README",
     "CHANGELOG.md", "CHANGES.md", "HISTORY.md",
     "setup.cfg", "pyproject.toml", "package.json", "Cargo.toml",
+    "CMakeLists.txt", "Makefile", "build.gradle", "build.gradle.kts",
+    "pom.xml", "Dockerfile", ".dockerignore",
 }
 
 _MAX_FILES = 10_000
