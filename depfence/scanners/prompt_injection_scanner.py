@@ -247,6 +247,10 @@ class PromptInjectionScanner:
             project_dir / "site-packages",
             project_dir / "src",
             project_dir / "lib",
+            # Java/Kotlin: Maven local repository cache
+            Path.home() / ".m2" / "repository",
+            # Java/Kotlin: Gradle module cache
+            Path.home() / ".gradle" / "caches" / "modules-2",
         ]
         # Also search project root (top-level source files)
         search_dirs.append(project_dir)

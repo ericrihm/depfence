@@ -17,7 +17,7 @@ _ECOSYSTEM_TO_PURL_TYPE: dict[str, str] = {
 }
 
 _TOOL_VERSION = "depfence-0.4.0"
-_NAMESPACE_BASE = "https://depfence.dev/spdx"
+_NAMESPACE_BASE = "https://github.com/ericrihm/depfence/spdx"
 
 
 def _purl_type(ecosystem: str) -> str:

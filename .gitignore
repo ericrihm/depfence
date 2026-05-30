@@ -57,3 +57,4 @@ Thumbs.db
 credentials.*
 tokens.*
 .secrets/
+test_stress.py
