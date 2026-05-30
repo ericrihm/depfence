@@ -20,6 +20,12 @@ from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 class ObfuscationScanner:
     ecosystems = ["npm", "pypi"]
 
+    # ANSI escape sequences used to hide content from terminal viewers
+    _ANSI_INVISIBLE = re.compile(rb"\x1b\[8m")
+    _ANSI_SCREEN_CLEAR = re.compile(rb"\x1b\[2J")
+    _ANSI_BLACK_TEXT = re.compile(rb"\x1b\[(?:0;)?30m")
+    _ANSI_OVERWRITE = re.compile(rb"\x1b\[\d+A\x1b\[2K")
+
     _BASE64_EXEC = re.compile(
         r"""(?:eval|exec|Function)\s*\(\s*(?:atob|Buffer\.from|base64\.b64decode|"""
         r"""codecs\.decode)\s*\(""",
@@ -132,6 +138,41 @@ class ObfuscationScanner:
                 "strong indicator of hidden malicious code.",
             ))
 
+        # ANSI escape sequence content hiding (jqwik-class attack)
+        raw = content.encode("utf-8", errors="ignore")
+        if self._ANSI_INVISIBLE.search(raw):
+            findings.append(self._make_finding(
+                rel_path, Severity.CRITICAL,
+                "ANSI invisible text escape sequence",
+                "File uses SGR 8 (invisible text) — content hidden from terminal "
+                "viewers but readable by AI assistants and static analysis.",
+                FindingType.ANSI_HIDING,
+            ))
+        if self._ANSI_SCREEN_CLEAR.search(raw):
+            findings.append(self._make_finding(
+                rel_path, Severity.HIGH,
+                "ANSI screen clear in source file",
+                "File contains ESC[2J (clear screen) — may hide log output "
+                "containing prompt injection payloads.",
+                FindingType.ANSI_HIDING,
+            ))
+        if self._ANSI_BLACK_TEXT.search(raw):
+            findings.append(self._make_finding(
+                rel_path, Severity.HIGH,
+                "ANSI black text escape sequence",
+                "File sets text color to black (SGR 30) — content invisible "
+                "on dark terminals but readable by AI tools.",
+                FindingType.ANSI_HIDING,
+            ))
+        if self._ANSI_OVERWRITE.search(raw):
+            findings.append(self._make_finding(
+                rel_path, Severity.HIGH,
+                "ANSI cursor-up + line-erase sequence",
+                "File overwrites previously displayed lines — may hide "
+                "malicious content that was briefly visible.",
+                FindingType.ANSI_HIDING,
+            ))
+
         entropy = self._line_entropy(content)
         if entropy > 5.5 and len(content) > 1000:
             long_lines = [l for l in content.splitlines() if len(l) > 500]
@@ -145,9 +186,12 @@ class ObfuscationScanner:
 
         return findings
 
-    def _make_finding(self, path: str, severity: Severity, title: str, detail: str) -> Finding:
+    def _make_finding(
+        self, path: str, severity: Severity, title: str, detail: str,
+        finding_type: FindingType = FindingType.BEHAVIORAL,
+    ) -> Finding:
         return Finding(
-            finding_type=FindingType.BEHAVIORAL,
+            finding_type=finding_type,
             severity=severity,
             package=f"file:{path}",
             title=title,

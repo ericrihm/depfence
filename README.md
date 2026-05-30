@@ -18,7 +18,8 @@ depfence scan .
 
 - **Slopsquatting defense** — LLMs hallucinate package names; attackers register them. depfence detects hallucinated names before they reach your lockfile.
 - **MCP server auditing** — The only fully-offline, deterministic MCP security scanner. Detects tool shadowing, rug-pull attacks, prompt injection (with multi-pass encoding normalization), credential leakage, unpinned packages, and 23+ known-malicious servers. Covers Claude Desktop, Cursor, VS Code, Windsurf, and Zed — no cloud API calls required.
-- **30+ scanners in one tool** — Vulnerability enrichment (EPSS, KEV, OSV, NVD), behavioral AST analysis, supply chain attack detection, IaC scanning, license compliance, SBOM generation, and red-team simulation — unified under a single CLI.
+- **35+ scanners in one tool** — Vulnerability enrichment (EPSS, KEV, OSV, NVD), behavioral AST analysis, supply chain attack detection, IaC scanning, license compliance, SBOM generation, prompt injection detection, and red-team simulation — unified under a single CLI.
+- **Prompt injection defense** — Detects adversarial instructions hidden in dependency source code targeting AI coding assistants. ANSI escape sequences, zero-width Unicode, bidirectional overrides, and homoglyph attacks — all caught statically without executing the code.
 - **Beyond CVEs** — A package with zero advisories can still phone home at install time, exfiltrate env vars via DNS, or embed pickle-format model weights with arbitrary code execution. depfence catches all of it.
 
 ---
@@ -29,7 +30,7 @@ depfence scan .
 # Install
 pip install depfence
 
-# Full scan — all ecosystems, all 30+ scanners
+# Full scan — all ecosystems, all 35+ scanners
 depfence scan .
 
 # Fast CI scan — only changed packages
@@ -48,16 +49,18 @@ depfence fix . --apply
 ```
 $ depfence scan .
 
- depfence v0.4.0  scanning 142 packages across 3 lockfiles
+ depfence v0.5.0  scanning 142 packages across 3 lockfiles
 
+ CRITICAL  node_modules/jqwik     prompt_injection  ANSI-hidden instruction override in source
  CRITICAL  pytorch-cuda-nightly   slopsquat     LLM hallucination match for torch (score 0.94)
  HIGH      lodash 4.17.20         npm_advisory  CVE-2021-23337  EPSS 0.71  KEV
  HIGH      req-utils 1.0.3        preinstall    install script exfiltrates $HOME/.ssh
+ HIGH      src/utils/config.py    ansi_hiding   ANSI invisible text escape sequence (SGR 8)
  MEDIUM    transformers 4.38.0    model_scanner unsafe torch.load() without weights_only=True
  MEDIUM    @angulr/core           scope_squat   typosquatting @angular/core
  LOW       leftpad 0.0.3          freshness     no release in 847 days, 0 maintainers
 
- 6 findings  (1 critical, 2 high, 2 medium, 1 low)
+ 8 findings  (2 critical, 3 high, 2 medium, 1 low)
  Run `depfence fix .` for remediation suggestions.
 ```
 
@@ -81,6 +84,7 @@ $ depfence scan .
 
 | Scanner | What it catches |
 |---|---|
+| `prompt_injection` | **NEW** Adversarial LLM instructions hidden in source code — comments, docstrings, string literals, README files. Catches the [jqwik-class attack](https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/): dependency source with `"ignore previous instructions"` targeting AI coding assistants. 25 injection patterns with multi-pass encoding normalization. Also detects ANSI escape sequences, zero-width Unicode, bidirectional overrides, and Latin/Cyrillic homoglyphs used to hide payloads from human reviewers |
 | `slopsquat` | LLM-hallucinated package names registered by attackers |
 | `model_scanner` | Unsafe `torch.load`, pickle model files, unverified HuggingFace pulls |
 | `model_integrity` | Hash and provenance verification for model weight files |
@@ -98,7 +102,7 @@ $ depfence scan .
 | `preinstall` | Malicious install scripts: pipe-to-shell, credential theft, env exfiltration |
 | `provenance` / `provenance_checker` | Missing or invalid SLSA attestations |
 | `behavioral` | Suspicious API patterns: eval, exec, child_process |
-| `obfuscation` | Base64-exec, hex strings, charcode encoding, high-entropy payloads |
+| `obfuscation` | Base64-exec, hex strings, charcode encoding, high-entropy payloads, ANSI escape sequence content hiding (SGR 8 invisible text, screen clear, cursor overwrite) |
 | `network` | Mining pools, webhook exfil, DNS tunneling, hardcoded IPs |
 | `reputation` | Low-trust packages: new, no repo, single maintainer |
 
@@ -346,7 +350,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Please run `ruff check` and `mypy` before opening a PR. The test suite covers 1,915 tests across all scanners, analyzers, reporters, and CLI commands.
+Please run `ruff check` and `mypy` before opening a PR. The test suite covers 1,950+ tests across all scanners, analyzers, reporters, and CLI commands.
 
 ---
 

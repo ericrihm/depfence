@@ -37,6 +37,8 @@ class FindingType(str, enum.Enum):
     PHANTOM_DEP = "phantom_dependency"
     SCOPE_SQUAT = "scope_squatting"
     DEP_CONFUSION = "dependency_confusion"
+    PROMPT_INJECTION = "prompt_injection"
+    ANSI_HIDING = "ansi_content_hiding"
 
 
 @dataclass(frozen=True)
