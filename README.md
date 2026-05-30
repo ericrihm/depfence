@@ -18,7 +18,7 @@ depfence scan .
 
 - **Slopsquatting defense** — LLMs hallucinate package names; attackers register them. depfence detects hallucinated names before they reach your lockfile.
 - **MCP server auditing** — The only fully-offline, deterministic MCP security scanner. Detects tool shadowing, rug-pull attacks, prompt injection (with multi-pass encoding normalization), credential leakage, unpinned packages, and 23+ known-malicious servers. Covers Claude Desktop, Cursor, VS Code, Windsurf, and Zed — no cloud API calls required.
-- **35+ scanners in one tool** — Vulnerability enrichment (EPSS, KEV, OSV, NVD), behavioral AST analysis, supply chain attack detection, IaC scanning, license compliance, SBOM generation, prompt injection detection, and red-team simulation — unified under a single CLI.
+- **38+ scanners in one tool** — Vulnerability enrichment (EPSS, KEV, OSV, NVD), behavioral AST analysis, supply chain attack detection, IaC scanning, license compliance, SBOM generation, prompt injection detection, and red-team simulation — unified under a single CLI.
 - **Prompt injection defense** — Detects adversarial instructions hidden in dependency source code targeting AI coding assistants. ANSI escape sequences, zero-width Unicode, bidirectional overrides, and homoglyph attacks — all caught statically without executing the code.
 - **Beyond CVEs** — A package with zero advisories can still phone home at install time, exfiltrate env vars via DNS, or embed pickle-format model weights with arbitrary code execution. depfence catches all of it.
 
@@ -30,7 +30,7 @@ depfence scan .
 # Install
 pip install depfence
 
-# Full scan — all ecosystems, all 35+ scanners
+# Full scan — all ecosystems, all 38+ scanners
 depfence scan .
 
 # Fast CI scan — only changed packages
@@ -84,10 +84,12 @@ $ depfence scan .
 
 | Scanner | What it catches |
 |---|---|
-| `prompt_injection` | **NEW** Adversarial LLM instructions hidden in source code — comments, docstrings, string literals, README files. Catches the [jqwik-class attack](https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/): dependency source with `"ignore previous instructions"` targeting AI coding assistants. 25 injection patterns with multi-pass encoding normalization. Also detects ANSI escape sequences, zero-width Unicode, bidirectional overrides, and Latin/Cyrillic homoglyphs used to hide payloads from human reviewers |
+| `prompt_injection` | **NEW** Adversarial LLM instructions hidden in source code — comments, docstrings, string literals, README files, package.json fields, build scripts. Catches the [jqwik-class attack](https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/): dependency source with `"ignore previous instructions"` targeting AI coding assistants. 25 injection patterns with multi-pass encoding normalization. Also detects ANSI escape sequences, zero-width Unicode, bidirectional overrides, and Latin/Cyrillic homoglyphs used to hide payloads from human reviewers |
+| `git_message` | **NEW** Prompt injection in git commit messages and PR/issue templates targeting AI code review bots. Scans git log history, `.github/` templates, and CONTRIBUTING.md for review manipulation, approval bypass, and LLM delimiter injection |
+| `ci_ai_bot` | **NEW** [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attack detection: AI coding assistants (Cline, Copilot, Claude) used as CI/CD triage bots that consume untrusted user input without sanitization. Scans GitHub Actions workflows for `${{ github.event }}` interpolation flowing into AI-aware jobs, and AI agent configs granting dangerous tool permissions |
 | `slopsquat` | LLM-hallucinated package names registered by attackers |
 | `model_scanner` | Unsafe `torch.load`, pickle model files, unverified HuggingFace pulls |
-| `model_integrity` | Hash and provenance verification for model weight files |
+| `model_integrity` | Hash and provenance verification for model weight files, plus prompt injection detection in SafeTensors headers and model config JSON metadata |
 | `ai_vulns` | AI/ML framework-specific vulnerability patterns |
 | `mcp_scanner` | MCP server misconfigs, tool shadowing, credential leakage, known-malicious packages, TLS enforcement, version pinning, prompt injection with encoding normalization |
 | `mcp_fingerprint` | MCP rug-pull detection via schema change fingerprinting + parameter-level injection scanning |

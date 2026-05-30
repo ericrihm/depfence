@@ -223,6 +223,9 @@ class PromptInjectionScanner:
         for fpath in files:
             findings.extend(self._scan_file(fpath, project_dir))
 
+        # Scan package.json files for injection in non-description fields
+        findings.extend(self._scan_package_json_fields(project_dir))
+
         return findings
 
     async def scan_files(self, project_dir: Path, files: list[Path] | None = None) -> list[Finding]:
@@ -353,6 +356,82 @@ class PromptInjectionScanner:
                         confidence=0.85,
                         metadata={"file": rel, "line": line_num, "matched_pattern": label},
                     ))
+
+        return findings
+
+    def _scan_package_json_fields(self, project_dir: Path) -> list[Finding]:
+        """Scan package.json files for injection in all text fields."""
+        import json as _json
+        findings: list[Finding] = []
+        _FIELDS_TO_SCAN = [
+            "name", "description", "homepage", "repository",
+            "keywords", "license", "author",
+        ]
+        _SCRIPT_FIELDS = [
+            "preinstall", "postinstall", "prepare", "prepack",
+            "prebuild", "postbuild", "pretest", "posttest",
+        ]
+
+        for pkg_json in project_dir.rglob("package.json"):
+            if any(p in {"node_modules", ".git"} for p in pkg_json.parts):
+                # Only scan installed packages, not deep node_modules nesting
+                nm_count = sum(1 for p in pkg_json.parts if p == "node_modules")
+                if nm_count > 1:
+                    continue
+            try:
+                data = _json.loads(pkg_json.read_text(errors="ignore"))
+            except (OSError, _json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+
+            rel = str(pkg_json.relative_to(project_dir)) if project_dir in pkg_json.parents else str(pkg_json)
+            pkg_name = data.get("name", rel)
+
+            # Scan metadata fields
+            for field in _FIELDS_TO_SCAN:
+                value = data.get(field)
+                if isinstance(value, list):
+                    value = " ".join(str(v) for v in value)
+                elif isinstance(value, dict):
+                    value = " ".join(str(v) for v in value.values())
+                if not isinstance(value, str) or len(value) < 10:
+                    continue
+                normalized = _normalize_for_matching(value)
+                for pattern, label, severity in _INJECTION_PATTERNS:
+                    if pattern.search(normalized):
+                        findings.append(Finding(
+                            finding_type=FindingType.PROMPT_INJECTION,
+                            severity=severity,
+                            package=PackageId(ecosystem="npm", name=pkg_name),
+                            title=f"Prompt injection in package.json {field}: {label}",
+                            detail=f"Package '{pkg_name}' field '{field}': {value[:200]}",
+                            cwe="CWE-77",
+                            confidence=0.80,
+                            metadata={"file": rel, "field": field, "matched_pattern": label},
+                        ))
+                        break
+
+            # Scan script fields for injection (beyond what preinstall scanner catches)
+            scripts = data.get("scripts", {})
+            if isinstance(scripts, dict):
+                for script_name, script_val in scripts.items():
+                    if not isinstance(script_val, str) or len(script_val) < 10:
+                        continue
+                    normalized = _normalize_for_matching(script_val)
+                    for pattern, label, severity in _INJECTION_PATTERNS:
+                        if pattern.search(normalized):
+                            findings.append(Finding(
+                                finding_type=FindingType.PROMPT_INJECTION,
+                                severity=severity,
+                                package=PackageId(ecosystem="npm", name=pkg_name),
+                                title=f"Prompt injection in scripts.{script_name}: {label}",
+                                detail=f"Package '{pkg_name}' script '{script_name}': {script_val[:200]}",
+                                cwe="CWE-77",
+                                confidence=0.75,
+                                metadata={"file": rel, "field": f"scripts.{script_name}", "matched_pattern": label},
+                            ))
+                            break
 
         return findings
 

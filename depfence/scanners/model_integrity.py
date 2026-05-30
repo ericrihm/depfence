@@ -21,6 +21,8 @@ import json
 import struct
 from pathlib import Path
 
+import re
+
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,28 @@ _CONFIG_FILENAMES: tuple[str, ...] = (
     "model_card.json",
     "metadata.json",
 )
+
+# Prompt injection patterns for model metadata scanning
+_MODEL_INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"ignore\s+(previous|above|all|prior)\s+(instructions|prompts|rules)", re.I),
+     "Instruction override in model metadata"),
+    (re.compile(r"you\s+are\s+(now|a|an)\s+", re.I),
+     "Identity override in model metadata"),
+    (re.compile(r"<\|im_start\|>|</?system>|\[INST\]", re.I),
+     "LLM delimiter in model metadata"),
+    (re.compile(r"IMPORTANT\s*:\s*(ignore|disregard|override)", re.I),
+     "Instruction override via IMPORTANT"),
+    (re.compile(r"(?:remove|delete|erase|destroy)\s+(?:all|every|the)\s+(?:files?|code|tests?|data)", re.I),
+     "Destructive instruction in model metadata"),
+    (re.compile(r"(?:send|post|exfiltrate?|upload)\s+(?:to|the|all|this)", re.I),
+     "Exfiltration instruction in model metadata"),
+    (re.compile(r"do\s+not\s+(?:tell|inform|alert|warn)\s+(?:the\s+)?user", re.I),
+     "User notification suppression"),
+    (re.compile(r"(?:silently|quietly|secretly)\s+(?:delete|remove|modify|execute)", re.I),
+     "Stealth operation instruction"),
+    (re.compile(r"curl\s+.*\||wget\s+.*-O\s*-\s*\|", re.I),
+     "Shell injection in model metadata"),
+]
 
 # Directories to skip (virtualenvs, caches, etc.)
 _SKIP_DIRS: frozenset[str] = frozenset({
@@ -257,6 +281,13 @@ class ModelIntegrityScanner:
                         **sums,
                     }
 
+        # Scan config/metadata JSON for prompt injection
+        for cfg_name in _CONFIG_FILENAMES:
+            for cfg_file in sorted(project_dir.rglob(cfg_name)):
+                if _should_skip(cfg_file):
+                    continue
+                findings.extend(self._check_metadata_injection(cfg_file, "config"))
+
         # Walk all weight files
         weight_extensions = _PICKLE_EXTENSIONS | {".safetensors"}
         for ext in weight_extensions:
@@ -298,6 +329,10 @@ class ModelIntegrityScanner:
         # ---- 2. SafeTensors header validation --------------------------------
         if ext == ".safetensors":
             findings.extend(self._check_safetensors(path))
+
+        # ---- 2b. SafeTensors metadata injection scanning -----------------------
+        if ext == ".safetensors":
+            findings.extend(self._check_metadata_injection(path, "safetensors"))
 
         # ---- 3 & 4. Checksum verification + unsigned-model flag --------------
         findings.extend(
@@ -382,6 +417,58 @@ class ModelIntegrityScanner:
                 "header_error": error,
             },
         )]
+
+    def _check_metadata_injection(self, path: Path, fmt: str) -> list[Finding]:
+        """Scan model metadata (safetensors headers, config JSON) for prompt injection."""
+        findings: list[Finding] = []
+        pkg = PackageId("huggingface", path.name)
+        metadata_text = ""
+
+        if fmt == "safetensors":
+            try:
+                with path.open("rb") as fh:
+                    size_bytes = fh.read(8)
+                    if len(size_bytes) < 8:
+                        return findings
+                    (header_size,) = struct.unpack_from("<Q", size_bytes)
+                    if header_size == 0 or header_size > _SAFETENSORS_MAX_HEADER_BYTES:
+                        return findings
+                    json_bytes = fh.read(min(header_size, 1_000_000))
+                    metadata_text = json_bytes.decode("utf-8", errors="ignore")
+            except OSError:
+                return findings
+        elif fmt == "config":
+            try:
+                metadata_text = path.read_text(errors="ignore")[:500_000]
+            except OSError:
+                return findings
+
+        if not metadata_text:
+            return findings
+
+        for pattern, label in _MODEL_INJECTION_PATTERNS:
+            if pattern.search(metadata_text):
+                findings.append(Finding(
+                    finding_type=FindingType.PROMPT_INJECTION,
+                    severity=Severity.CRITICAL,
+                    package=pkg,
+                    title=f"Prompt injection in model metadata: {label}",
+                    detail=(
+                        f"The {fmt} metadata of '{path.name}' contains adversarial "
+                        f"text matching '{label}'. An AI assistant loading this model "
+                        f"config may follow the injected instructions."
+                    ),
+                    cwe="CWE-77",
+                    confidence=0.85,
+                    metadata={
+                        "model_id": path.stem,
+                        "format": fmt,
+                        "source_file": str(path),
+                        "matched_pattern": label,
+                    },
+                ))
+
+        return findings
 
     def _check_checksums(
         self,
