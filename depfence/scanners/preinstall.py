@@ -67,7 +67,7 @@ class PreinstallScanner:
 
         try:
             tree = ast.parse(source)
-        except SyntaxError:
+        except (SyntaxError, ValueError):
             findings.append(Finding(
                 finding_type=FindingType.BEHAVIORAL,
                 severity=Severity.MEDIUM,
