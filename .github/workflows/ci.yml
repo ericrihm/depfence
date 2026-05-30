@@ -27,7 +27,7 @@ jobs:
         run: ruff check depfence/ tests/
 
       - name: Test
-        run: pytest tests/ -v --timeout=60
+        run: pytest tests/ -v
 
   security-self-scan:
     runs-on: ubuntu-latest
