@@ -1,36 +1,58 @@
-# depfence — AI-Aware Supply Chain Security
+# depfence
 
-**The dependency scanner built for the age of LLMs, MCP, and AI/ML supply chain attacks.**
+**Dependency security for the AI age.** 40+ scanners. One command.
 
 [![PyPI](https://img.shields.io/pypi/v/depfence)](https://pypi.org/project/depfence/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/test.yml?label=1915%20tests)](https://github.com/ericrihm/depfence/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/test.yml?label=tests)](https://github.com/ericrihm/depfence/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/pypi/pyversions/depfence)](https://pypi.org/project/depfence/)
+[![Python 3.10+](https://img.shields.io/pypi/pyversions/depfence)](https://pypi.org/project/depfence/)
 
 ```bash
 pip install depfence
 depfence scan .
 ```
 
+```
+ depfence v0.5.0  scanning 142 packages across 3 lockfiles
+
+ CRITICAL  node_modules/jqwik     prompt_injection  ANSI-hidden instruction override in source
+ CRITICAL  pytorch-cuda-nightly   slopsquat         LLM hallucination match for torch (0.94)
+ HIGH      lodash 4.17.20         npm_advisory      CVE-2021-23337  EPSS 0.71  KEV
+ HIGH      req-utils 1.0.3        preinstall        install script exfiltrates $HOME/.ssh
+ HIGH      .github/workflows/ci   ci_ai_bot         untrusted input to AI triage bot
+ MEDIUM    transformers 4.38.0    model_scanner     unsafe torch.load without weights_only
+ MEDIUM    @angulr/core           scope_squat       typosquatting @angular/core
+ LOW       leftpad 0.0.3          freshness         no release in 847 days
+
+ 8 findings  (2 critical, 3 high, 2 medium, 1 low)
+```
+
 ---
 
-## Why depfence?
+## The problem
 
-- **Slopsquatting defense** — LLMs hallucinate package names; attackers register them. depfence detects hallucinated names before they reach your lockfile.
-- **MCP server auditing** — The only fully-offline, deterministic MCP security scanner. Detects tool shadowing, rug-pull attacks, prompt injection (with multi-pass encoding normalization), credential leakage, unpinned packages, and 23+ known-malicious servers. Covers Claude Desktop, Cursor, VS Code, Windsurf, and Zed — no cloud API calls required.
-- **38+ scanners in one tool** — Vulnerability enrichment (EPSS, KEV, OSV, NVD), behavioral AST analysis, supply chain attack detection, IaC scanning, license compliance, SBOM generation, prompt injection detection, and red-team simulation — unified under a single CLI.
-- **Prompt injection defense** — Detects adversarial instructions hidden in dependency source code targeting AI coding assistants. ANSI escape sequences, zero-width Unicode, bidirectional overrides, and homoglyph attacks — all caught statically without executing the code.
-- **Beyond CVEs** — A package with zero advisories can still phone home at install time, exfiltrate env vars via DNS, or embed pickle-format model weights with arbitrary code execution. depfence catches all of it.
+Your dependencies are an attack surface. Traditional scanners stop at CVEs. depfence goes further:
+
+| Traditional scanners check | depfence also catches |
+|---|---|
+| Known CVEs in lockfiles | Prompt injection hidden in source code targeting AI assistants |
+| Outdated packages | ANSI escape sequences making malicious text invisible to reviewers |
+| License compliance | LLM-hallucinated package names registered by attackers (slopsquatting) |
+| | MCP server misconfigs: tool shadowing, credential leakage, rug-pull attacks |
+| | Install scripts that exfiltrate SSH keys, env vars, or credentials |
+| | AI coding bots in CI/CD consuming untrusted GitHub issue/PR input |
+| | Commit messages and PR templates injecting instructions into AI reviewers |
+| | Pickle model weights with arbitrary code execution opcodes |
 
 ---
 
-## Quick Start
+## Quick start
 
 ```bash
 # Install
 pip install depfence
 
-# Full scan — all ecosystems, all 38+ scanners
+# Full scan
 depfence scan .
 
 # Fast CI scan — only changed packages
@@ -41,127 +63,93 @@ depfence check requests -e pypi
 
 # Auto-fix vulnerable dependencies
 depfence fix . --apply
+
+# Generate AI Bill of Materials
+depfence ai-bom .
 ```
-
-<details>
-<summary>Sample output</summary>
-
-```
-$ depfence scan .
-
- depfence v0.5.0  scanning 142 packages across 3 lockfiles
-
- CRITICAL  node_modules/jqwik     prompt_injection  ANSI-hidden instruction override in source
- CRITICAL  pytorch-cuda-nightly   slopsquat     LLM hallucination match for torch (score 0.94)
- HIGH      lodash 4.17.20         npm_advisory  CVE-2021-23337  EPSS 0.71  KEV
- HIGH      req-utils 1.0.3        preinstall    install script exfiltrates $HOME/.ssh
- HIGH      src/utils/config.py    ansi_hiding   ANSI invisible text escape sequence (SGR 8)
- MEDIUM    transformers 4.38.0    model_scanner unsafe torch.load() without weights_only=True
- MEDIUM    @angulr/core           scope_squat   typosquatting @angular/core
- LOW       leftpad 0.0.3          freshness     no release in 847 days, 0 maintainers
-
- 8 findings  (2 critical, 3 high, 2 medium, 1 low)
- Run `depfence fix .` for remediation suggestions.
-```
-
-</details>
 
 ---
 
-## Features
+## Scanners
 
-### Vulnerability Detection
+### Prompt injection & AI safety
 
-| Scanner | What it catches |
+Catches attacks that target AI coding assistants — the tools your developers use every day.
+
+| Scanner | What it detects |
 |---|---|
-| `osv` | OSV database — covers npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
-| `npm_advisory` | OSV + GitHub Advisory DB for npm |
-| `pypi_advisory` | OSV + GitHub Advisory DB for PyPI |
-| `epss` | EPSS exploit probability scores for triage prioritization |
-| `kev` | CISA Known Exploited Vulnerabilities list |
+| `prompt_injection` | Adversarial LLM instructions in source code: comments, docstrings, strings, README, build scripts, package.json fields. 25 patterns with multi-pass encoding normalization. Detects ANSI escapes, zero-width Unicode, bidi overrides, and homoglyphs. [Background](https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/) |
+| `git_message` | Injection in git commit messages and PR/issue templates targeting AI code review bots |
+| `ci_ai_bot` | [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attacks: AI bots in CI/CD consuming untrusted `${{ github.event }}` input |
+| `mcp_scanner` | MCP server misconfigs: tool shadowing, rug-pull, credential leakage, prompt injection, TLS, version pinning. Fully offline, covers Claude/Cursor/VS Code/Windsurf/Zed |
+| `mcp_fingerprint` | MCP rug-pull detection via schema fingerprinting and parameter injection |
 
-### AI/ML Supply Chain
+### AI/ML model security
 
-| Scanner | What it catches |
+| Scanner | What it detects |
 |---|---|
-| `prompt_injection` | **NEW** Adversarial LLM instructions hidden in source code — comments, docstrings, string literals, README files, package.json fields, build scripts. Catches the [jqwik-class attack](https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/): dependency source with `"ignore previous instructions"` targeting AI coding assistants. 25 injection patterns with multi-pass encoding normalization. Also detects ANSI escape sequences, zero-width Unicode, bidirectional overrides, and Latin/Cyrillic homoglyphs used to hide payloads from human reviewers |
-| `git_message` | **NEW** Prompt injection in git commit messages and PR/issue templates targeting AI code review bots. Scans git log history, `.github/` templates, and CONTRIBUTING.md for review manipulation, approval bypass, and LLM delimiter injection |
-| `ci_ai_bot` | **NEW** [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attack detection: AI coding assistants (Cline, Copilot, Claude) used as CI/CD triage bots that consume untrusted user input without sanitization. Scans GitHub Actions workflows for `${{ github.event }}` interpolation flowing into AI-aware jobs, and AI agent configs granting dangerous tool permissions |
 | `slopsquat` | LLM-hallucinated package names registered by attackers |
-| `model_scanner` | Unsafe `torch.load`, pickle model files, unverified HuggingFace pulls |
-| `model_integrity` | Hash and provenance verification for model weight files, plus prompt injection detection in SafeTensors headers and model config JSON metadata |
-| `ai_vulns` | AI/ML framework-specific vulnerability patterns |
-| `mcp_scanner` | MCP server misconfigs, tool shadowing, credential leakage, known-malicious packages, TLS enforcement, version pinning, prompt injection with encoding normalization |
-| `mcp_fingerprint` | MCP rug-pull detection via schema change fingerprinting + parameter-level injection scanning |
+| `model_scanner` | Unsafe `torch.load`, pickle files, unverified HuggingFace pulls |
+| `model_integrity` | Checksum verification, SafeTensors header validation, size anomaly, prompt injection in model metadata |
+| `ai_vulns` | LangChain RCE, unsafe deserialization, `trust_remote_code`, `eval(response)` |
+| `ai_bom` | AI Bill of Materials: inventories models, MCP servers, and AI frameworks with risk scoring |
+| `docker_layer` | Prompt injection in Dockerfile labels, ENV, ARG, entrypoint, and local image metadata |
 
-### Supply Chain Attacks
+### Supply chain attacks
 
-| Scanner | What it catches |
+| Scanner | What it detects |
 |---|---|
-| `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`) |
+| `preinstall` | Install scripts: pipe-to-shell, credential theft, exfiltration (AST-level for Python) |
 | `dep_confusion` | Private registry misconfigs enabling namespace hijacking |
+| `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`) |
 | `ownership` | Maintainer takeovers and version-order anomalies |
-| `preinstall` | Malicious install scripts: pipe-to-shell, credential theft, env exfiltration |
-| `provenance` / `provenance_checker` | Missing or invalid SLSA attestations |
-| `behavioral` | Suspicious API patterns: eval, exec, child_process |
-| `obfuscation` | Base64-exec, hex strings, charcode encoding, high-entropy payloads, ANSI escape sequence content hiding (SGR 8 invisible text, screen clear, cursor overwrite) |
-| `network` | Mining pools, webhook exfil, DNS tunneling, hardcoded IPs |
+| `provenance` | Missing or invalid SLSA attestations |
+| `behavioral` | Runtime red flags: eval, exec, child_process, DNS resolve, exfiltration endpoints |
+| `obfuscation` | Base64-exec, hex encoding, charcode, high entropy, ANSI escape content hiding |
+| `network` | Mining pools, webhook exfiltration, DNS tunneling, hardcoded IPs |
 | `reputation` | Low-trust packages: new, no repo, single maintainer |
 
-### Compliance
+### Vulnerabilities
 
-| Scanner | What it catches |
+| Scanner | What it detects |
 |---|---|
-| `license_scanner` | AGPL/GPL/copyleft compliance risks |
-| `license_compat` | License conflict detection (GPL in MIT project, AGPL in proprietary) |
-| `reachability` | Which vulnerable imports are actually reachable in your code |
+| `osv` | OSV database — npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
+| `npm_advisory` / `pypi_advisory` | Ecosystem-specific advisories from GitHub Advisory DB |
+| `epss` | EPSS exploit probability scores for triage |
+| `kev` | CISA Known Exploited Vulnerabilities |
+
+### CI/CD & infrastructure
+
+| Scanner | What it detects |
+|---|---|
+| `gha_workflow` | Script injection, `pull_request_target` exploits, overly permissive permissions |
+| `gha_scanner` | Unpinned and compromised GitHub Actions |
+| `dockerfile` | Unpinned base images, root user, secrets in ENV/ARG |
+| `terraform` | Unpinned modules, HTTP sources, unverified namespaces |
+| `secrets` | AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |
+| `ci_secrets` | CI secret exposure correlated with suspicious package behavior |
+
+### Compliance & hygiene
+
+| Scanner | What it detects |
+|---|---|
+| `license_scanner` / `license_compat` | Copyleft compliance, license conflict detection |
+| `reachability` | Which vulnerable imports are actually reachable |
 | `phantom_deps` | Declared but never imported packages |
-| `freshness` | Deprecated packages, unmaintained deps (no release in 2+ years) |
+| `freshness` | Unmaintained deps (no release in 2+ years) |
 | `pinning` | Unpinned deps, wildcard versions, missing lockfiles |
 | `sbom` | CycloneDX 1.5 and SPDX 2.3 generation |
-
-### Security Operations
-
-| Scanner | What it catches |
-|---|---|
-| `secrets` | AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |
-| `ci_secrets` | CI secret exposure risk correlated with suspicious package behavior |
-| `dockerfile` | Unpinned base images, root user, secrets in ENV/ARG, EOL images |
-| `terraform` | Unpinned modules/providers, HTTP sources, unverified namespaces |
-| `gha_scanner` | Unpinned and compromised GitHub Actions |
-| `gha_workflow` | Script injection, overly permissive permissions, `pull_request_target` attacks |
-| `risk-score` | Composite A-F risk scores with OpenSSF Scorecard integration |
+| `risk-score` | Composite A-F risk scores with OpenSSF Scorecard |
 
 ---
 
-## Supported Ecosystems
+## Ecosystems
 
-| Ecosystem | Lockfiles / Manifests |
-|---|---|
-| npm / Node.js | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` |
-| PyPI / Python | `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `uv.lock` |
-| Cargo / Rust | `Cargo.lock` |
-| Go | `go.sum`, `go.mod` |
-| Maven / Java | `pom.xml` |
-| NuGet / .NET | `packages.lock.json`, `*.csproj` |
-| RubyGems | `Gemfile.lock` |
-| Composer / PHP | `composer.lock` |
-| Swift / SPM | `Package.resolved` |
+npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Docker, HuggingFace, MCP, GitHub Actions.
 
 ---
 
-## Output Formats
-
-All commands accept `--format` and `-o`:
-
-| Format | Flag | Use case |
-|---|---|---|
-| Rich terminal table | `--format table` (default) | Local development |
-| JSON | `--format json` | Pipeline integration, `jq` filtering |
-| HTML | `--format html` | Shareable security reports |
-| SARIF | `--format sarif` | GitHub Code Scanning, Azure DevOps |
-| CycloneDX 1.5 | `depfence sbom --format cyclonedx` | SBOM delivery |
-| SPDX 2.3 | `depfence sbom --format spdx` | SBOM delivery |
+## Output formats
 
 ```bash
 depfence scan . --format json | jq '.findings[] | select(.severity == "CRITICAL")'
@@ -169,41 +157,39 @@ depfence scan . --format sarif -o results.sarif
 depfence sbom . --format cyclonedx -o sbom.json
 ```
 
+| Format | Use case |
+|---|---|
+| `table` (default) | Local development |
+| `json` | Pipeline integration, scripting |
+| `html` | Shareable reports |
+| `sarif` | GitHub Code Scanning, Azure DevOps |
+| `cyclonedx` / `spdx` | SBOM delivery |
+
 ---
 
-## CI/CD Integration
+## CI/CD integration
 
-### GitHub Actions — one-liner composite action
+### GitHub Actions
 
 ```yaml
 - uses: ericrihm/depfence@v1
   with:
-    fail-on: high           # critical | high | medium | low | any | none
+    fail-on: high
     format: sarif
-    upload-sarif: true      # uploads to GitHub Code Scanning automatically
+    upload-sarif: true
 ```
 
 <details>
-<summary>Full workflow with SARIF upload</summary>
+<summary>Full workflow example</summary>
 
 ```yaml
 name: Dependency Security
 on:
   push:
     branches: [main]
-    paths:
-      - '**/package-lock.json'
-      - '**/yarn.lock'
-      - '**/requirements.txt'
-      - '**/poetry.lock'
-      - '**/Cargo.lock'
-      - '**/go.sum'
+    paths: ['**/package-lock.json', '**/requirements.txt', '**/Cargo.lock', '**/go.sum']
   pull_request:
-    paths:
-      - '**/package-lock.json'
-      - '**/yarn.lock'
-      - '**/requirements.txt'
-      - '**/poetry.lock'
+    paths: ['**/package-lock.json', '**/requirements.txt', '**/poetry.lock']
   schedule:
     - cron: '0 6 * * 1'
 
@@ -228,47 +214,42 @@ jobs:
 
 </details>
 
-Findings appear in the repository Security tab under Code Scanning, with per-finding annotations at the relevant file and line.
+### Pre-commit hook
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/ericrihm/depfence
+    rev: v0.5.0
+    hooks:
+      - id: depfence
+```
 
 ---
 
 ## Configuration
 
-Place `depfence.yml` at the project root for policy-as-code and scanner tuning.
+Place `depfence.yml` at the project root for policy-as-code:
 
 <details>
 <summary>depfence.yml example</summary>
 
 ```yaml
-# depfence.yml
 scanners:
-  exclude: [phantom_deps]         # disable specific scanners
-  fail_on: high                   # default --fail-on threshold
+  exclude: [phantom_deps]
+  fail_on: high
 
 rules:
   - name: no-gpl-in-production
-    description: Block copyleft-licensed packages
-    match:
-      license_category: copyleft
+    match: { license_category: copyleft }
     action: block
 
   - name: require-provenance-for-popular
-    description: Require SLSA provenance for high-download packages
-    match:
-      weekly_downloads_min: 100000
-      has_provenance: false
+    match: { weekly_downloads_min: 100000, has_provenance: false }
     action: block
 
-  - name: warn-on-ownership-change
-    description: Flag packages whose maintainers changed recently
-    match:
-      ownership_changed_days: 30
-    action: warn
-
   - name: no-install-scripts-npm
-    description: Block npm packages that run code at install time
-    match:
-      has_install_scripts: true
+    match: { has_install_scripts: true }
     action: block
     ecosystems: [npm]
 
@@ -281,33 +262,19 @@ ignore:
 
 </details>
 
-**Environment variables**
-
-| Variable | Description | Default |
-|---|---|---|
-| `DEPFENCE_PLUGIN_PATH` | Colon-separated plugin directories | — |
-| `DEPFENCE_CACHE_DIR` | Cache for diff scans and MCP fingerprints | `~/.depfence/cache` |
-| `DEPFENCE_TIMEOUT` | HTTP timeout for registry requests (seconds) | `30` |
-
-**Exit codes**
-
-| Code | Meaning |
+| Exit code | Meaning |
 |---|---|
-| `0` | No findings above threshold, or `--fail-on none` |
-| `1` | Findings at or above `--fail-on` threshold, or policy block triggered |
-| `2` | Scan error (parse failure, network error) |
+| `0` | Clean — no findings above threshold |
+| `1` | Findings at or above `--fail-on` threshold |
+| `2` | Scan error |
 
 ---
 
-## Plugin System
+## Plugin system
 
 depfence discovers plugins via pip entry points, `DEPFENCE_PLUGIN_PATH`, or `~/.depfence/plugins/`.
 
 ```python
-# pyproject.toml:
-# [project.entry-points."depfence.scanners"]
-# my_scanner = "mypackage.scanner:MyScanner"
-
 from depfence.core.models import Finding, PackageMeta, Severity
 
 class MyScanner:
@@ -315,34 +282,29 @@ class MyScanner:
     ecosystems = ["npm", "pypi"]
 
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
-        findings = []
-        for pkg in packages:
-            # detection logic
-            pass
-        return findings
+        # Your detection logic here
+        return []
 ```
 
 ```bash
-depfence plugins   # list all loaded scanners, analyzers, reporters
+depfence plugins   # list all loaded scanners
 ```
 
 ---
 
-## Installation
+## Install
 
 ```bash
 pip install depfence                  # stable
 pip install "depfence[ml]"            # with scikit-learn behavioral scoring
-pipx run depfence scan .              # no install required
+pipx run depfence scan .              # no install
 ```
 
-Requires Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13.
+Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13.
 
 ---
 
 ## Contributing
-
-Pull requests are welcome. To set up a development environment:
 
 ```bash
 git clone https://github.com/ericrihm/depfence
@@ -352,14 +314,8 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Please run `ruff check` and `mypy` before opening a PR. The test suite covers 1,950+ tests across all scanners, analyzers, reporters, and CLI commands.
+Run `ruff check` and `mypy` before opening a PR.
 
 ---
 
-## License
-
-MIT. See [LICENSE](LICENSE).
-
----
-
-*depfence is in active development. Scanner interfaces and policy schema may change between minor versions during the 0.x series.*
+MIT License. See [LICENSE](LICENSE).
