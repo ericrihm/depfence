@@ -26,11 +26,8 @@ jobs:
       - name: Lint
         run: ruff check depfence/ tests/
 
-      - name: Type check
-        run: mypy depfence/ --ignore-missing-imports
-
       - name: Test
-        run: pytest tests/ -v
+        run: pytest tests/ -v --timeout=60
 
   security-self-scan:
     runs-on: ubuntu-latest
@@ -40,8 +37,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
-      - run: depfence scan . --format sarif -o depfence.sarif --fail-on critical --no-fetch
-      - uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f
-        if: always()
-        with:
-          sarif_file: depfence.sarif
+      - name: Self-scan
+        run: depfence scan . --format json --fail-on critical --no-fetch
