@@ -302,7 +302,7 @@ class PromptInjectionScanner:
                 hidden = self._extract_ansi_hidden(raw)
                 if hidden:
                     normalized = _normalize_for_matching(hidden)
-                    for inj_pattern, inj_label, inj_severity in _INJECTION_PATTERNS:
+                    for inj_pattern, inj_label, _inj_severity in _INJECTION_PATTERNS:
                         if inj_pattern.search(normalized):
                             findings.append(Finding(
                                 finding_type=FindingType.PROMPT_INJECTION,
@@ -367,11 +367,11 @@ class PromptInjectionScanner:
         """Scan package.json files for injection in all text fields."""
         import json as _json
         findings: list[Finding] = []
-        _FIELDS_TO_SCAN = [
+        fields_to_scan = [
             "name", "description", "homepage", "repository",
             "keywords", "license", "author",
         ]
-        _SCRIPT_FIELDS = [
+        _script_fields = [  # noqa: F841
             "preinstall", "postinstall", "prepare", "prepack",
             "prebuild", "postbuild", "pretest", "posttest",
         ]
@@ -393,7 +393,7 @@ class PromptInjectionScanner:
             pkg_name = data.get("name", rel)
 
             # Scan metadata fields
-            for field in _FIELDS_TO_SCAN:
+            for field in fields_to_scan:
                 value = data.get(field)
                 if isinstance(value, list):
                     value = " ".join(str(v) for v in value)

@@ -18,10 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
-
-import re
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 
@@ -88,7 +87,9 @@ _MODEL_INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
      "LLM delimiter in model metadata"),
     (re.compile(r"IMPORTANT\s*:\s*(ignore|disregard|override)", re.I),
      "Instruction override via IMPORTANT"),
-    (re.compile(r"(?:remove|delete|erase|destroy)\s+(?:all|every|the)\s+(?:files?|code|tests?|data)", re.I),
+    (re.compile(
+        r"(?:remove|delete|erase|destroy)\s+(?:all|every|the)\s+(?:files?|code|tests?|data)",
+        re.I),
      "Destructive instruction in model metadata"),
     (re.compile(r"(?:send|post|exfiltrate?|upload)\s+(?:to|the|all|this)", re.I),
      "Exfiltration instruction in model metadata"),

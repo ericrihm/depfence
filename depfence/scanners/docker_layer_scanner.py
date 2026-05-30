@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.models import Finding, FindingType, PackageId, PackageMeta
 from depfence.scanners.prompt_injection_scanner import (
     _INJECTION_PATTERNS,
     _normalize_for_matching,

@@ -2,10 +2,9 @@
 
 **Dependency security for the AI age.** 40+ scanners. One command.
 
-[![PyPI](https://img.shields.io/pypi/v/depfence)](https://pypi.org/project/depfence/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/test.yml?label=tests)](https://github.com/ericrihm/depfence/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/ci.yml?label=CI)](https://github.com/ericrihm/depfence/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/pypi/pyversions/depfence)](https://pypi.org/project/depfence/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/ericrihm/depfence)
 
 ```bash
 pip install depfence

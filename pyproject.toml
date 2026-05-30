@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "depfence"
 version = "0.5.0"
-description = "AI-aware dependency security scanner. 30+ scanners, red-team simulation, secret detection, SLSA provenance, SBOM generation (CycloneDX/SPDX/SARIF), policy-as-code, and 50+ CLI commands for securing npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, and Swift ecosystems."
+description = "AI-aware dependency security scanner. 40+ scanners: prompt injection detection, slopsquatting defense, MCP auditing, AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "depfence contributors"}
 ]
-keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom"]
+keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom", "prompt-injection", "mcp", "ai-safety", "slopsquatting"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -83,6 +83,11 @@ phantom_deps = "depfence.scanners.phantom_deps:PhantomDepsScanner"
 ai_vulns = "depfence.scanners.ai_vulns:AiVulnScanner"
 model_integrity = "depfence.scanners.model_integrity:ModelIntegrityScanner"
 provenance_checker = "depfence.scanners.provenance_checker:ProvenanceChecker"
+prompt_injection = "depfence.scanners.prompt_injection_scanner:PromptInjectionScanner"
+git_message = "depfence.scanners.git_message_scanner:GitMessageScanner"
+ci_ai_bot = "depfence.scanners.ci_ai_bot_scanner:CiAiBotScanner"
+docker_layer = "depfence.scanners.docker_layer_scanner:DockerLayerScanner"
+ai_bom = "depfence.scanners.ai_bom_generator:AiBomGenerator"
 
 [project.entry-points."depfence.analyzers"]
 ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"
@@ -110,6 +115,11 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S106", "S108"]
+"depfence/scanners/*.py" = ["E501", "S603", "S607", "S112"]
+"depfence/core/models.py" = ["S105"]
 
 [tool.mypy]
 python_version = "3.10"

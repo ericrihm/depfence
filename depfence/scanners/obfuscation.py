@@ -88,7 +88,8 @@ class ObfuscationScanner:
 
     def _analyze_content(self, content: str, fpath: Path, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
-        rel_path = str(fpath.relative_to(project_dir)) if project_dir in fpath.parents else str(fpath)
+        is_child = project_dir in fpath.parents
+        rel_path = str(fpath.relative_to(project_dir)) if is_child else str(fpath)
 
         if self._BASE64_EXEC.search(content):
             findings.append(self._make_finding(
@@ -175,7 +176,7 @@ class ObfuscationScanner:
 
         entropy = self._line_entropy(content)
         if entropy > 5.5 and len(content) > 1000:
-            long_lines = [l for l in content.splitlines() if len(l) > 500]
+            long_lines = [ln for ln in content.splitlines() if len(ln) > 500]
             if long_lines and len(long_lines) > len(content.splitlines()) * 0.3:
                 findings.append(self._make_finding(
                     rel_path, Severity.LOW,
