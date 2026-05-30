@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
-
-import asyncio
-
 
 from depfence.core.models import FindingType, Severity
 from depfence.scanners.mcp_fingerprint import (

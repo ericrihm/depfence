@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 
-
 from depfence.core.license_compat import (
     check_license_compatibility,
     detect_project_license,

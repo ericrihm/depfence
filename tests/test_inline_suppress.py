@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 from depfence.core.inline_suppress import filter_findings, parse_suppressions
 from depfence.core.models import Finding, FindingType, PackageId, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers

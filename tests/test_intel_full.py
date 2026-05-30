@@ -9,11 +9,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.intel.kev_monitor import KEVEntry, KEVMonitor
 from depfence.intel.threat_feed import ThreatFeed, ThreatSnapshot
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -540,6 +538,7 @@ class TestThreatFeedGenerateBrief:
 class TestThreatBriefCLI:
     def test_threat_brief_no_scan_returns_zero_exit(self, tmp_path):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         runner = CliRunner()
@@ -548,6 +547,7 @@ class TestThreatBriefCLI:
 
     def test_threat_brief_no_scan_contains_header(self, tmp_path):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         runner = CliRunner()
@@ -556,6 +556,7 @@ class TestThreatBriefCLI:
 
     def test_threat_brief_json_format(self, tmp_path):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         runner = CliRunner()
@@ -571,6 +572,7 @@ class TestThreatBriefCLI:
 
     def test_threat_brief_json_top_risks_field(self, tmp_path):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         runner = CliRunner()
@@ -582,6 +584,7 @@ class TestThreatBriefCLI:
 
     def test_threat_brief_json_trending_cves(self, tmp_path):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         runner = CliRunner()

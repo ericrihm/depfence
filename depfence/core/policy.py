@@ -94,7 +94,7 @@ class PolicyEngine:
             self._load(policy_path)
 
     @classmethod
-    def from_project(cls, project_dir: Path) -> "PolicyEngine":
+    def from_project(cls, project_dir: Path) -> PolicyEngine:
         """Load policy from project root or DEPFENCE_POLICY env var."""
         env_path = os.environ.get("DEPFENCE_POLICY")
         if env_path:

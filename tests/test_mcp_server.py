@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.mcp.server import (
     PROTOCOL_VERSION,
     SERVER_NAME,
@@ -44,8 +45,6 @@ from depfence.mcp.tools import (
     _compute_risk_score,
     _severity_to_score,
 )
-from depfence.core.models import Finding, FindingType, PackageId, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -367,7 +366,8 @@ async def test_suggest_alternative_npm_lodash():
 async def test_check_license_structure():
     tools = McpTools()
     with patch("depfence.core.fetcher.fetch_meta", new_callable=AsyncMock) as mock_fetch:
-        from depfence.core.models import PackageMeta, PackageId as PkgId
+        from depfence.core.models import PackageId as PkgId
+        from depfence.core.models import PackageMeta
         mock_meta = PackageMeta(pkg=PkgId(ecosystem="pypi", name="requests"), license="MIT")
         mock_fetch.return_value = mock_meta
         result = await tools.check_license("requests", "pypi")
@@ -382,7 +382,8 @@ async def test_check_license_structure():
 async def test_check_license_mit_is_clean():
     tools = McpTools()
     with patch("depfence.core.fetcher.fetch_meta", new_callable=AsyncMock) as mock_fetch:
-        from depfence.core.models import PackageMeta, PackageId as PkgId
+        from depfence.core.models import PackageId as PkgId
+        from depfence.core.models import PackageMeta
         mock_meta = PackageMeta(pkg=PkgId(ecosystem="pypi", name="somepkg"), license="MIT")
         mock_fetch.return_value = mock_meta
         result = await tools.check_license("somepkg", "pypi")
@@ -395,7 +396,8 @@ async def test_check_license_mit_is_clean():
 async def test_check_license_agpl_is_critical():
     tools = McpTools()
     with patch("depfence.core.fetcher.fetch_meta", new_callable=AsyncMock) as mock_fetch:
-        from depfence.core.models import PackageMeta, PackageId as PkgId
+        from depfence.core.models import PackageId as PkgId
+        from depfence.core.models import PackageMeta
         mock_meta = PackageMeta(pkg=PkgId(ecosystem="pypi", name="agplpkg"), license="AGPL-3.0")
         mock_fetch.return_value = mock_meta
         result = await tools.check_license("agplpkg", "pypi")

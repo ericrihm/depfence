@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from depfence.core.dep_tree import (
     DepNode,
     build_tree_from_package_lock,
@@ -15,7 +14,6 @@ from depfence.core.dep_tree import (
     tree_to_text,
 )
 from depfence.core.models import PackageId
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

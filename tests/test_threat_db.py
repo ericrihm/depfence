@@ -12,7 +12,6 @@ from depfence.core.threat_db import ThreatDB
 from depfence.scanners.npm_advisory import NpmAdvisoryScanner
 from depfence.scanners.pypi_advisory import PypiAdvisoryScanner
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -306,6 +305,7 @@ async def test_pypi_scanner_emits_threat_db_finding(tmp_path):
 
     # Monkeypatch the OSV HTTP call so the test is offline
     import unittest.mock as mock
+
     import httpx
 
     mock_resp = mock.MagicMock()
@@ -331,6 +331,7 @@ async def test_pypi_scanner_emits_critical_malicious_for_known_malicious(tmp_pat
     pkg = PackageMeta(pkg=PackageId("pypi", "evil-lib", "1.0.0"))
 
     import unittest.mock as mock
+
     import httpx
 
     mock_resp = mock.MagicMock()
@@ -355,6 +356,7 @@ async def test_pypi_scanner_no_findings_when_db_missing(tmp_path):
     pkg = PackageMeta(pkg=PackageId("pypi", "any-lib", "1.0.0"))
 
     import unittest.mock as mock
+
     import httpx
 
     mock_resp = mock.MagicMock()

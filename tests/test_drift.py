@@ -17,8 +17,7 @@ from depfence.core.drift import (
     _run_git,
 )
 from depfence.core.history import ScanDelta, ScanHistory, ScanSnapshot, _project_hash
-from depfence.core.models import Finding, FindingType, PackageId, Severity, ScanResult
-
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 
 # ---------------------------------------------------------------------------
 # Fixtures

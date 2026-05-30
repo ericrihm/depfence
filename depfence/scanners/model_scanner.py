@@ -45,7 +45,6 @@ _KNOWN_SAFE_ORGS: frozenset[str] = frozenset({
     "allenai",
     "sentence-transformers",
     "Helsinki-NLP",
-    "facebook",
     "nvidia",
 })
 

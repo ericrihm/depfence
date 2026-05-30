@@ -26,7 +26,7 @@ def generate_github_actions(
     steps.append("          python-version: '3.12'")
     steps.append("      - run: pip install depfence")
 
-    steps.append(f"      - name: Security Scan")
+    steps.append("      - name: Security Scan")
     steps.append(f"        run: depfence scan --fail-on {fail_on} --format sarif -o results.sarif")
 
     if scan_docker:

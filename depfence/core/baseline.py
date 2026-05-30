@@ -30,7 +30,7 @@ class Baseline:
             self._load()
 
     @classmethod
-    def from_project(cls, project_dir: Path) -> "Baseline":
+    def from_project(cls, project_dir: Path) -> Baseline:
         path = project_dir / ".depfence-baseline.json"
         return cls(path)
 

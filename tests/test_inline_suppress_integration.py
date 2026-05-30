@@ -16,7 +16,6 @@ import pytest
 
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -235,8 +234,9 @@ class TestInlineSuppressIntegration:
         findings = [_make_finding("requests"), _make_finding("flask")]
 
         # Patch detect_ecosystem to return both files
-        from depfence.core import engine
         from unittest.mock import patch as _patch
+
+        from depfence.core import engine
 
         mock_scanner = MagicMock()
         mock_scanner.ecosystems = ["pypi"]

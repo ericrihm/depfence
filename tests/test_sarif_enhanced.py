@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-
-from depfence.core.models import Finding, FindingType, PackageId, Severity, ScanResult
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.reporters.sarif_out import SarifReporter, _partial_fingerprint
 
 # ---------------------------------------------------------------------------

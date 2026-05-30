@@ -7,9 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from depfence.core.epss_client import EpssClient, EpssScore
-from depfence.core.epss_enricher import enrich_findings, _epss_priority
+from depfence.core.epss_enricher import _epss_priority, enrich_findings
 from depfence.core.models import Finding, FindingType, PackageId, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers

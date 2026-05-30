@@ -1,7 +1,7 @@
 """Tests for pre-commit hook integration."""
 
-from unittest.mock import MagicMock, patch
 import subprocess
+from unittest.mock import MagicMock, patch
 
 from depfence.integrations.pre_commit_hook import get_staged_lockfiles, main
 

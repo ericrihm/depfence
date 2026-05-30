@@ -5,7 +5,6 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 from depfence.core.baseline import Baseline, finding_fingerprint
 from depfence.core.models import Finding, FindingType, Severity
 

@@ -15,7 +15,6 @@ from depfence.core.scorecard_client import (
 )
 from depfence.core.scorecard_enricher import enrich_with_scorecard, scorecard_findings
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

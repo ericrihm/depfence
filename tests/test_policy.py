@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-
-
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.core.policy import (
     PolicyConfig,

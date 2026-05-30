@@ -17,7 +17,6 @@ from pathlib import Path
 
 from depfence.core.models import Finding, PackageId, Severity
 
-
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------

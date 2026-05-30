@@ -79,7 +79,7 @@ class CiSecretsScanner:
     name = "ci_secrets"
     ecosystems = ["npm", "pypi", "cargo", "go"]
 
-    async def scan(self, packages: list) -> list["Finding"]:
+    async def scan(self, packages: list) -> list[Finding]:
         """Standard scanner interface — CI secrets scanner is environment-based, not package-based."""
         return []
 

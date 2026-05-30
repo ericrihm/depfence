@@ -12,7 +12,6 @@ import pytest
 from depfence.core.models import FindingType, Severity
 from depfence.scanners.model_integrity import ModelIntegrityScanner
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

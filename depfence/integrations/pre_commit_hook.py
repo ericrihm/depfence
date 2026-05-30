@@ -10,7 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 LOCKFILE_PATTERNS = {
     "package-lock.json",
     "yarn.lock",

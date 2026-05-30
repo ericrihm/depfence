@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 
-
 from depfence.parsers.jvm_lockfiles import (
     detect_jvm_lockfiles,
     parse_gradle_lockfile,

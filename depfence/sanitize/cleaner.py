@@ -16,7 +16,6 @@ from typing import Any
 from depfence.sanitize.detector import DetectorConfig, SecretsDetector
 from depfence.scanners.secrets import SecretMatch, SecretsScanner
 
-
 # Placeholder templates by secret type
 _PLACEHOLDERS: dict[str, str] = {
     "AWS Access Key ID": "AKIAXXXXXXXXXXXXXXXX",
@@ -121,7 +120,7 @@ class SanitizeCleaner:
         self._detector = SecretsDetector(config=self._config)
 
     @classmethod
-    def from_project(cls, project_dir: Path) -> "SanitizeCleaner":
+    def from_project(cls, project_dir: Path) -> SanitizeCleaner:
         cfg = DetectorConfig.from_depfence_yml(project_dir)
         return cls(config=cfg)
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from depfence.scanners.pinning_scanner import PinningScanner, _npm_score, _pypi_score, _cargo_score
 from depfence.core.models import Severity
+from depfence.scanners.pinning_scanner import PinningScanner, _cargo_score, _npm_score, _pypi_score
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ class TestRequirements:
             (p / "requirements.txt").write_text("requests==2.31.0\nflask==3.0.0\n")
             findings = await scanner.scan_project(p)
             assert not any("pypi:" in f.package for f in findings
-                           if not "lockfile" in f.title.lower())
+                           if "lockfile" not in f.title.lower())
 
     @pytest.mark.asyncio
     async def test_comment_lines_ignored(self, scanner):
@@ -465,7 +465,7 @@ class TestScanInterface:
 
     @pytest.mark.asyncio
     async def test_scan_with_packages_returns_empty(self, scanner):
-        from depfence.core.models import PackageMeta, PackageId
+        from depfence.core.models import PackageId, PackageMeta
         metas = [PackageMeta(pkg=PackageId(ecosystem="npm", name="express", version="4.18.0"))]
         result = await scanner.scan(metas)
         assert result == []

@@ -82,7 +82,7 @@ _KNOWN_SCOPED_BARE_NAMES: set[str] = {
     # @google-cloud
     "storage", "bigquery", "firestore", "pubsub", "translate",
     # @nestjs
-    "common", "core", "platform-express", "testing", "swagger",
+    "platform-express", "testing", "swagger",
     # @react-native
     "async-storage", "community", "clipboard",
     # @openai

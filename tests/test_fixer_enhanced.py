@@ -5,14 +5,12 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-
 from depfence.core.fixer import (
     apply_fixes,
     apply_fixes_cargo_toml,
     apply_fixes_pyproject_toml,
     suggest_go_mod_commands,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

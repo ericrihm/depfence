@@ -25,19 +25,18 @@ from pathlib import Path
 
 import pytest
 
+from depfence.core.models import FindingType, Severity
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
 from depfence.scanners.secrets import (
     SecretMatch,
     SecretsScanner,
+    _is_likely_false_positive,
     _mask,
     _shannon_entropy,
-    _is_likely_false_positive,
 )
-from depfence.core.models import Severity, FindingType
-
 
 # Construct token prefixes at runtime to avoid GitHub push protection false positives
 _SLACK_BOT = "xox" + "b"

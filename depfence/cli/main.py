@@ -381,8 +381,8 @@ def mcp_fingerprint(path: str, fmt: str) -> None:
 @click.option("--fail-on", default="high", type=click.Choice(["critical", "high", "medium", "low", "any", "none"]))
 def gha_scan(path: str, fmt: str, fail_on: str) -> None:
     """Scan GitHub Actions workflows for supply chain risks."""
-    from depfence.core.models import ScanResult
     from depfence.core.engine import render_result
+    from depfence.core.models import ScanResult
     from depfence.scanners.gha_scanner import GhaScanner
 
     scanner = GhaScanner()
@@ -459,6 +459,7 @@ def reachability_scan(path: str, fmt: str) -> None:
 def report(path: str, fmt: str, output: str | None) -> None:
     """Generate a comprehensive security report (all scanners)."""
     import json as json_mod
+
     from depfence.core.engine import scan_directory
     from depfence.core.lockfile import detect_ecosystem
     from depfence.scanners.gha_scanner import GhaScanner
@@ -474,8 +475,8 @@ def report(path: str, fmt: str, output: str | None) -> None:
 
     # Run project-level scanners
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
-    from depfence.scanners.terraform_scanner import TerraformScanner
     from depfence.scanners.secrets_scanner import SecretsScanner
+    from depfence.scanners.terraform_scanner import TerraformScanner
     docker_findings = asyncio.run(DockerfileScanner().scan_project(project_dir))
     tf_findings = asyncio.run(TerraformScanner().scan_project(project_dir))
     secrets_findings = asyncio.run(SecretsScanner().scan_project(project_dir))
@@ -928,6 +929,7 @@ def diff_scan(path: str, fmt: str, fail_on: str, mode_git: bool, mode_ci: bool, 
 def sbom_diff(before: str, after: str, fmt: str) -> None:
     """Compare two SBOMs and show dependency changes."""
     import json as json_mod
+
     from depfence.core.sbom_diff import diff_sbom_files
 
     diff = diff_sbom_files(Path(before), Path(after))
@@ -1104,7 +1106,8 @@ def firewall_status(path: str) -> None:
 def firewall_check_npm() -> None:
     """Pre-install hook for npm (called automatically)."""
     import os
-    from depfence.firewall.interceptor import check_package, FirewallDecision
+
+    from depfence.firewall.interceptor import FirewallDecision, check_package
 
     pkg_name = os.environ.get("npm_package_name", "")
     pkg_version = os.environ.get("npm_package_version", "")
@@ -1124,7 +1127,7 @@ def firewall_check_npm() -> None:
 @click.argument("package_name")
 def firewall_check_pip(package_name: str) -> None:
     """Check a pip package before install."""
-    from depfence.firewall.interceptor import check_package, FirewallDecision
+    from depfence.firewall.interceptor import FirewallDecision, check_package
 
     result = check_package("pypi", package_name)
     if result["decision"] == FirewallDecision.BLOCK:
@@ -1187,8 +1190,8 @@ def ai_scan(path: str, fmt: str, fail_on: str) -> None:
 @click.option("--fail-on", default="high", type=click.Choice(["critical", "high", "medium", "low", "any", "none"]))
 def model_scan(path: str, fmt: str, fail_on: str) -> None:
     """Scan for model supply chain risks (HuggingFace, pickle, etc.)."""
-    from depfence.core.models import ScanResult
     from depfence.core.engine import render_result
+    from depfence.core.models import ScanResult
     from depfence.scanners.model_scanner import ModelScanner
 
     scanner = ModelScanner()
@@ -1257,7 +1260,9 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
     scanner = LicenseScanner()
 
     if policy == "strict":
-        import tempfile, yaml as _yaml
+        import tempfile
+
+        import yaml as _yaml
         _strict_dir = Path(tempfile.mkdtemp())
         (_strict_dir / "depfence.yml").write_text(
             _yaml.dump({
@@ -1356,7 +1361,8 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
             console.print("\n[bold green]All licenses comply with policy.[/bold green]")
 
     # Exit 1 if violations exist and --fail-on-violation (default)
-    if fail_on_violation and (violations or any(f.severity in (Severity.HIGH, Severity.CRITICAL) for f in findings)):
+    from depfence.core.models import Severity as _Sev
+    if fail_on_violation and (violations or any(f.severity in (_Sev.HIGH, _Sev.CRITICAL) for f in findings)):
         sys.exit(1)
 
 
@@ -1858,7 +1864,7 @@ def kev(path: str, top: int) -> None:
             (f.metadata.get("kev_required_action", ""))[:60],
         )
     console.print(table)
-    console.print(f"[bold red]Action required:[/bold red] These vulnerabilities are being actively exploited.")
+    console.print("[bold red]Action required:[/bold red] These vulnerabilities are being actively exploited.")
 
 
 
@@ -2094,7 +2100,7 @@ def info() -> None:
 def policy_check(path: str) -> None:
     """Evaluate scan findings against policy rules in depfence.yml."""
     from depfence.core.engine import scan_directory
-    from depfence.core.policy import find_config, load_config, evaluate_policy
+    from depfence.core.policy import evaluate_policy, find_config, load_config
 
     project_dir = Path(path).resolve()
     config_path = find_config(project_dir)
@@ -2666,8 +2672,8 @@ def red_team(path: str, fmt: str, fail_below: int) -> None:
 
     # Rich table output
     from rich.console import Console
-    from rich.table import Table
     from rich.panel import Panel
+    from rich.table import Table
 
     console = Console()
 
@@ -2757,8 +2763,8 @@ def red_team(path: str, fmt: str, fail_below: int) -> None:
 @click.option("--format", "fmt", default="table", type=click.Choice(["table", "json"]))
 def remediate(path: str, dry_run: bool, fmt: str) -> None:
     """Generate remediation PRs for vulnerable dependencies."""
-    from depfence.remediate.pr_generator import RemediationPR
     from depfence.core.engine import scan_directory
+    from depfence.remediate.pr_generator import RemediationPR
 
     project_dir = Path(path).resolve()
     result = asyncio.run(scan_directory(project_dir))
@@ -2935,7 +2941,7 @@ def mcp_test(package: str, ecosystem: str) -> None:
     """
     import json as _json
 
-    from depfence.mcp.server import DepfenceMcpServer, PROTOCOL_VERSION
+    from depfence.mcp.server import PROTOCOL_VERSION, DepfenceMcpServer
 
     server = DepfenceMcpServer()
 

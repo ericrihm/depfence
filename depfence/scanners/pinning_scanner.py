@@ -30,7 +30,6 @@ except ModuleNotFoundError:
 
 from depfence.core.models import Finding, FindingType, Severity
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

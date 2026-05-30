@@ -127,8 +127,8 @@ class PreinstallScanner:
                 package=pkg_name,
                 title="setup.py accesses credentials AND makes network calls",
                 detail=(
-                    f"Build script reads sensitive credential paths and has network "
-                    f"capabilities. This matches the TeamPCP/Shai-Hulud attack pattern."
+                    "Build script reads sensitive credential paths and has network "
+                    "capabilities. This matches the TeamPCP/Shai-Hulud attack pattern."
                 ),
                 metadata={
                     "file": str(setup_path),

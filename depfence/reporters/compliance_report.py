@@ -100,7 +100,7 @@ def render_compliance_markdown(report: dict) -> str:
     summary = report["summary"]
 
     status = "PASS" if summary["pass"] else "FAIL"
-    lines.append(f"# Supply Chain Compliance Report")
+    lines.append("# Supply Chain Compliance Report")
     lines.append("")
     lines.append(f"**Status:** {status}")
     lines.append(f"**Project:** {meta['project']}")
@@ -111,8 +111,8 @@ def render_compliance_markdown(report: dict) -> str:
 
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Total Findings | {summary['total_findings']} |")
     lines.append(f"| Critical | {summary['severity_breakdown'].get('CRITICAL', 0)} |")
     lines.append(f"| High | {summary['severity_breakdown'].get('HIGH', 0)} |")

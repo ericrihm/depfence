@@ -50,8 +50,8 @@ async def test_stable_version_not_flagged(scanner):
 
 @pytest.mark.asyncio
 async def test_scan_project_returns_empty(scanner):
-    from pathlib import Path
     import tempfile
+    from pathlib import Path
     with tempfile.TemporaryDirectory() as d:
         findings = await scanner.scan_project(Path(d))
         assert findings == []

@@ -8,11 +8,9 @@ import json
 import tempfile
 from pathlib import Path
 
-
-from depfence.parsers.nuget_lockfiles import parse_packages_lock_json
-from depfence.parsers.gemfile_lockfile import parse_gemfile_lock
 from depfence.core.lockfile import detect_ecosystem, parse_lockfile
-
+from depfence.parsers.gemfile_lockfile import parse_gemfile_lock
+from depfence.parsers.nuget_lockfiles import parse_packages_lock_json
 
 # ---------------------------------------------------------------------------
 # Fixture data

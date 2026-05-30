@@ -9,17 +9,21 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import httpx
 
 from depfence.core.models import MaintainerInfo, PackageId, PackageMeta
+
+if TYPE_CHECKING:
+    from depfence.cache.download_cache import DownloadCache
 
 log = logging.getLogger(__name__)
 
 _CLIENT: httpx.AsyncClient | None = None
 
 # Lazy-initialised download cache (None when cache is unavailable or disabled)
-_DOWNLOAD_CACHE: "DownloadCache | None" = None
+_DOWNLOAD_CACHE: DownloadCache | None = None
 _CACHE_ENABLED: bool = True
 
 
@@ -30,7 +34,7 @@ def _get_client() -> httpx.AsyncClient:
     return _CLIENT
 
 
-def _get_download_cache() -> "DownloadCache | None":
+def _get_download_cache() -> DownloadCache | None:
     global _DOWNLOAD_CACHE
     if not _CACHE_ENABLED:
         return None

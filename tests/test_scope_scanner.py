@@ -5,7 +5,6 @@ import pytest
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.scope_scanner import ScopeScanner, _levenshtein
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

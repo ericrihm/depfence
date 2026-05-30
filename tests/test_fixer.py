@@ -4,7 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-
 from depfence.core.fixer import (
     apply_fixes_package_json,
     apply_fixes_requirements,

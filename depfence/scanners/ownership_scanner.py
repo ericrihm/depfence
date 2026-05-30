@@ -147,8 +147,8 @@ def check_version_anomaly(
                         package=f"{ecosystem}:{package_name}",
                         title="Burst of versions published in short window",
                         detail=(
-                            f"5+ versions published within 24 hours. This may indicate "
-                            f"automated publishing or an account compromise."
+                            "5+ versions published within 24 hours. This may indicate "
+                            "automated publishing or an account compromise."
                         ),
                     ))
                     break

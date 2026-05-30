@@ -10,7 +10,6 @@ import pytest
 from depfence.core.models import FindingType, Severity
 from depfence.scanners.model_scanner import ModelScanner, _extract_model_refs
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

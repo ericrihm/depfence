@@ -46,7 +46,7 @@ class DetectorConfig:
     min_secret_len: int = 20
 
     @classmethod
-    def from_depfence_yml(cls, project_dir: Path) -> "DetectorConfig":
+    def from_depfence_yml(cls, project_dir: Path) -> DetectorConfig:
         """Load configuration from depfence.yml if present."""
         cfg_path = project_dir / "depfence.yml"
         if not cfg_path.exists():
@@ -88,7 +88,7 @@ class SecretsDetector:
                 pass
 
     @classmethod
-    def from_project(cls, project_dir: Path) -> "SecretsDetector":
+    def from_project(cls, project_dir: Path) -> SecretsDetector:
         """Create a detector configured from the project's depfence.yml."""
         cfg = DetectorConfig.from_depfence_yml(project_dir)
         return cls(config=cfg)

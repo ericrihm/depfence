@@ -10,14 +10,13 @@ import pytest
 from depfence.core.models import FindingType, MaintainerInfo, PackageId, PackageMeta, Severity
 from depfence.scanners.reputation import (
     ReputationScanner,
+    _char_confused,
     _levenshtein,
-    _typosquat_similarity,
     _normalize_separators,
     _strip_scope,
-    _char_confused,
+    _typosquat_similarity,
     detect_malicious_patterns,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

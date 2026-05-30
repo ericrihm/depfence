@@ -330,7 +330,7 @@ class AttackSimulator:
                 "target_package": package,
                 "attack_chain": attack_chain,
                 "example_injected_payload": injected_payload,
-                "affected_semver_ranges": [f"^x.y.z", f"~x.y.z", f">=x.y.z", f"*"],
+                "affected_semver_ranges": ["^x.y.z", "~x.y.z", ">=x.y.z", "*"],
             },
         )
 

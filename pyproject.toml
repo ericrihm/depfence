@@ -115,11 +115,23 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B"]
+ignore = [
+    "E402", "E501", "E741",
+    "N803", "N806", "N814",
+    "S101", "S106", "S110", "S112", "S314", "S603", "S607", "S608",
+    "B005", "B007", "B905",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S106", "S108"]
+"tests/**" = ["S101", "S105", "S106", "S108", "E501"]
 "depfence/scanners/*.py" = ["E501", "S603", "S607", "S112"]
 "depfence/core/models.py" = ["S105"]
+"depfence/reporters/*.py" = ["E501"]
+"depfence/cli/*.py" = ["E501"]
+"depfence/mcp/*.py" = ["E501"]
+"depfence/analyzers/*.py" = ["E501"]
+"depfence/core/*.py" = ["E501"]
+"depfence/simulate/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.10"

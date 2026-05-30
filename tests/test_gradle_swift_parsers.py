@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
+from depfence.core.lockfile import detect_ecosystem
 from depfence.core.models import PackageId
 from depfence.parsers.gradle_lockfile import (
     parse_gradle_lockfile,
@@ -14,8 +14,6 @@ from depfence.parsers.swift_lockfile import (
     parse_package_resolved,
     parse_podfile_lock,
 )
-from depfence.core.lockfile import detect_ecosystem
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

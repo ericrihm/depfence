@@ -11,7 +11,6 @@ import pytest
 from depfence.core.models import PackageId
 from depfence.core.threat_intel import KNOWN_MALICIOUS, ThreatEntry, ThreatIntelDB
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

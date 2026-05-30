@@ -16,6 +16,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
 log = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = Path.home() / ".depfence" / "cache" / "epss_history.db"

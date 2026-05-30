@@ -208,7 +208,7 @@ def _build_severity_breakdown(counts: dict[str, int]) -> str:
 
 def _build_findings_table(sorted_findings: list[Finding]) -> str:
     if not sorted_findings:
-        return f"""
+        return """
   <section class="report-section" id="section-findings">
     <h2 class="section-heading">Findings</h2>
     <div class="table-wrap">

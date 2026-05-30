@@ -14,7 +14,6 @@ Detection approach:
 
 from __future__ import annotations
 
-
 from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 
 _POPULAR_NPM = [

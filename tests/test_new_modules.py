@@ -2,13 +2,14 @@
 
 import tempfile
 from pathlib import Path
-from depfence.simulate.attacks import AttackSimulator, SimulationResult, RiskLevel
-from depfence.simulate.red_team import RedTeamReport, AttackOutcome
-from depfence.remediate.pr_generator import RemediationPR, PullRequestDraft
-from depfence.remediate.strategies import VersionBumpStrategy, RemoveStrategy
-from depfence.intel.epss_tracker import EPSSTracker
+
+from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.core.watcher import FileWatcher
-from depfence.core.models import Finding, FindingType, Severity, PackageId
+from depfence.intel.epss_tracker import EPSSTracker
+from depfence.remediate.pr_generator import PullRequestDraft, RemediationPR
+from depfence.remediate.strategies import RemoveStrategy, VersionBumpStrategy
+from depfence.simulate.attacks import AttackSimulator, RiskLevel, SimulationResult
+from depfence.simulate.red_team import AttackOutcome, RedTeamReport
 
 
 class TestAttackSimulator:

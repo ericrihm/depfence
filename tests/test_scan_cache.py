@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 from depfence.core.models import PackageId
 from depfence.core.scan_cache import ScanCache
 

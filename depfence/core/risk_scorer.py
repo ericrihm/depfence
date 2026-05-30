@@ -14,6 +14,7 @@ Signal categories:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
 from depfence.core.models import Finding, FindingType, Severity
 
 

@@ -8,10 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from depfence.core.kev_client import KevClient, KevEntry, _parse_entry, _catalog_from_payload
+from depfence.core.kev_client import KevClient, KevEntry, _catalog_from_payload, _parse_entry
 from depfence.core.kev_enricher import enrich_with_kev
 from depfence.core.models import Finding, FindingType, PackageId, Severity
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / helpers

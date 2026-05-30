@@ -68,7 +68,7 @@ def analyze_update(
         reasons.append(f"Major version bump ({current[0]} → {target[0]}): likely breaking changes")
     elif target[1] > current[1]:
         risk = UpdateRisk.LOW
-        reasons.append(f"Minor version bump: new features, should be backward-compatible")
+        reasons.append("Minor version bump: new features, should be backward-compatible")
         if target[1] - current[1] > 3:
             risk = UpdateRisk.MEDIUM
             reasons.append(f"Multiple minor versions skipped ({target[1] - current[1]}): increased risk")

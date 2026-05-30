@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
 from depfence.analyzers.version_diff import VersionDiffResult, analyze_diff
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -79,7 +79,7 @@ class OsvScanner:
     def __init__(self, timeout: float = 15.0, use_cache: bool = True) -> None:
         self._timeout = timeout
         self._use_cache = use_cache
-        self._cache: "AdvisoryCache | None" = None
+        self._cache: AdvisoryCache | None = None
         if use_cache:
             try:
                 from depfence.cache.advisory_cache import AdvisoryCache

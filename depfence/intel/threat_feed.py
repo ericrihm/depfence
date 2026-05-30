@@ -144,7 +144,7 @@ class ThreatFeed:
 
     @staticmethod
     def _gather_epss(
-        epss_tracker: "EPSSTracker | None",
+        epss_tracker: EPSSTracker | None,
         findings: list,
     ) -> tuple[dict[str, float], float]:
         epss_data: dict[str, float] = {}
@@ -197,7 +197,7 @@ class ThreatFeed:
         return scored
 
     @staticmethod
-    def _gather_trending(epss_tracker: "EPSSTracker | None") -> list[dict]:
+    def _gather_trending(epss_tracker: EPSSTracker | None) -> list[dict]:
         if epss_tracker is None:
             return []
         return [

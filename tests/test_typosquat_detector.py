@@ -13,7 +13,6 @@ from depfence.analyzers.typosquat_detector import (
     levenshtein_distance,
 )
 
-
 # ---------------------------------------------------------------------------
 # levenshtein_distance
 # ---------------------------------------------------------------------------

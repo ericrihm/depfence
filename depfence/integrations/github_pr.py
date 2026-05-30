@@ -26,8 +26,8 @@ def format_pr_comment(result: ScanResult, diff_info: dict | None = None) -> str:
     lines = [
         f"## depfence Security Scan — {status_emoji} {status_text}",
         "",
-        f"| Severity | Count |",
-        f"|----------|-------|",
+        "| Severity | Count |",
+        "|----------|-------|",
         f"| :red_circle: Critical | {critical} |",
         f"| :orange_circle: High | {high} |",
         f"| :yellow_circle: Medium | {medium} |",

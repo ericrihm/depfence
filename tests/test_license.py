@@ -20,13 +20,12 @@ import yaml
 
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.license import (
-    LicenseScanner,
     LicensePolicyResult,
+    LicenseScanner,
     _load_db,
     parse_spdx_expression,
     resolve_spdx_expression_category,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

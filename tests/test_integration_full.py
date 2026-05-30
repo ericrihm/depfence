@@ -654,7 +654,7 @@ def test_dep_tree_from_package_lock(tmp_path: Path) -> None:
 def test_risk_scorer_produces_grades() -> None:
     """score_all_packages should grade findings by severity and type."""
     from depfence.core.models import Finding, FindingType, PackageId, Severity
-    from depfence.core.risk_scorer import score_all_packages, risk_summary
+    from depfence.core.risk_scorer import risk_summary, score_all_packages
 
     pkg_lodash = PackageId("npm", "lodash", "4.17.20")
     pkg_axios = PackageId("npm", "axios", "0.21.0")

@@ -106,7 +106,7 @@ class InstallScriptAnalyzer:
                     severity=severity,
                     package=pkg,
                     title=f"{desc} in setup.py",
-                    detail=f"Suspicious pattern found in setup.py",
+                    detail="Suspicious pattern found in setup.py",
                     confidence=0.8,
                 ))
 

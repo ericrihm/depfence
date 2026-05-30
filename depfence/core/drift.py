@@ -9,7 +9,6 @@ from pathlib import Path
 
 from depfence.core.models import PackageId
 
-
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -147,7 +146,8 @@ class DriftReport:
 
 def _parse_packages_from_bytes(ecosystem: str, content: bytes, filename: str) -> list[PackageId]:
     """Parse package list from raw lockfile bytes without writing a temp file."""
-    import tempfile, os
+    import os
+    import tempfile
     with tempfile.NamedTemporaryFile(suffix=f"_{filename}", delete=False) as tmp:
         tmp.write(content)
         tmp_path = Path(tmp.name)

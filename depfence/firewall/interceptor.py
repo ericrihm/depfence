@@ -110,7 +110,7 @@ done
 """)
     constraint_script.chmod(0o755)
 
-    return f"pip firewall enabled (use: pip install --constraint .depfence/constraints.txt)"
+    return "pip firewall enabled (use: pip install --constraint .depfence/constraints.txt)"
 
 
 def disable_firewall(project_dir: Path) -> str:

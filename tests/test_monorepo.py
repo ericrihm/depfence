@@ -6,7 +6,6 @@ import json
 import tempfile
 from pathlib import Path
 
-
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.core.monorepo import (
     WorkspaceInfo,
@@ -14,7 +13,6 @@ from depfence.core.monorepo import (
     discover_workspaces,
     workspace_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

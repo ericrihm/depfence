@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-
-
 from depfence.core.html_report import generate_html_report
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers

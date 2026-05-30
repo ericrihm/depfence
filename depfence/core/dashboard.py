@@ -9,10 +9,8 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TextIO
 
 from depfence.core.models import ScanResult, Severity
-
 
 # ---------------------------------------------------------------------------
 # ANSI helpers
@@ -80,7 +78,7 @@ class ScanSnapshot:
         result: ScanResult,
         triggered_by: str = "manual",
         duration_seconds: float = 0.0,
-    ) -> "ScanSnapshot":
+    ) -> ScanSnapshot:
         counts: dict[str, int] = {s.value: 0 for s in Severity}
         for f in result.findings:
             counts[f.severity.value] = counts.get(f.severity.value, 0) + 1

@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.core.parallel import (
     LockfileEntry,
     ParallelScanResult,
@@ -24,8 +24,6 @@ from depfence.core.parallel import (
     group_by_ecosystem,
     parallel_scan,
 )
-from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -456,6 +454,7 @@ class TestCLIParallelFlags:
 
     def test_parallel_flag_triggers_parallel_scan(self):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         called_with = {}
@@ -479,6 +478,7 @@ class TestCLIParallelFlags:
 
     def test_j_flag_sets_workers(self):
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         called_with = {}
@@ -502,6 +502,7 @@ class TestCLIParallelFlags:
     def test_no_parallel_uses_normal_scan(self):
         """Without --parallel or -j > 1, scan_directory is called directly."""
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         scan_dir_called = []
@@ -523,6 +524,7 @@ class TestCLIParallelFlags:
     def test_j_1_does_not_trigger_parallel(self):
         """-j 1 (the minimum) should NOT activate the parallel path."""
         from click.testing import CliRunner
+
         from depfence.cli.main import cli
 
         parallel_called = []

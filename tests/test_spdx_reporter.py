@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from depfence.core.models import Finding, FindingType, PackageId, Severity, ScanResult
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.reporters.spdx_out import generate_spdx, generate_spdx_with_packages
 
 # ---------------------------------------------------------------------------

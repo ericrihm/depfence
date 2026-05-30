@@ -15,7 +15,6 @@ import pytest
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.core.orchestrator import EnrichmentResult, ScanOrchestrator, ScanPipelineResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

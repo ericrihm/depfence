@@ -13,11 +13,8 @@ Tests error handling paths in critical modules:
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -26,9 +23,8 @@ import pytest
 from depfence.cache.advisory_cache import AdvisoryCache
 from depfence.cache.download_cache import DownloadCache
 from depfence.core.osv_client import OsvClient, _parse_vuln
-from depfence.core.scorecard_client import ScorecardClient, _parse_repo_path
 from depfence.core.registry_client import RegistryClient
-
+from depfence.core.scorecard_client import ScorecardClient, _parse_repo_path
 
 # ===========================================================================
 # Cache Error States — Corruption & Database Errors

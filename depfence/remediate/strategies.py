@@ -26,7 +26,7 @@ class VersionBumpStrategy:
     fix_version: str = ""
 
     @classmethod
-    def from_finding(cls, finding: Finding) -> "VersionBumpStrategy":
+    def from_finding(cls, finding: Finding) -> VersionBumpStrategy:
         pkg_str = str(finding.package)
         parts = pkg_str.split(":")
         ecosystem = parts[0] if len(parts) == 2 else "unknown"
@@ -55,7 +55,7 @@ class ReplaceStrategy:
     reason: str = ""
 
     @classmethod
-    def from_finding(cls, finding: Finding, replacement: str = "", reason: str = "") -> "ReplaceStrategy":
+    def from_finding(cls, finding: Finding, replacement: str = "", reason: str = "") -> ReplaceStrategy:
         pkg_str = str(finding.package)
         parts = pkg_str.split(":")
         ecosystem = parts[0] if len(parts) == 2 else "unknown"
@@ -81,7 +81,7 @@ class RemoveStrategy:
     reason: str = ""
 
     @classmethod
-    def from_finding(cls, finding: Finding) -> "RemoveStrategy":
+    def from_finding(cls, finding: Finding) -> RemoveStrategy:
         pkg_str = str(finding.package)
         parts = pkg_str.split(":")
         ecosystem = parts[0] if len(parts) == 2 else "unknown"

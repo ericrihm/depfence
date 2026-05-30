@@ -21,7 +21,6 @@ import pytest
 from depfence.cache.advisory_cache import AdvisoryCache, CacheStats
 from depfence.cache.download_cache import DownloadCache
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -654,6 +653,7 @@ class TestEngineUseCache:
     def test_engine_accepts_use_cache_parameter(self):
         """scan_directory signature should include use_cache."""
         import inspect
+
         from depfence.core.engine import scan_directory
         sig = inspect.signature(scan_directory)
         assert "use_cache" in sig.parameters
@@ -661,6 +661,7 @@ class TestEngineUseCache:
     def test_engine_use_cache_defaults_to_true(self):
         """use_cache should default to True."""
         import inspect
+
         from depfence.core.engine import scan_directory
         sig = inspect.signature(scan_directory)
         assert sig.parameters["use_cache"].default is True

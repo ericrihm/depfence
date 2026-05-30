@@ -22,7 +22,7 @@ from depfence.core.models import PackageId
 @dataclass
 class DepNode:
     package: PackageId
-    children: list["DepNode"] = field(default_factory=list)
+    children: list[DepNode] = field(default_factory=list)
     depth: int = 0
     is_dev: bool = False
 
