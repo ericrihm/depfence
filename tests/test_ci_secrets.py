@@ -70,7 +70,9 @@ def test_empty_env_clean(monkeypatch, scanner):
     import os
     clean_env = {k: v for k, v in os.environ.items()
                  if not any(k.endswith(p.lstrip("*")) for p in
-                            ["_TOKEN", "_SECRET", "_KEY", "_PASSWORD", "_API_KEY"])}
+                            ["_TOKEN", "_SECRET", "_KEY", "_PASSWORD", "_API_KEY"])
+                 and not any(s in k.upper() for s in
+                             ["AZURE", "AWS", "GOOGLE", "GITHUB", "DOCKER"])}
     monkeypatch.setattr(os, "environ", clean_env)
 
     secrets = scanner._detect_secrets()

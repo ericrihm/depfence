@@ -29,7 +29,7 @@ def _write_mcp_config(project_dir: Path, servers: dict) -> None:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_new_server_fingerprinted_silently():

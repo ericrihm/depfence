@@ -39,7 +39,7 @@ _TYPO_FINDING = Finding(
     detail="Package name resembles a popular package",
 )
 
-_NAMESPACE_RE = re.compile(r"^https://depfence\.dev/spdx/.+/[0-9a-f\-]{36}$")
+_NAMESPACE_RE = re.compile(r"^https://github\.com/ericrihm/depfence/spdx/.+/[0-9a-f\-]{36}$")
 _TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
