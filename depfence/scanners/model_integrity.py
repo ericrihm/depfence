@@ -235,9 +235,12 @@ def _detect_arch_hint(path: Path) -> int | None:
     Looks for patterns like '7b', '13b', '70b' in the filename or parent
     directory names (case-insensitive).  Returns None if no hint is found.
     """
-    path_lower = str(path).lower()
+    # Only search the filename and its immediate parent — the user-controlled
+    # portion of the path — to avoid false matches on system temp dir prefixes
+    # (e.g. /tmp/tmp7bXXXX/... triggering "7b" before the actual model name).
+    searchable = (path.parent.name + "/" + path.name).lower()
     for pattern, min_bytes in _ARCH_MIN_BYTES:
-        if pattern in path_lower:
+        if pattern in searchable:
             return min_bytes
     return None
 
