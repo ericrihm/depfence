@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -22,7 +24,10 @@ class TableReporter:
     format = "table"
 
     def render(self, result: ScanResult) -> str:
-        console = Console(record=True, width=120)
+        # Record into an in-memory buffer so render() is pure: it returns the
+        # text and never writes to stdout. (Callers click.echo() the return
+        # value; a stdout-backed Console here caused every table to print twice.)
+        console = Console(record=True, width=120, file=io.StringIO())
 
         console.print()
         console.print(f"[bold]depfence scan: {result.target}[/bold]")
