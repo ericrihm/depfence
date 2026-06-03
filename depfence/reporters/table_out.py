@@ -58,12 +58,15 @@ class TableReporter:
         for f in sorted_findings:
             sev_text = Text(f.severity.value.upper())
             sev_text.stylize(_SEVERITY_COLORS.get(f.severity, ""))
+            # Wrap finding-derived cells in Text() so Rich renders them literally.
+            # Titles/packages can contain '[' (e.g. a bracketed file path), which Rich
+            # would otherwise parse as console markup and raise MarkupError.
             table.add_row(
                 sev_text,
-                f.finding_type.value,
-                str(f.package),
-                f.title,
-                f.fix_version or "",
+                Text(f.finding_type.value),
+                Text(str(f.package)),
+                Text(f.title),
+                Text(f.fix_version or ""),
             )
 
         console.print(table)

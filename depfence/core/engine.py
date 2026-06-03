@@ -101,12 +101,13 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
     from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
     from depfence.scanners.pinning_scanner import PinningScanner
+    from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
     from depfence.scanners.secrets_scanner import SecretsScanner
     from depfence.scanners.terraform_scanner import TerraformScanner
 
     instances = [
         DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
-        SecretsScanner(), PinningScanner(),
+        SecretsScanner(), PinningScanner(), ResolveExistenceScanner(),
     ]
     findings: list[Finding] = []
     errors: list[str] = []
@@ -204,38 +205,41 @@ async def scan_directory(
 ) -> ScanResult:
     result = ScanResult(target=str(project_dir), ecosystem="multi")
 
+    # Tell network-doing scanners (e.g. version_existence) whether fetching is allowed,
+    # so --no-fetch is genuinely offline rather than just skipping the metadata pre-fetch.
+    from depfence.core.fetcher import set_fetch_enabled
+    set_fetch_enabled(fetch_metadata)
+
     lockfiles, all_packages, parse_errors = _parse_lockfiles(project_dir, ecosystems)
     result.errors.extend(parse_errors)
-    if not lockfiles:
-        result.completed_at = datetime.now(tz=timezone.utc)
-        return result
-
     result.packages_scanned = len(all_packages)
-    if not all_packages:
-        result.completed_at = datetime.now(tz=timezone.utc)
-        return result
-
-    if fetch_metadata:
-        metas = await fetch_batch(all_packages, concurrency=20)
-    else:
-        metas = [PackageMeta(pkg=p) for p in all_packages]
 
     registry = get_registry()
     _configure_cache(registry, use_cache)
 
     all_findings: list[Finding] = []
 
-    scanner_findings, scanner_errors = await _run_scanners(
-        registry, metas, skip_advisory, skip_behavioral, skip_reputation
-    )
-    all_findings.extend(scanner_findings)
-    result.errors.extend(scanner_errors)
+    # Package/dependency scanners only have work when packages were discovered.
+    # Project scanners (workflows, secrets, IaC, action-pin existence) are
+    # file-based and MUST run even when the tree has no lockfile at all — a
+    # GitHub-Actions-only repo still has pins to verify.
+    if all_packages:
+        if fetch_metadata:
+            metas = await fetch_batch(all_packages, concurrency=20)
+        else:
+            metas = [PackageMeta(pkg=p) for p in all_packages]
 
-    analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
-    all_findings.extend(analyzer_findings)
-    result.errors.extend(analyzer_errors)
+        scanner_findings, scanner_errors = await _run_scanners(
+            registry, metas, skip_advisory, skip_behavioral, skip_reputation
+        )
+        all_findings.extend(scanner_findings)
+        result.errors.extend(scanner_errors)
 
-    await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
+        analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
+        all_findings.extend(analyzer_findings)
+        result.errors.extend(analyzer_errors)
+
+        await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
 
     if project_scanners:
         proj_findings, proj_errors = await _run_project_scanners(project_dir)
