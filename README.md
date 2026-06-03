@@ -1,10 +1,13 @@
 # depfence
 
-**Dependency security for the AI age.** 36 scanners detect what Snyk, Dependabot, and Trivy miss -- prompt injection payloads, slopsquatting, MCP misconfigs, CI/CD bot abuse, and model supply chain attacks. One command. Zero config.
+**Your dependencies have a new threat model.** AI coding assistants hallucinate package names that attackers register. CI bots consume attacker-controlled PR text. SHA pins written from memory point to commits that don't exist. Traditional scanners check CVEs and stop — depfence catches what comes next.
+
+37 scanners. 13 ecosystems. One command.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![2,200+ tests](https://img.shields.io/badge/tests-2%2C200%2B-brightgreen)](https://github.com/ericrihm/depfence)
 
 ```bash
 pip install depfence
@@ -12,38 +15,42 @@ depfence scan .
 ```
 
 ```
- depfence v0.5.0  scanning 142 packages across 3 lockfiles
+ depfence v0.5.0  scanning 142 packages across 3 lockfiles + 4 workflows
 
- CRITICAL  node_modules/jqwik     prompt_injection  ANSI-hidden instruction override in source
- CRITICAL  pytorch-cuda-nightly   slopsquat         LLM hallucination match for torch (0.94)
- HIGH      lodash 4.17.20         npm_advisory      CVE-2021-23337  EPSS 0.71  KEV
- HIGH      req-utils 1.0.3        preinstall        install script exfiltrates $HOME/.ssh
- HIGH      .github/workflows/ci   ci_ai_bot         untrusted input to AI triage bot
- MEDIUM    transformers 4.38.0    model_scanner     unsafe torch.load without weights_only
- MEDIUM    @angulr/core           scope_squat       typosquatting @angular/core
- LOW       leftpad 0.0.3          freshness         no release in 847 days
+ CRITICAL  .github/workflows/ci   resolve_existence  SHA abc123def... resolves to no real commit (fabricated pin)
+ CRITICAL  node_modules/jqwik     prompt_injection   ANSI-hidden instruction override in source
+ CRITICAL  pytorch-cuda-nightly   slopsquat          LLM hallucination match for torch (0.94)
+ HIGH      lodash 4.17.20         npm_advisory       CVE-2021-23337  EPSS 0.71  KEV
+ HIGH      req-utils 1.0.3        preinstall         install script exfiltrates $HOME/.ssh
+ HIGH      .github/workflows/ci   ci_ai_bot          untrusted PR input flows to AI triage bot
+ MEDIUM    transformers 4.38.0    model_scanner      unsafe torch.load without weights_only
+ MEDIUM    @angulr/core           scope_squat        typosquatting @angular/core
+ LOW       leftpad 0.0.3          freshness          no release in 847 days
 
- 8 findings  (2 critical, 3 high, 2 medium, 1 low)
+ 9 findings  (3 critical, 2 high, 2 medium, 1 low)
 ```
 
 ---
 
-## Why depfence exists
+## The problem
 
-Traditional dependency scanners check CVEs and stop. That was fine in 2020. Today, your dependencies are consumed by AI coding assistants, your CI pipelines run AI triage bots, and attackers have adapted:
+In 2020, dependency security meant CVE scanning. In 2026, your attack surface includes:
 
-- **Prompt injection in packages** -- malicious instructions hidden via ANSI escapes, zero-width Unicode, or bidi overrides that are invisible to human reviewers but executed by AI coding tools
-- **Slopsquatting** -- attackers register package names that LLMs frequently hallucinate (`python-dateutil` vs `py-dateutil`), then serve malware to anyone who installs the AI's suggestion
-- **MCP server attacks** -- tool shadowing, rug-pull schemas, credential leakage, and prompt injection in MCP tool descriptions
-- **CI/CD bot abuse** -- [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attacks where AI review bots in GitHub Actions consume untrusted issue/PR input
-- **Hallucinated pins** -- AI agents (and humans) SHA-pin actions by writing the 40-hex commit from memory. A fabricated-but-plausible SHA -- or a package version that was never published -- passes every "is it pinned?" linter (Scorecard, zizmor) yet points to nothing real. depfence *resolves* each pin against the upstream and flags the ones that don't exist
-- **Model supply chain** -- pickle deserialization RCE, unsafe `torch.load`, malicious model card metadata on HuggingFace
+**AI assistants hallucinate package names.** When Copilot or Claude suggests `pip install py-dateutil` instead of `python-dateutil`, an attacker who registered that name serves malware to everyone who trusts the suggestion. This is [slopsquatting](https://blog.socket.dev/slopsquatting-how-ai-hallucinations-are-fueling-a-new-class-of-supply-chain-attacks) — and it's already happening at scale.
 
-depfence catches all of these alongside traditional CVE/advisory scanning.
+**SHA pins can be fabricated.** AI agents (and tired humans) SHA-pin GitHub Actions by writing the 40-hex commit from memory. A plausible-but-invented SHA passes every linter that checks "is it pinned?" (Scorecard, zizmor, actionlint) because none of them verify the pin actually resolves to a real commit. depfence does — it's the only tool that calls `GET /repos/{owner}/{repo}/commits/{sha}` and flags HTTP 422.
+
+**CI bots eat attacker input.** [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attacks feed prompt injection through `${{ github.event.issue.body }}` into AI review bots running in GitHub Actions. The bot has `contents: write`. The attacker has your repo.
+
+**Packages carry invisible payloads.** ANSI escape sequences, zero-width Unicode, and bidirectional text overrides hide malicious instructions in source code. Humans can't see them. AI coding tools execute them.
+
+depfence scans for all of this — alongside traditional CVE/advisory scanning — in a single pass. It is not a runtime scanner, WAF, or container image scanner. It scans your dependency graph, lockfiles, and AI tool configurations before deployment.
 
 ---
 
-## What depfence catches that others don't
+## Coverage comparison
+
+depfence is designed to run alongside your existing scanner, not replace it. It catches the threats that CVE databases and traditional scanners were never designed to find.
 
 | Threat | depfence | Snyk | Dependabot | Trivy | osv-scanner |
 |--------|:--------:|:----:|:----------:|:-----:|:-----------:|
@@ -55,21 +62,23 @@ depfence catches all of these alongside traditional CVE/advisory scanning.
 | Slopsquatting detection | **Yes** | -- | -- | -- | -- |
 | MCP server misconfig audit | **Yes** | -- | -- | -- | -- |
 | MCP rug-pull fingerprinting | **Yes** | -- | -- | -- | -- |
-| CI/CD AI bot abuse | **Yes** | -- | -- | -- | -- |
+| CI/CD AI bot injection | **Yes** | -- | -- | -- | -- |
+| Fabricated SHA-pin detection | **Yes** | -- | -- | -- | -- |
+| Fabricated package-version pins | **Yes** | -- | -- | -- | -- |
 | Git message injection | **Yes** | -- | -- | -- | -- |
 | Install script exfiltration | **Yes** | -- | -- | Partial | -- |
 | Dependency confusion | **Yes** | Yes | -- | -- | -- |
 | Model supply chain (pickle/torch) | **Yes** | -- | -- | -- | -- |
 | AI Bill of Materials | **Yes** | -- | -- | -- | -- |
-| Unpinned GitHub Actions (SHA) | **Yes** | -- | Yes | -- | -- |
-| Fabricated/hallucinated action pins | **Yes** | -- | -- | -- | -- |
+| GHA workflow security audit | **Yes** | -- | Yes | -- | -- |
 | GHA permissions audit | **Yes** | -- | -- | -- | -- |
 | Docker layer injection | **Yes** | -- | -- | Partial | -- |
 | Terraform module pinning | **Yes** | -- | -- | Yes | -- |
-| Policy-as-code (block/warn rules) | **Yes** | Yes | -- | Yes | -- |
-| CycloneDX SBOM | Yes | Yes | -- | Yes | -- |
-| SPDX SBOM | Yes | -- | -- | Yes | -- |
+| Policy-as-code rules | **Yes** | Yes | -- | Yes | -- |
+| CycloneDX / SPDX SBOM | Yes | Yes | -- | Yes | Yes |
 | SARIF output | Yes | Yes | -- | Yes | Yes |
+
+> **The "resolve-never-predict" check** -- depfence doesn't just verify that a SHA pin exists in your workflow. It calls the GitHub API and verifies the commit is real. No linter, no scorecard check, no other scanner does this. [Details below.](#the-resolve-never-predict-philosophy)
 
 ---
 
@@ -77,14 +86,12 @@ depfence catches all of these alongside traditional CVE/advisory scanning.
 
 ### Prompt injection and AI safety
 
-Catches attacks targeting AI coding assistants, code review bots, and MCP tool consumers.
-
 | Scanner | What it detects |
 |---------|-----------------|
-| `prompt_injection` | Adversarial LLM instructions in source: comments, docstrings, strings, README, build scripts, `package.json` fields. 25 patterns with multi-pass encoding normalization. Detects ANSI escapes, zero-width Unicode, bidi overrides, and homoglyphs. |
-| `git_message` | Injection in commit messages and PR/issue templates targeting AI code review bots |
+| `prompt_injection` | Adversarial LLM instructions hidden in source: comments, docstrings, strings, README, build scripts, `package.json` fields. 25 patterns with multi-pass encoding normalization (ANSI escapes, zero-width Unicode, bidi overrides, homoglyphs) |
+| `git_message` | Injection payloads in commit messages and PR/issue templates targeting AI code review bots |
 | `ci_ai_bot` | Clinejection-class attacks: AI bots in CI/CD consuming untrusted `${{ github.event }}` input |
-| `mcp_scanner` | MCP server misconfigs: tool shadowing, rug-pull, credential leakage, prompt injection, TLS, version pinning. Offline analysis covering Claude Desktop, Cursor, VS Code, Windsurf, and Zed configs |
+| `mcp_scanner` | MCP server misconfigs: tool shadowing, rug-pull, credential leakage, prompt injection, TLS, version pinning. Covers Claude Desktop, Cursor, VS Code, Windsurf, and Zed configs |
 | `mcp_fingerprint` | MCP rug-pull detection via schema fingerprinting and parameter injection |
 
 ### AI/ML model security
@@ -106,7 +113,8 @@ Catches attacks targeting AI coding assistants, code review bots, and MCP tool c
 | `dep_confusion` | Private registry misconfigs enabling namespace hijacking |
 | `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`) |
 | `ownership` | Maintainer takeovers and version-order anomalies |
-| `provenance` | Missing or invalid SLSA attestations |
+| `provenance` | Missing SLSA attestations on high-value packages |
+| `provenance_checker` | SLSA/Sigstore attestation signature verification (npm + PyPI) |
 | `behavioral` | Runtime red flags: eval, exec, child_process, DNS resolve, exfiltration endpoints |
 | `obfuscation` | Base64-exec, hex encoding, charcode, high entropy, ANSI escape content hiding |
 | `network` | Mining pools, webhook exfiltration, DNS tunneling, hardcoded IPs |
@@ -116,18 +124,18 @@ Catches attacks targeting AI coding assistants, code review bots, and MCP tool c
 
 | Scanner | What it detects |
 |---------|-----------------|
-| `osv` | OSV database -- npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
-| `npm_advisory` / `pypi_advisory` | Ecosystem-specific advisories from GitHub Advisory DB |
-| `epss` | EPSS exploit probability scores for triage |
-| `kev` | CISA Known Exploited Vulnerabilities |
+| `osv` | OSV database: npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
+| `npm_advisory` | npm-specific advisories from GitHub Advisory DB |
+| `pypi_advisory` | PyPI-specific advisories from GitHub Advisory DB |
 
 ### CI/CD and infrastructure
 
 | Scanner | What it detects |
 |---------|-----------------|
-| `gha_workflow` | Script injection, `pull_request_target` exploits, overly permissive permissions |
-| `gha_scanner` | Unpinned and compromised GitHub Actions (SHA pinning check) |
-| `resolve_existence` | **Fabricated/hallucinated pins**: resolves every SHA-pinned action against GitHub and flags any that point to no real commit (HTTP 422) or a non-existent repo. The "resolve-never-predict" check no linter does. Online; set `GITHUB_TOKEN`, disable with `DEPFENCE_RESOLVE_EXISTENCE=0` |
+| `gha_workflow` | Script injection (`${{ }}` in `run:`), `pull_request_target` exploits, overly permissive permissions |
+| `gha_scanner` | Unpinned and compromised GitHub Actions (SHA pinning enforcement) |
+| `resolve_existence` | **Fabricated action pins**: resolves every `uses: owner/repo@<sha>` against the GitHub API. HTTP 422 = the commit doesn't exist. The "resolve-never-predict" check that no linter does. Online; needs `GITHUB_TOKEN`. Disable: `DEPFENCE_RESOLVE_EXISTENCE=0` |
+| `version_existence` | **Fabricated package-version pins**: resolves exact npm/PyPI version pins against registries. Catches never-published versions and hallucinated package names. Online; disable: `DEPFENCE_VERSION_EXISTENCE=0` |
 | `dockerfile` | Unpinned base images, root user, secrets in ENV/ARG |
 | `terraform` | Unpinned modules, HTTP sources, unverified namespaces |
 | `secrets` | AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |
@@ -137,13 +145,20 @@ Catches attacks targeting AI coding assistants, code review bots, and MCP tool c
 
 | Scanner | What it detects |
 |---------|-----------------|
-| `license_scanner` / `license_compat` | Copyleft compliance, license conflict detection |
+| `license_scanner` | Copyleft compliance and license conflict detection |
 | `reachability` | Which vulnerable imports are actually reachable in your code |
 | `phantom_deps` | Declared but never imported packages |
 | `freshness` | Unmaintained dependencies (no release in 2+ years) |
 | `pinning` | Unpinned versions, wildcard ranges, missing lockfiles |
-| `sbom` | CycloneDX 1.5 and SPDX 2.3 generation |
-| `risk-score` | Composite A-F risk grades with OpenSSF Scorecard integration |
+
+### Enrichment and analysis
+
+These are not scanners -- they augment vulnerability findings with additional context for triage:
+
+- **EPSS scores** (`depfence epss .`) -- FIRST.org Exploit Prediction Scoring, added to every CVE finding
+- **CISA KEV** (`depfence kev .`) -- flags vulnerabilities on the Known Exploited Vulnerabilities catalog
+- **Risk scoring** (`depfence risk-score .`) -- composite A-F grades combining EPSS, KEV, CVSS, reachability, and OpenSSF Scorecard
+- **SBOM generation** (`depfence sbom .`) -- CycloneDX 1.5 and SPDX 2.3 output
 
 ---
 
@@ -172,43 +187,32 @@ Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13. No native dependencies.
 ### Core commands
 
 ```bash
-# Full scan with all scanners
-depfence scan .
-
-# Fast CI scan -- only packages changed since last scan
-depfence diff .
-
-# Advisory-only audit (skip behavioral/reputation analysis)
-depfence audit .
-
-# Single package reputation check
-depfence check requests -e pypi
-
-# Auto-fix vulnerable dependencies
-depfence fix . --apply
-
-# Initialize depfence for a project (CI workflow + pre-commit hook + policy config)
-depfence init .
+depfence scan .                  # full scan: all 37 scanners
+depfence diff .                  # only packages changed since last scan (fast CI mode)
+depfence audit .                 # advisory-only (skip behavioral/reputation)
+depfence check requests -e pypi  # single package reputation check
+depfence fix . --apply           # auto-fix vulnerable dependencies
+depfence init .                  # generate CI workflow + pre-commit hook + policy config
 ```
 
 ### AI-specific commands
 
 ```bash
-depfence ai-scan .              # prompt injection, slopsquatting, model threats
-depfence model-scan .           # ML model file supply chain risks
-depfence ai-bom .               # AI Bill of Materials
-depfence mcp-scan .             # MCP server configuration audit
-depfence mcp-fingerprint .      # MCP rug-pull fingerprinting
+depfence ai-scan .               # prompt injection, slopsquatting, model threats
+depfence model-scan .            # ML model file supply chain risks
+depfence mcp-scan .              # MCP server configuration audit
+depfence mcp-fingerprint .       # MCP rug-pull fingerprinting
 ```
 
 ### CI/CD and infrastructure audit
 
 ```bash
-depfence gha-scan .             # GitHub Actions: permissions, injection, unpinned actions
-depfence scan-docker .          # Dockerfile security audit
-depfence scan-workflows .       # Workflow security audit
-depfence secrets scan . --history   # Secrets scanning (including git history)
-depfence ci-audit .             # CI secret exposure audit
+depfence gha-scan .              # GitHub Actions: permissions, injection, unpinned actions
+depfence scan-docker .           # Dockerfile security audit
+depfence scan-workflows .        # workflow security audit
+depfence ci-audit .              # CI secret exposure audit
+depfence secrets scan .          # secrets scanning
+depfence secrets scan . --history  # secrets scanning including git history
 ```
 
 ### SBOM and compliance
@@ -216,34 +220,37 @@ depfence ci-audit .             # CI secret exposure audit
 ```bash
 depfence sbom . -o sbom.json                       # CycloneDX 1.5 SBOM
 depfence sbom . --format spdx -o sbom.spdx.json    # SPDX 2.3 SBOM
-depfence sbom-diff before.json after.json           # Compare SBOMs between releases
-depfence licenses .                                 # License compliance scan
-depfence compliance . -o compliance.html            # Full compliance report
+depfence sbom-diff before.json after.json           # compare SBOMs between releases
+depfence license-scan .                             # license compliance
+depfence compliance . -o compliance.html            # full compliance report
 ```
 
 ### Analysis and triage
 
 ```bash
-depfence risk-score .           # Composite A-F risk grades
-depfence epss .                 # EPSS exploit probability ranking
-depfence kev .                  # CISA Known Exploited Vulnerabilities
-depfence scorecard .            # OpenSSF Scorecard integration
-depfence graph . -o deps.dot    # Dependency graph visualization
-depfence trust lodash npm       # Package trust score
-depfence why lodash             # Why is this package in my tree?
-depfence health .               # Scan health dashboard
+depfence risk-score .            # composite A-F risk grades
+depfence epss .                  # EPSS exploit probability ranking
+depfence kev .                   # CISA Known Exploited Vulnerabilities
+depfence scorecard .             # OpenSSF Scorecard integration
+depfence graph . -o deps.dot     # dependency graph visualization
+depfence trust lodash npm        # package trust score
+depfence why lodash              # why is this package in my tree?
+depfence threat-brief .          # threat landscape summary
+depfence trends --days 30        # finding trends over time
 ```
 
 ### Operational commands
 
 ```bash
-depfence watch . --interval 30  # Watch lockfiles and auto-scan on change
-depfence scan . --parallel -j 4 # Monorepo parallel scanning
-depfence baseline . --create    # Baseline current findings (suppress known issues)
-depfence red-team .             # Security red team assessment
-depfence stats .                # Scan statistics
-depfence plugins                # List loaded scanner plugins
-depfence doctor                 # System diagnostics
+depfence watch . --interval 30   # watch lockfiles and auto-scan on change
+depfence monorepo-scan .         # multi-workspace scanning
+depfence baseline . --create     # baseline current findings (suppress known issues)
+depfence red-team .              # security red team assessment
+depfence remediate .             # automated remediation suggestions
+depfence outdated .              # show outdated dependencies
+depfence doctor                  # system diagnostics
+depfence plugins                 # list loaded scanner plugins
+depfence stats .                 # scan statistics
 ```
 
 ---
@@ -254,17 +261,16 @@ depfence doctor                 # System diagnostics
 depfence scan . --format json | jq '.findings[] | select(.severity == "CRITICAL")'
 depfence scan . --format sarif -o results.sarif
 depfence scan . --format html -o report.html
-depfence sbom . --format cyclonedx -o sbom.json
 ```
 
 | Format | Use case |
 |--------|----------|
-| `table` (default) | Terminal output for local development |
-| `json` | Pipeline integration, scripting, `jq` queries |
+| `table` (default) | Terminal output |
+| `json` | Pipeline integration, `jq` queries |
 | `html` | Shareable reports with full finding details |
 | `sarif` | GitHub Code Scanning, Azure DevOps, VS Code |
-| `cyclonedx` | CycloneDX 1.5 SBOM for compliance |
-| `spdx` | SPDX 2.3 SBOM for compliance |
+| `cyclonedx` | CycloneDX 1.5 SBOM |
+| `spdx` | SPDX 2.3 SBOM |
 
 ---
 
@@ -290,9 +296,11 @@ name: Dependency Security
 on:
   push:
     branches: [main]
-    paths: ['**/package-lock.json', '**/requirements.txt', '**/Cargo.lock', '**/go.sum']
+    paths: ['**/package-lock.json', '**/requirements.txt', '**/Cargo.lock', '**/go.sum',
+            '.github/workflows/*.yml', '.github/workflows/*.yaml']
   pull_request:
-    paths: ['**/package-lock.json', '**/requirements.txt', '**/poetry.lock']
+    paths: ['**/package-lock.json', '**/requirements.txt', '**/poetry.lock',
+            '.github/workflows/*.yml', '.github/workflows/*.yaml']
   schedule:
     - cron: '0 6 * * 1'
 
@@ -301,6 +309,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: ericrihm/depfence@v1
@@ -322,7 +331,7 @@ repos:
       - id: depfence
 ```
 
-The hook triggers only when lockfiles change, keeping pre-commit fast for non-dependency changes.
+Triggers when lockfiles **or workflow files** change. Runs resolve-existence and GHA workflow scanners on `.github/workflows/*.yml` edits, catching fabricated pins before they reach CI.
 
 ### GitLab CI
 
@@ -375,20 +384,16 @@ Generate a starter config with `depfence init .`.
 
 ### Inline suppression
 
-Suppress individual findings directly in source:
-
 ```python
 import lodash  # depfence:ignore[CVE-2021-23337] -- not reachable via our import path
 ```
 
 ### Baseline management
 
-Track known findings so new issues stand out in CI:
-
 ```bash
-depfence baseline . --create    # snapshot current findings
-depfence baseline . --show      # list baselined findings
-depfence scan .                 # automatically filters baselined findings
+depfence baseline . --create     # snapshot current findings
+depfence baseline . --show       # list baselined findings
+depfence scan .                  # automatically filters baselined findings
 ```
 
 ### Exit codes
@@ -401,9 +406,40 @@ depfence scan .                 # automatically filters baselined findings
 
 ---
 
+## The "resolve-never-predict" philosophy
+
+Every other pinning linter asks: *"Is there a SHA?"* depfence asks: *"Does this SHA point to a real commit?"*
+
+This matters because AI agents — and humans working fast — write SHA pins from memory. The resulting 40-hex string looks valid, passes regex checks, and satisfies every "is it pinned?" linter. But it resolves to nothing. Your workflow runs `actions/checkout@<fabricated-sha>`, GitHub returns an error, and your CI breaks in a way that's hard to diagnose.
+
+Worse: a fabricated SHA for a less-common action might not break immediately. It might match a commit in a fork. Or it might sit unnoticed until the action maintainer force-pushes and the tag moves.
+
+depfence's `resolve_existence` scanner calls the GitHub API for every pinned SHA and flags any that return HTTP 422 (non-existent commit). The `version_existence` scanner does the same for npm/PyPI version pins — catching `requests==99.99.99` or a hallucinated package name before it reaches production.
+
+This is the check that closes the gap between "pinned" and "verified."
+
+---
+
+## Network and privacy
+
+depfence processes all source code and lockfiles locally. No source code is ever transmitted. The following scanners make network calls when enabled:
+
+| Scanner | What it contacts | Data sent | Disable with |
+|---------|-----------------|-----------|--------------|
+| `resolve_existence` | GitHub API | Repository owner/name, commit SHA | `DEPFENCE_RESOLVE_EXISTENCE=0` |
+| `version_existence` | npm registry, PyPI | Package name, version string | `DEPFENCE_VERSION_EXISTENCE=0` |
+| `osv` | OSV.dev API | Package name, version, ecosystem | `--no-advisory` |
+| `npm_advisory` | GitHub Advisory DB | Package name | `--no-advisory` |
+| `pypi_advisory` | GitHub Advisory DB | Package name | `--no-advisory` |
+| `provenance_checker` | Sigstore/Rekor | Package name, attestation lookup | `--no-advisory` |
+
+Run fully offline with `depfence scan . --no-fetch` (disables all network scanners).
+
+---
+
 ## MCP server
 
-depfence ships an MCP server for integration with AI coding tools (Claude Desktop, Cursor, VS Code, Windsurf, Zed). This lets AI assistants check package safety before recommending dependencies.
+depfence ships an MCP server for integration with AI coding tools (Claude Desktop, Cursor, VS Code, Windsurf, Zed). AI assistants can check package safety before recommending dependencies.
 
 ```bash
 depfence mcp serve
@@ -422,11 +458,11 @@ Or configure it in your MCP client:
 }
 ```
 
-Available MCP tools:
+Available tools:
 
 | Tool | Description |
 |------|-------------|
-| `check_package` | Security check for a single package -- risk score, CVEs, typosquat detection |
+| `check_package` | Security check for a single package: risk score, CVEs, typosquat detection |
 | `scan_project` | Full project scan from within your editor |
 | `is_typosquat` | Check if a package name is a known typosquat or slopsquat |
 | `get_advisories` | Fetch CVE/GHSA advisories for a package |
@@ -447,11 +483,11 @@ class MyScanner:
     ecosystems = ["npm", "pypi"]
 
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
-        # Your detection logic here
+        # Your detection logic
         return []
 ```
 
-Register it in your package's `pyproject.toml`:
+Register in `pyproject.toml`:
 
 ```toml
 [project.entry-points."depfence.scanners"]
@@ -474,7 +510,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The test suite has 91 test files covering all scanners and core functionality. Run `ruff check` and `mypy` before opening a PR.
+2,200+ tests across 93 test files covering all scanners and core functionality. Run `ruff check` before opening a PR.
 
 ### Project structure
 
@@ -482,9 +518,10 @@ The test suite has 91 test files covering all scanners and core functionality. R
 depfence/
   cli/          CLI commands (click)
   core/         Engine, lockfile parsing, policy, caching, enrichment
-  scanners/     36 scanners registered via entry points
+  scanners/     37 scanners (36 entry-point + 1 project scanner)
   reporters/    Output formatters (SARIF, CycloneDX, SPDX, HTML, JSON)
-  analyzers/    AST analysis and install script analysis
+  analyzers/    AST analysis, install script analysis
+  integrations/ Pre-commit hook, Claude Code PreToolUse hook
   mcp/          MCP server (JSON-RPC over stdio)
 ```
 
@@ -492,7 +529,7 @@ depfence/
 
 ## Security policy
 
-To report a vulnerability in depfence itself, please open a [GitHub security advisory](https://github.com/ericrihm/depfence/security/advisories/new) or email the maintainers via the GitHub profile. Do not open a public issue for security vulnerabilities.
+To report a vulnerability in depfence itself, see [SECURITY.md](SECURITY.md) or open a [GitHub security advisory](https://github.com/ericrihm/depfence/security/advisories/new).
 
 ---
 
