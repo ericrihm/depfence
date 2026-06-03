@@ -1,6 +1,6 @@
 # depfence
 
-**Dependency security for the AI age.** 40+ scanners detect what Snyk, Dependabot, and Trivy miss -- prompt injection payloads, slopsquatting, MCP misconfigs, CI/CD bot abuse, and model supply chain attacks. One command. Zero config.
+**Dependency security for the AI age.** 35 scanners detect what Snyk, Dependabot, and Trivy miss -- prompt injection payloads, slopsquatting, MCP misconfigs, CI/CD bot abuse, and model supply chain attacks. One command. Zero config.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -479,7 +479,7 @@ The test suite has 91 test files covering all scanners and core functionality. R
 depfence/
   cli/          CLI commands (click)
   core/         Engine, lockfile parsing, policy, caching, enrichment
-  scanners/     35+ scanner modules (one file per scanner)
+  scanners/     35 scanners registered via entry points
   reporters/    Output formatters (SARIF, CycloneDX, SPDX, HTML, JSON)
   analyzers/    AST analysis and install script analysis
   mcp/          MCP server (JSON-RPC over stdio)

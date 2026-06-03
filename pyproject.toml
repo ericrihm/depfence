@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "depfence"
 version = "0.5.0"
-description = "AI-aware dependency security scanner. 40+ scanners: prompt injection detection, slopsquatting defense, MCP auditing, AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
+description = "AI-aware dependency security scanner. 35 scanners: prompt injection detection, slopsquatting defense, MCP auditing, AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -104,7 +104,9 @@ html_reporter = "depfence.core.html_report:generate_html_report"
 
 [project.urls]
 Homepage = "https://github.com/ericrihm/depfence"
+Repository = "https://github.com/ericrihm/depfence"
 Issues = "https://github.com/ericrihm/depfence/issues"
+Changelog = "https://github.com/ericrihm/depfence/releases"
 
 [tool.setuptools.packages.find]
 include = ["depfence*"]
