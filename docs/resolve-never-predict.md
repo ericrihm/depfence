@@ -49,10 +49,11 @@ commits). Both are `--pedantic`/fast-follow material, not defaults.
 1. **Lying-comment detection (done right):** flag a `# vX.Y.Z` comment only when the SHA
    is *not in that tag's ancestry* (tj-actions CVE-2025-30066 class) — needs tag-ancestry
    resolution, not naive equality. `FindingType.MUTABLE_TAG` is reserved for it.
-2. **Package-version existence:** fold a `version in releases/versions` check into
-   `slopsquat.py`/`pinning_scanner.py` using metadata the fetcher already pulls — a
-   hallucinated `==X.Y.Z` is the package analog of a fabricated SHA. Then npm/PyPI/Cargo
-   resolvers behind one `Resolver` protocol (`depfence/core/resolver.py`).
+2. **Package-version existence:** ✅ shipped as the `version_existence` entry-point
+   scanner (`depfence/scanners/version_existence_scanner.py`) — resolves exact npm/PyPI
+   pins against the registry and flags versions/packages that were never published
+   (CRITICAL `fabricated_reference`). Exact-pins-only, yanked-is-real, canonical version
+   compare, `--no-fetch`-gated. Next: Cargo/Go/OCI resolvers behind one `Resolver` protocol.
 3. **Container digests:** OCI manifest existence for `image@sha256:…`.
 4. **`--pedantic` canonicality:** `branches-where-head` empty-list = orphaned/fork commit,
    opt-in with an allowlist.
@@ -68,8 +69,8 @@ structurally impossible to author.
 
 | Layer | Gate | Status |
 |---|---|---|
-| 1. Author | Claude Code `PreToolUse` Write/Edit hook denies a newly-introduced unresolved SHA unless it's in a session resolved-refs ledger | designed (ship last, warn-only first) |
-| 2. Commit | pre-commit runs `depfence scan --fail-on=fabricated-pin`; `ratchet`/`pinact` auto-rewrites tags first | partial (widen `.pre-commit-hooks.yaml` to `.github/workflows/`) |
+| 1. Author | Claude Code `PreToolUse` hook (`depfence/integrations/pretooluse_hook.py`) resolves any newly-written `uses:@<sha>` in a workflow and warns on fabricated pins; `DEPFENCE_PRETOOLUSE_BLOCK=1` escalates to deny | **shipped** (warn-only default, reversible) |
+| 2. Commit | `.pre-commit-hooks.yaml` now triggers on `.github/workflows/*` and the hook drops `--no-fetch` so project scanners (incl. resolve_existence) run; `depfence scan --fail-on high` blocks on FABRICATED_REF | **shipped** |
 | 3. CI | `action-pins` job (`verify-action-pins.sh`) + the depfence action + `zizmor` + `ratchet --check` — independent resolvers, fail-closed | **shipped** in depfence CI |
 | 4. Merge | Renovate `pinGitHubActionDigestsToSemver` + org "require SHA-pinned actions" policy; credit GitHub Immutable Releases | designed |
 | 5. Runtime | StepSecurity Harden-Runner egress monitoring — backstop for an existing-but-malicious commit | designed |

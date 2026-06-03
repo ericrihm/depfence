@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "depfence"
 version = "0.5.0"
-description = "AI-aware dependency security scanner. 35 scanners: prompt injection detection, slopsquatting defense, MCP auditing, AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
+description = "AI-aware dependency security scanner. 36 scanners: prompt injection detection, slopsquatting defense, MCP auditing, AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -88,6 +88,7 @@ git_message = "depfence.scanners.git_message_scanner:GitMessageScanner"
 ci_ai_bot = "depfence.scanners.ci_ai_bot_scanner:CiAiBotScanner"
 docker_layer = "depfence.scanners.docker_layer_scanner:DockerLayerScanner"
 ai_bom = "depfence.scanners.ai_bom_generator:AiBomGenerator"
+version_existence = "depfence.scanners.version_existence_scanner:VersionExistenceScanner"
 
 [project.entry-points."depfence.analyzers"]
 ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"

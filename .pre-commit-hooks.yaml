@@ -3,6 +3,6 @@
   entry: python -m depfence.integrations.pre_commit_hook
   language: python
   types: [file]
-  files: '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|uv\.lock)$'
+  files: '(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|uv\.lock)$|(^|/)\.github/workflows/[^/]+\.ya?ml$'
   pass_filenames: false
   additional_dependencies: ['depfence']

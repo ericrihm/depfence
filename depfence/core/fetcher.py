@@ -55,6 +55,21 @@ def set_cache_enabled(enabled: bool) -> None:
         _DOWNLOAD_CACHE = None
 
 
+# Network-fetch master switch (mirrors --no-fetch). Scanners that do their OWN network
+# I/O (not just the metadata pre-fetch) consult this so --no-fetch is truly offline.
+_FETCH_ENABLED: bool = True
+
+
+def set_fetch_enabled(enabled: bool) -> None:
+    """Enable or disable network fetching process-wide (set from --no-fetch)."""
+    global _FETCH_ENABLED
+    _FETCH_ENABLED = enabled
+
+
+def fetch_enabled() -> bool:
+    return _FETCH_ENABLED
+
+
 async def fetch_npm_meta(pkg: PackageId) -> PackageMeta:
     cache = _get_download_cache()
 

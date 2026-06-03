@@ -48,6 +48,22 @@ class TestGetStagedLockfiles:
         result = get_staged_lockfiles()
         assert len(result) == 2
 
+    @patch("subprocess.run")
+    def test_detects_workflows_not_other_yaml(self, mock_run):
+        # A staged GHA workflow triggers the scan (to catch fabricated action pins);
+        # an unrelated top-level YAML does not.
+        mock_run.return_value = MagicMock(
+            stdout=".github/workflows/ci.yml\nsub/.github/workflows/deploy.yaml\n"
+                   "docker-compose.yaml\nconfig/app.yml\n",
+            returncode=0,
+        )
+        result = get_staged_lockfiles()
+        assert ".github/workflows/ci.yml" in result
+        assert "sub/.github/workflows/deploy.yaml" in result
+        assert "docker-compose.yaml" not in result
+        assert "config/app.yml" not in result
+        assert len(result) == 2
+
 
 class TestMain:
     @patch("depfence.integrations.pre_commit_hook.get_staged_lockfiles")
