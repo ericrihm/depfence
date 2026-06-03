@@ -395,6 +395,7 @@ class ScanOrchestrator:
         from depfence.scanners.dockerfile_scanner import DockerfileScanner
         from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
         from depfence.scanners.pinning_scanner import PinningScanner
+        from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
         from depfence.scanners.secrets_scanner import SecretsScanner
         from depfence.scanners.terraform_scanner import TerraformScanner
 
@@ -404,6 +405,7 @@ class ScanOrchestrator:
             ("gha_workflow", GhaWorkflowScanner()),
             ("secrets", SecretsScanner()),
             ("pinning", PinningScanner()),
+            ("resolve_existence", ResolveExistenceScanner()),
         ]
 
         async def _run_scanner(name: str, scanner) -> tuple[str, list[Finding], str | None]:

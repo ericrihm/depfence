@@ -28,9 +28,15 @@ ratchet upgrade .github/workflows/ci.yml
 
 ## Verifying pins
 
-`scripts/verify-action-pins.sh` asks the GitHub API whether each pinned SHA is a real
-commit in the named repo, and fails on any that is not. It runs in CI (the
-`action-pins` job in `ci.yml`) and can be run locally:
+depfence does this natively now: the `resolve_existence` scanner resolves every
+SHA-pinned action against GitHub during a normal `depfence scan` (online) and reports
+any pin that points to no real commit as a CRITICAL `fabricated_reference`. Set
+`GITHUB_TOKEN` for the 5000 req/hr limit; disable with `DEPFENCE_RESOLVE_EXISTENCE=0`.
+
+`scripts/verify-action-pins.sh` is the standalone, dependency-free equivalent — it asks
+the GitHub API whether each pinned SHA is a real commit and fails on any that is not. It
+runs in CI (the `action-pins` job in `ci.yml`) as an independent cross-check, and can be
+run locally:
 
 ```bash
 gh auth login            # one-time

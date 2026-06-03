@@ -36,6 +36,7 @@ Traditional dependency scanners check CVEs and stop. That was fine in 2020. Toda
 - **Slopsquatting** -- attackers register package names that LLMs frequently hallucinate (`python-dateutil` vs `py-dateutil`), then serve malware to anyone who installs the AI's suggestion
 - **MCP server attacks** -- tool shadowing, rug-pull schemas, credential leakage, and prompt injection in MCP tool descriptions
 - **CI/CD bot abuse** -- [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/)-class attacks where AI review bots in GitHub Actions consume untrusted issue/PR input
+- **Hallucinated pins** -- AI agents (and humans) SHA-pin actions by writing the 40-hex commit from memory. A fabricated-but-plausible SHA -- or a package version that was never published -- passes every "is it pinned?" linter (Scorecard, zizmor) yet points to nothing real. depfence *resolves* each pin against the upstream and flags the ones that don't exist
 - **Model supply chain** -- pickle deserialization RCE, unsafe `torch.load`, malicious model card metadata on HuggingFace
 
 depfence catches all of these alongside traditional CVE/advisory scanning.
@@ -61,6 +62,7 @@ depfence catches all of these alongside traditional CVE/advisory scanning.
 | Model supply chain (pickle/torch) | **Yes** | -- | -- | -- | -- |
 | AI Bill of Materials | **Yes** | -- | -- | -- | -- |
 | Unpinned GitHub Actions (SHA) | **Yes** | -- | Yes | -- | -- |
+| Fabricated/hallucinated action pins | **Yes** | -- | -- | -- | -- |
 | GHA permissions audit | **Yes** | -- | -- | -- | -- |
 | Docker layer injection | **Yes** | -- | -- | Partial | -- |
 | Terraform module pinning | **Yes** | -- | -- | Yes | -- |
@@ -125,6 +127,7 @@ Catches attacks targeting AI coding assistants, code review bots, and MCP tool c
 |---------|-----------------|
 | `gha_workflow` | Script injection, `pull_request_target` exploits, overly permissive permissions |
 | `gha_scanner` | Unpinned and compromised GitHub Actions (SHA pinning check) |
+| `resolve_existence` | **Fabricated/hallucinated pins**: resolves every SHA-pinned action against GitHub and flags any that point to no real commit (HTTP 422) or a non-existent repo. The "resolve-never-predict" check no linter does. Online; set `GITHUB_TOKEN`, disable with `DEPFENCE_RESOLVE_EXISTENCE=0` |
 | `dockerfile` | Unpinned base images, root user, secrets in ENV/ARG |
 | `terraform` | Unpinned modules, HTTP sources, unverified namespaces |
 | `secrets` | AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |

@@ -39,6 +39,9 @@ class FindingType(str, enum.Enum):
     DEP_CONFUSION = "dependency_confusion"
     PROMPT_INJECTION = "prompt_injection"
     ANSI_HIDING = "ansi_content_hiding"
+    FABRICATED_REF = "fabricated_reference"  # pinned SHA/version that resolves to no real upstream object
+    MUTABLE_TAG = "mutable_tag_masquerade"  # # vX comment disagrees with the SHA it labels
+    UNVERIFIED_REF = "unverified_reference"  # could not resolve (no token / rate-limited) — never a silent pass
 
 
 @dataclass(frozen=True)
