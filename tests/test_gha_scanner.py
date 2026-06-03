@@ -155,7 +155,14 @@ async def test_no_workflows_dir_returns_empty(scanner):
 
 
 @pytest.mark.asyncio
-async def test_codecov_action_flagged(scanner):
+async def test_codecov_action_not_flagged_as_compromised(scanner):
+    """codecov/codecov-action must NOT be reported as a compromised action.
+
+    The 2021 Codecov breach compromised the standalone Bash Uploader, not the
+    GitHub Action (which verifies a signed uploader since v2). Treating the action
+    as known-compromised is a false positive; this guards against re-introducing it.
+    An unpinned-ref warning is still expected and acceptable.
+    """
     with tempfile.TemporaryDirectory() as d:
         _write_workflow(Path(d), "ci.yml", """\
 on: [push]
@@ -166,10 +173,8 @@ jobs:
       - uses: codecov/codecov-action@v4
 """)
         findings = await scanner.scan_project(Path(d))
-        assert any(
-            f.finding_type == FindingType.KNOWN_VULN
-            and f.severity == Severity.CRITICAL
-            for f in findings
+        assert not any(
+            f.finding_type == FindingType.KNOWN_VULN for f in findings
         )
 
 

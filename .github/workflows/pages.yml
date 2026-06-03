@@ -7,16 +7,18 @@ on:
       - 'docs/site/**'
 
 permissions:
+  contents: read
   pages: write
   id-token: write
-
-environment:
-  name: github-pages
-  url: ${{ steps.deployment.outputs.page_url }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # environment is a job-level key (it was at workflow level, where it is
+    # ignored — the deployment was never bound to the github-pages environment).
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

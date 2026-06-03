@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: both jobs only read the repo.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -39,3 +43,16 @@ jobs:
       - run: pip install -e .
       - name: Self-scan
         run: depfence scan . --format json --fail-on critical --no-fetch
+
+  # Prove every pinned action SHA is a real commit (catches fabricated/typo pins
+  # that a person or an LLM might write from memory). Resolves over the API —
+  # it does not trust the text in the file. See scripts/verify-action-pins.sh.
+  action-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify action pins resolve to real commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Include the published composite action.yml, not just .github/workflows.
+        run: bash scripts/verify-action-pins.sh .github/workflows action.yml

@@ -18,11 +18,17 @@ import yaml
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 
-# Actions with confirmed supply chain compromises
+# Actions whose *action repo itself* suffered a confirmed supply chain compromise.
+#
+# NOTE: codecov/codecov-action is deliberately NOT listed. The April 2021 Codecov
+# incident compromised the standalone Bash Uploader script (`bash <(curl .../bash)`),
+# not the GitHub Action; codecov-action v2+ fetches a signed uploader and verifies it.
+# Flagging the action as "known-compromised" is a false positive that erodes trust in
+# the scanner, so it is excluded here. (The curl|bash uploader pattern is a separate
+# detection concern.)
 _KNOWN_COMPROMISED: dict[str, str] = {
     "tj-actions/changed-files": "Compromised March 2025; malicious commit injected secrets exfiltration into 23,000+ repos.",
-    "reviewdog/action-setup": "Compromised; malicious tag pushed to steal CI secrets.",
-    "codecov/codecov-action": "Compromised 2024; supply chain attack via tampered uploader script.",
+    "reviewdog/action-setup": "Compromised March 2025; malicious tag pushed to steal CI secrets (stepping stone to the tj-actions attack).",
 }
 
 # Known-bad commit SHAs (add as incidents are discovered)

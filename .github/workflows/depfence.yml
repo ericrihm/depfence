@@ -25,6 +25,10 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Default to read-only; the scan job escalates to security-events: write below.
+permissions:
+  contents: read
+
 jobs:
   depfence:
     name: depfence scan

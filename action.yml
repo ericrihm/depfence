@@ -60,7 +60,7 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -71,23 +71,30 @@ runs:
     - name: Run scan
       id: scan
       shell: bash
+      # Inputs are passed through the environment (never interpolated into the
+      # script body) and built into a bash array, so an attacker-controlled value
+      # wired into any input cannot inject shell commands. Quoting also makes
+      # paths-with-spaces work correctly.
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_SCANNERS: ${{ inputs.scanners }}
       run: |
-        ARGS="${{ inputs.path }}"
-        ARGS="$ARGS --fail-on ${{ inputs.fail-on }}"
+        ARGS=("$INPUT_PATH" --fail-on "$INPUT_FAIL_ON")
 
-        if [[ "${{ inputs.format }}" == "sarif" ]]; then
-          ARGS="$ARGS --format sarif -o depfence-results.sarif"
-          echo "sarif-file=depfence-results.sarif" >> $GITHUB_OUTPUT
+        if [[ "$INPUT_FORMAT" == "sarif" ]]; then
+          ARGS+=(--format sarif -o depfence-results.sarif)
+          echo "sarif-file=depfence-results.sarif" >> "$GITHUB_OUTPUT"
         else
-          ARGS="$ARGS --format ${{ inputs.format }}"
+          ARGS+=(--format "$INPUT_FORMAT")
         fi
 
-        SCANNERS="${{ inputs.scanners }}"
-        if [[ "$SCANNERS" == *"no-advisory"* ]]; then ARGS="$ARGS --no-advisory"; fi
-        if [[ "$SCANNERS" == *"no-behavioral"* ]]; then ARGS="$ARGS --no-behavioral"; fi
-        if [[ "$SCANNERS" == *"no-reputation"* ]]; then ARGS="$ARGS --no-reputation"; fi
+        if [[ "$INPUT_SCANNERS" == *"no-advisory"* ]]; then ARGS+=(--no-advisory); fi
+        if [[ "$INPUT_SCANNERS" == *"no-behavioral"* ]]; then ARGS+=(--no-behavioral); fi
+        if [[ "$INPUT_SCANNERS" == *"no-reputation"* ]]; then ARGS+=(--no-reputation); fi
 
-        depfence scan $ARGS || EXIT_CODE=$?
+        depfence scan "${ARGS[@]}" || EXIT_CODE=$?
 
         if [[ -f depfence-results.sarif ]]; then
           FINDINGS=$(python3 -c "import json; d=json.load(open('depfence-results.sarif')); print(sum(len(r.get('results',[])) for r in d.get('runs',[])))" 2>/dev/null || echo "0")
@@ -101,13 +108,15 @@ runs:
     - name: Generate SBOM
       if: ${{ inputs.sbom == 'true' }}
       shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
       run: |
-        depfence sbom ${{ inputs.path }} -o depfence-sbom.json
-        echo "sbom-file=depfence-sbom.json" >> $GITHUB_OUTPUT
+        depfence sbom "$INPUT_PATH" -o depfence-sbom.json
+        echo "sbom-file=depfence-sbom.json" >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF
       if: ${{ inputs.upload-sarif == 'true' && inputs.format == 'sarif' && always() }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3
       with:
         sarif_file: depfence-results.sarif
         category: depfence
