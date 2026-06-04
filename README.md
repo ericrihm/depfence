@@ -3,11 +3,10 @@
 Static analysis tool for dependency security. Scans lockfiles, workflow files, Dockerfiles, Terraform configs, and MCP server configurations for supply chain risks — including categories that CVE-based scanners don't cover: prompt injection payloads, typosquatting variants LLMs commonly hallucinate, fabricated version/SHA pins, and CI/CD workflow injection vectors.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 
 ```bash
-pip install depfence
+git clone https://github.com/ericrihm/depfence && cd depfence
+pip install -e .
 depfence scan .
 ```
 
@@ -57,7 +56,9 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 
 4. **Enrichment**: EPSS exploit probability, CISA KEV status, and reachability analysis are added to vulnerability findings as metadata. These are not scanners — they augment findings for triage.
 
-After enrichment, inline `depfence:ignore` suppressions are applied, and results are rendered in the requested format (table, JSON, SARIF, HTML, CycloneDX, SPDX).
+After enrichment, inline `depfence:ignore` suppressions and baseline snapshots are applied, and results are rendered in the requested format (table, JSON, SARIF, HTML, CycloneDX, SPDX). Findings from multiple scanners targeting the same package are not deduplicated — each scanner produces independent findings.
+
+**Architectural invariants**: depfence never executes package code during analysis. Source code and lockfiles are processed locally; no source code is transmitted to any external service. Network calls are limited to the endpoints listed in the [Network behavior](#network-behavior) section and can be fully disabled with `--no-fetch`.
 
 Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Docker, HuggingFace, MCP, GitHub Actions.
 
@@ -147,7 +148,7 @@ These augment vulnerability findings with triage context:
 
 ## Fabricated-pin verification
 
-Pinning linters (Scorecard, zizmor, actionlint) verify that a SHA pin is present. None verify the SHA resolves to a real commit. The `resolve_existence` scanner closes this gap.
+Most pinning linters verify that a SHA string is present in an action reference. The `resolve_existence` scanner additionally verifies that the SHA references an existing commit by querying the GitHub API.
 
 **How it works**: for every `uses: owner/repo@<sha>` in `.github/workflows/*.yml`, the scanner calls `GET /repos/{owner}/{repo}/commits/{sha}` with `GITHUB_TOKEN`. Response codes:
 
@@ -164,15 +165,21 @@ The `version_existence` scanner applies the same principle to package versions: 
 
 **False positive discipline**: yanked-but-real versions are never flagged. Network/auth failures degrade to INFO, never false CRITICAL. Both scanners gate on `fetch_enabled()` and respect `--no-fetch`.
 
+**Performance**: each pinned SHA requires one GitHub API call. A workflow with 15 pinned actions costs 15 requests. With `GITHUB_TOKEN` (5,000 requests/hour authenticated, 60/hour unauthenticated), this is not a bottleneck for typical projects. The scanner emits INFO-level findings when rate-limited — never false CRITICALs.
+
 ---
 
 ## Installation
 
 ```bash
-pip install depfence                  # core
-pip install "depfence[ml]"            # with scikit-learn behavioral scoring
-pipx install depfence                 # isolated install
+# PyPI publication pending — install from source
+git clone https://github.com/ericrihm/depfence
+cd depfence
+pip install -e .                      # core
+pip install -e ".[ml]"                # with scikit-learn behavioral scoring
 ```
+
+Once published to PyPI: `pip install depfence` / `pipx install depfence`. See [PUBLISHING.md](PUBLISHING.md).
 
 Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13. No native dependencies.
 
@@ -269,14 +276,22 @@ depfence scan . --format html -o report.html
 ### GitHub Actions
 
 ```yaml
-- uses: ericrihm/depfence@v1
+# Install via pip (composite action tag not yet published)
+- uses: actions/checkout@v4
+- uses: actions/setup-python@v5
   with:
-    fail-on: high
-    format: sarif
-    upload-sarif: true
+    python-version: '3.12'
+- run: |
+    pip install git+https://github.com/ericrihm/depfence.git
+    depfence scan . --format sarif --fail-on high -o depfence-results.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: depfence-results.sarif
+    category: depfence
 ```
 
-Inputs: `path`, `fail-on`, `format`, `upload-sarif`, `enrich-epss`, `enrich-kev`, `sbom`, `python-version`. See [`action.yml`](action.yml).
+A composite GitHub Action is defined in [`action.yml`](action.yml). Once a release tag is published, usage simplifies to `uses: ericrihm/depfence@v1`.
 
 <details>
 <summary>Full workflow example</summary>
@@ -302,10 +317,17 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: ericrihm/depfence@v1
+      - uses: actions/setup-python@v5
         with:
-          fail-on: high
-          upload-sarif: true
+          python-version: '3.12'
+      - run: |
+          pip install git+https://github.com/ericrihm/depfence.git
+          depfence scan . --format sarif --fail-on high -o depfence-results.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: depfence-results.sarif
+          category: depfence
 ```
 
 </details>
@@ -316,7 +338,7 @@ jobs:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ericrihm/depfence
-    rev: v0.5.0
+    rev: main  # pin to a specific commit SHA for reproducibility
     hooks:
       - id: depfence
 ```
@@ -330,7 +352,7 @@ depfence:
   image: python:3.12-slim
   stage: test
   script:
-    - pip install depfence
+    - pip install git+https://github.com/ericrihm/depfence.git
     - depfence scan . --format json -o depfence.json --fail-on high
   artifacts:
     reports:
@@ -478,6 +500,35 @@ depfence plugins   # verify loaded scanners
 - Prompt injection patterns are regex-based. Sophisticated obfuscation or novel injection techniques may evade detection.
 - EPSS and KEV enrichment require network access to FIRST.org and CISA APIs.
 - `reachability` scanner performs static import tracing, not runtime analysis. Dynamic imports (`importlib`, `__import__`) are not resolved.
+- Behavioral, reputation, and obfuscation scanners are heuristic-based and will produce false positives. Legitimate use of `eval` (template engines), `child_process` (build tools), and base64 (data encoding) triggers findings. Use `depfence:ignore` or baseline management to suppress known-good patterns.
+- All detection is static. depfence does not perform dynamic analysis, sandboxed execution, or runtime monitoring.
+- depfence is not yet published on PyPI. Install from source (see [Installation](#installation)).
+- The GitHub Action (`action.yml`) exists but has no release tag yet. See [CI/CD integration](#cicd-integration) for current usage.
+
+### False positive expectations
+
+Scanners that verify against authoritative sources (`resolve_existence`, `version_existence`, `osv`, `npm_advisory`, `pypi_advisory`) have zero expected false positives.
+
+Heuristic scanners have non-zero false positive rates:
+
+| Scanner | Common false positive scenario | Suppression |
+|---------|-------------------------------|-------------|
+| `behavioral` | Legitimate `eval` in template engines, `child_process` in build tools | `depfence:ignore` |
+| `obfuscation` | Base64 data URIs, high-entropy generated code | `depfence:ignore` |
+| `reputation` | New but legitimate packages from established maintainers | `depfence:ignore` or baseline |
+| `slopsquat` | Legitimate packages with names similar to popular ones | `depfence:ignore` |
+| `prompt_injection` | Security comments discussing injection attacks | `depfence:ignore` |
+
+---
+
+## When to use something else
+
+- **CVE/advisory scanning only**: Dependabot, Snyk, or Grype have larger advisory databases and broader ecosystem maturity.
+- **Runtime behavioral analysis** (sandboxed package execution): depfence is purely static.
+- **Container image scanning** (not just Dockerfile linting): Trivy or Grype.
+- **SAST** (vulnerabilities in your own source code): semgrep or CodeQL.
+
+depfence covers the gap between these tools: AI-specific supply chain threats, fabricated version/SHA pins, prompt injection in dependencies, and CI/CD workflow security.
 
 ---
 
