@@ -98,7 +98,9 @@ async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], 
 
 
 async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[str]]:
+    from depfence.scanners.binding_gyp_scanner import BindingGypScanner
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
+    from depfence.scanners.editor_config_scanner import EditorConfigScanner
     from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
     from depfence.scanners.pinning_scanner import PinningScanner
     from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
@@ -108,6 +110,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     instances = [
         DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
         SecretsScanner(), PinningScanner(), ResolveExistenceScanner(),
+        EditorConfigScanner(), BindingGypScanner(),
     ]
     findings: list[Finding] = []
     errors: list[str] = []

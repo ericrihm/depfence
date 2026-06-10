@@ -89,6 +89,8 @@ ci_ai_bot = "depfence.scanners.ci_ai_bot_scanner:CiAiBotScanner"
 docker_layer = "depfence.scanners.docker_layer_scanner:DockerLayerScanner"
 ai_bom = "depfence.scanners.ai_bom_generator:AiBomGenerator"
 version_existence = "depfence.scanners.version_existence_scanner:VersionExistenceScanner"
+editor_config = "depfence.scanners.editor_config_scanner:EditorConfigScanner"
+binding_gyp = "depfence.scanners.binding_gyp_scanner:BindingGypScanner"
 
 [project.entry-points."depfence.analyzers"]
 ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"

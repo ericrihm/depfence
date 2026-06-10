@@ -48,6 +48,15 @@ class ObfuscationScanner:
         r"""exec\s*\(\s*(?:bytes\.fromhex|bytearray\.fromhex|compile)\s*\(""",
     )
 
+    _STAGED_UNPACK = re.compile(
+        r"""(?:createDecipheriv|createDecipher)\s*\(\s*['"]aes-128-gcm['"]"""
+        r"""|pbkdf2Sync\s*\(.*?(?:iterations|200000)"""
+        r"""|(?:ROT|rot)\s*(?:13|47)\b""",
+        re.IGNORECASE,
+    )
+
+    _LARGE_OBFUSCATED_THRESHOLD = 4 * 1024 * 1024  # 4MB
+
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
         return []
 
@@ -183,6 +192,26 @@ class ObfuscationScanner:
                     "High-entropy code with long lines",
                     f"File has entropy {entropy:.2f} and {len(long_lines)} lines >500 chars. "
                     "May be obfuscated or heavily minified.",
+                ))
+
+        file_size = fpath.stat().st_size if fpath.exists() else 0
+        if file_size > self._LARGE_OBFUSCATED_THRESHOLD and fpath.suffix in {".js", ".mjs", ".cjs"}:
+            staged_markers = bool(self._STAGED_UNPACK.search(content))
+            has_charcode = bool(self._CHAR_CODE.search(content))
+            has_base64 = bool(self._BASE64_EXEC.search(content))
+            has_hex = len(self._HEX_DECODE.findall(content)) > 5
+
+            obfuscation_signals = sum([staged_markers, has_charcode, has_base64, has_hex, entropy > 5.0])
+            if obfuscation_signals >= 2:
+                findings.append(self._make_finding(
+                    rel_path, Severity.CRITICAL,
+                    "Very large obfuscated JavaScript file",
+                    f"File is {file_size / (1024 * 1024):.1f}MB with {obfuscation_signals} "
+                    f"obfuscation indicators (staged decryption, charcode manipulation, "
+                    f"base64-exec, hex encoding, high entropy). This matches the pattern "
+                    f"of multi-stage credential harvesters that unpack via ROT/charcode "
+                    f"followed by AES-128-GCM decryption.",
+                    FindingType.OBFUSCATION,
                 ))
 
         return findings

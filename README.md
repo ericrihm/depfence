@@ -51,8 +51,8 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 2. **Metadata fetch**: async batch fetch (20 concurrent) from npm registry, PyPI JSON API, etc. Populates `PackageMeta` with maintainers, download counts, repository URLs, license, install scripts.
 
 3. **Scanner execution**: two scanner types run concurrently via `asyncio.gather`:
-   - **Entry-point scanners** (36): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
-   - **Project scanners** (6): hardcoded in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, and SHA pin resolution.
+   - **Entry-point scanners** (38): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
+   - **Project scanners** (8): hardcoded in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, and SHA pin resolution.
 
 4. **Enrichment**: EPSS exploit probability, CISA KEV status, and reachability analysis are added to vulnerability findings as metadata. These are not scanners — they augment findings for triage.
 
@@ -66,7 +66,7 @@ Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Sw
 
 ## Scanners
 
-37 total: 36 entry-point scanners + 1 project scanner (`resolve_existence`).
+39 total: 38 entry-point scanners + 1 project scanner (`resolve_existence`).
 
 ### Prompt injection and AI safety
 
@@ -89,18 +89,25 @@ Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Sw
 | `ai_bom` | Inventory generator: catalogues model files (.safetensors, .bin, .pkl, .pt, .onnx, .gguf), MCP configs, and AI framework packages into a structured BOM |
 | `docker_layer` | Scans Dockerfile labels, ENV, ARG, entrypoint for prompt injection payloads and metadata exfiltration |
 
+### Editor config injection and build hooks
+
+| Scanner | Detection mechanism |
+|---------|-------------------|
+| `editor_config` | Detects malicious AI-tool and editor config files that auto-execute payloads: Claude Code `SessionStart` hook injection, Gemini CLI hook injection, Cursor `alwaysApply` prompt injection with execution instructions, VS Code `runOn: folderOpen` auto-run tasks, suspicious `.github/setup.*` scripts (oversized or obfuscated), and backdated config-only commits with `[skip ci]`. |
+| `binding_gyp` | Detects Phantom Gyp attacks: `binding.gyp` files in packages without native C/C++ source files, and gyp files that shell out to unexpected commands. node-gyp executes during `npm install`, providing an alternate code execution vector that bypasses standard hook detection. |
+
 ### Supply chain
 
 | Scanner | Detection mechanism |
 |---------|-------------------|
-| `preinstall` | AST-level analysis of install scripts for pipe-to-shell, credential theft, and exfiltration patterns (Python). Regex-based for npm preinstall/postinstall hooks. |
+| `preinstall` | AST-level analysis of install scripts for pipe-to-shell, credential theft, and exfiltration patterns (Python). Regex-based for npm preinstall/postinstall hooks. Includes Phantom Gyp cross-reference for `binding.gyp` as an alternate hook vector. |
 | `dep_confusion` | Checks for private registry misconfiguration that enables namespace hijacking |
 | `scope_squatting` | npm scope typosquatting detection (`@angulr` vs `@angular`) |
 | `ownership` | Detects maintainer takeovers and version-order anomalies |
 | `provenance` | Flags high-value packages missing SLSA build attestations |
 | `provenance_checker` | Verifies SLSA/Sigstore attestation signatures for npm and PyPI packages |
 | `behavioral` | Static pattern detection for runtime red flags: `eval`, `exec`, `child_process`, DNS resolve, exfiltration endpoints |
-| `obfuscation` | Detects base64-exec, hex encoding, charcode obfuscation, high-entropy strings, ANSI escape content hiding |
+| `obfuscation` | Detects base64-exec, hex encoding, charcode obfuscation, high-entropy strings, ANSI escape content hiding, and very large (>4MB) obfuscated JavaScript with staged decryption patterns (ROT/charcode + AES-128-GCM) |
 | `network` | Flags hardcoded IPs, mining pool domains, webhook exfiltration URLs, DNS tunneling indicators |
 | `reputation` | Low-trust heuristics: package age < 30 days, no source repository, single maintainer with no other packages |
 

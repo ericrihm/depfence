@@ -232,7 +232,54 @@ class PreinstallScanner:
             if setup != setup_py:
                 findings.extend(await self.scan_setup_py(setup))
 
+        findings.extend(self._check_phantom_gyp(project_dir))
+
         return findings
+
+    def _check_phantom_gyp(self, project_dir: Path) -> list[Finding]:
+        """Cross-reference: flag binding.gyp as an alternate hook vector."""
+        gyp_file = project_dir / "binding.gyp"
+        if not gyp_file.is_file():
+            return []
+        pkg_json = project_dir / "package.json"
+        if not pkg_json.is_file():
+            return []
+        try:
+            import json
+            data = json.loads(pkg_json.read_text())
+            scripts = data.get("scripts", {})
+        except (OSError, json.JSONDecodeError):
+            return []
+
+        has_install_hook = any(
+            scripts.get(h) for h in ("preinstall", "postinstall", "install", "prepare")
+        )
+        if has_install_hook:
+            return []
+
+        has_native_ext = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
+        has_native = any(
+            f.suffix in has_native_ext
+            for f in project_dir.rglob("*")
+            if f.is_file() and "node_modules" not in f.parts
+        )
+        if has_native:
+            return []
+
+        pkg_name = data.get("name", project_dir.name)
+        return [Finding(
+            finding_type=FindingType.INSTALL_SCRIPT,
+            severity=Severity.HIGH,
+            package=pkg_name,
+            title="binding.gyp as alternate install hook (Phantom Gyp)",
+            detail=(
+                "Package has binding.gyp but no explicit install scripts and no "
+                "native C/C++ sources. node-gyp will execute binding.gyp during "
+                "npm install, providing an alternate code execution vector that "
+                "bypasses standard preinstall/postinstall hook detection."
+            ),
+            metadata={"file": "binding.gyp", "check": "preinstall_phantom_gyp"},
+        )]
 
     def _get_call_name(self, node: ast.Call) -> str:
         if isinstance(node.func, ast.Name):
