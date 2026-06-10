@@ -48,10 +48,98 @@ class NetworkScanner:
         "npmjs.com", "yarnpkg.com",
         "googleapis.com", "azure.com", "amazonaws.com",
         "sentry.io", "bugsnag.com", "datadog.com",
+        "mozilla.org", "microsoft.com", "firebase.com",
+        "cloudflare.com", "vercel.com", "netlify.com",
+        "rubygems.org", "crates.io", "packagist.org",
+        "docs.rs", "readthedocs.io", "github.io",
     }
 
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
         return []
+
+    _DYNDNS_SUFFIXES = {
+        "duckdns.org", "no-ip.org", "ddns.net", "hopto.org",
+        "ngrok.io", "workers.dev", "trycloudflare.com",
+    }
+
+    _PROJECT_SCAN_DIRS = [
+        ".github", "scripts", ".vscode", "src", "tools",
+        ".claude", ".cursor", ".gemini",
+    ]
+    _PROJECT_SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build"}
+
+    _ENV_GATE = re.compile(
+        r"process\.env\[|os\.getenv\(|if\s*\(.*env",
+        re.IGNORECASE,
+    )
+    _NET_PRIMITIVE = re.compile(
+        r"\bfetch\(|\baxios\b|\bhttps?\.request\b|\bnet\.connect\b"
+        r"|\burllib\b|\brequests\b|\bsocket\b",
+        re.IGNORECASE,
+    )
+    _RAW_SOCKET_TLS = re.compile(
+        r"(?:net|tls)\.(?:connect|createConnection)\s*\("
+        r"|socket\.(?:socket|create_connection).*connect\(\(.*,\s*\d+\)\)"
+        r"|\bnc\s+\S+\s+\d+",
+        re.IGNORECASE,
+    )
+    _OBFUSCATION_EVAL = re.compile(
+        r"\beval\s*\(|\bFunction\s*\(|\bexec\s*\(",
+        re.IGNORECASE,
+    )
+
+    async def scan_project(self, project_dir: Path) -> list[Finding]:
+        """Walk repo root + common payload dirs for network indicators."""
+        files = self._find_project_files(project_dir)
+        return await self.scan_files(project_dir, files)
+
+    def _find_project_files(self, project_dir: Path) -> list[Path]:
+        extensions = {".js", ".mjs", ".cjs", ".ts", ".py", ".sh"}
+        files: list[Path] = []
+        seen: set[Path] = set()
+
+        def _add(f: Path) -> None:
+            rp = f.resolve()
+            if rp not in seen and f.suffix in extensions:
+                seen.add(rp)
+                files.append(f)
+
+        for item in project_dir.iterdir():
+            if item.name in self._PROJECT_SKIP_DIRS:
+                continue
+            if item.is_file():
+                _add(item)
+
+        for subdir_name in self._PROJECT_SCAN_DIRS:
+            subdir = project_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for f in subdir.rglob("*"):
+                if any(skip in f.parts for skip in self._PROJECT_SKIP_DIRS):
+                    continue
+                if f.is_file():
+                    _add(f)
+
+        # Also check the extended install-file set (c2net-05)
+        extra_patterns = [
+            ".github/setup.js", ".github/setup.sh",
+            ".claude/settings.json", ".gemini/settings.json",
+            ".vscode/tasks.json",
+        ]
+        for pat in extra_patterns:
+            f = project_dir / pat
+            if f.is_file():
+                rp = f.resolve()
+                if rp not in seen:
+                    seen.add(rp)
+                    files.append(f)
+        for mdc in (project_dir / ".cursor" / "rules").glob("*.mdc") if (project_dir / ".cursor" / "rules").is_dir() else []:
+            rp = mdc.resolve()
+            if rp not in seen:
+                seen.add(rp)
+                files.append(mdc)
+
+        return files
 
     async def scan_files(self, project_dir: Path, files: list[Path] | None = None) -> list[Finding]:
         """Scan package source for network-related indicators."""
@@ -127,7 +215,69 @@ class NetworkScanner:
                 detail="Long encoded subdomain suggests DNS-based data exfiltration.",
             ))
 
+        # c2net-01: standalone non-allowlisted external URL
+        urls_for_c2 = self._URL_PATTERN.findall(content)
+        non_safe_urls = [u for u in urls_for_c2 if not self._is_safe_domain(u)]
+        if non_safe_urls and not self._has_data_collection(content):
+            has_obfuscation = bool(self._OBFUSCATION_EVAL.search(content))
+            sev = Severity.HIGH if has_obfuscation else Severity.MEDIUM
+            findings.append(Finding(
+                finding_type=FindingType.NETWORK,
+                severity=sev,
+                package=f"file:{source_name}",
+                title="Non-allowlisted external URL in source file",
+                detail=(
+                    f"Code contains URL(s) to non-standard domains: "
+                    f"{', '.join(non_safe_urls[:3])}"
+                    + (" — combined with obfuscation/eval patterns" if has_obfuscation else "")
+                ),
+            ))
+
+        # c2net-02: dormant egress (env-gated network call)
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            if self._ENV_GATE.search(line):
+                window = "\n".join(lines[max(0, i - 2):i + 8])
+                if self._NET_PRIMITIVE.search(window):
+                    findings.append(Finding(
+                        finding_type=FindingType.NETWORK,
+                        severity=Severity.HIGH,
+                        package=f"file:{source_name}",
+                        title="Environment-gated network egress (dormant C2)",
+                        detail=(
+                            "Network call is guarded by an environment variable check — "
+                            "may activate only in CI or on specific hosts."
+                        ),
+                    ))
+                    break
+
+        # c2net-03: raw socket/TLS egress
+        if self._RAW_SOCKET_TLS.search(content):
+            findings.append(Finding(
+                finding_type=FindingType.NETWORK,
+                severity=Severity.MEDIUM,
+                package=f"file:{source_name}",
+                title="Raw socket or TLS connection with explicit port",
+                detail="Code creates a raw socket/TLS connection — uncommon in packages.",
+            ))
+
+        # c2net-04: dynamic DNS domain suspicion
+        for domain in non_safe_urls:
+            if self._is_dyndns_domain(domain):
+                findings.append(Finding(
+                    finding_type=FindingType.NETWORK,
+                    severity=Severity.HIGH,
+                    package=f"file:{source_name}",
+                    title="Dynamic DNS domain in source code",
+                    detail=f"Domain '{domain}' uses a public dynamic DNS provider.",
+                ))
+                break
+
         return findings
+
+    def _is_dyndns_domain(self, domain: str) -> bool:
+        dl = domain.lower()
+        return any(dl.endswith(f".{s}") or dl == s for s in self._DYNDNS_SUFFIXES)
 
     def _analyze(self, content: str, fpath: Path, project_dir: Path) -> list[Finding]:
         rel_path = str(fpath.relative_to(project_dir)) if project_dir in fpath.parents else str(fpath)

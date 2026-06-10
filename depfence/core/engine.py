@@ -102,8 +102,14 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
     from depfence.scanners.editor_config_scanner import EditorConfigScanner
     from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
+    from depfence.scanners.git_message_scanner import GitMessageScanner
+    from depfence.scanners.network_scanner import NetworkScanner
+    from depfence.scanners.obfuscation import ObfuscationScanner
+    from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
     from depfence.scanners.pinning_scanner import PinningScanner
+    from depfence.scanners.preinstall import PreinstallScanner
     from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
+    from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
     from depfence.scanners.secrets_scanner import SecretsScanner
     from depfence.scanners.terraform_scanner import TerraformScanner
 
@@ -111,6 +117,8 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
         SecretsScanner(), PinningScanner(), ResolveExistenceScanner(),
         EditorConfigScanner(), BindingGypScanner(),
+        ObfuscationScanner(), PreinstallScanner(), NetworkScanner(),
+        GitMessageScanner(), PayloadBehaviorScanner(), RubyLifecycleScanner(),
     ]
     findings: list[Finding] = []
     errors: list[str] = []

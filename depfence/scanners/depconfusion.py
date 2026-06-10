@@ -498,7 +498,12 @@ class DepConfusionScanner:
         pkg_id = PackageId(ecosystem="npm", name=pkg_name)
         scripts = data.get("scripts", {})
 
-        for hook in ("preinstall", "postinstall", "install", "prepare", "prepack"):
+        for hook in (
+            "preinstall", "install", "postinstall",
+            "preuninstall", "postuninstall",
+            "prepare", "prepack", "postpack",
+            "prepublish", "prepublishOnly", "prestart",
+        ):
             script = scripts.get(hook, "")
             if not script:
                 continue

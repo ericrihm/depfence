@@ -1,12 +1,13 @@
 """GitHub Actions workflow YAML security scanner.
 
 Detects insecure patterns directly in workflow YAML files:
-1. Script injection   — ${{ github.event.* }} in run: blocks
-2. Unpinned actions   — tag/branch refs instead of full SHA pins
-3. Overly permissive  — write-all or missing permissions block
-4. Secrets in logs    — echoing ${{ secrets.* }} in run: steps
+1. Script injection      — ${{ github.event.* }} in run: blocks
+2. Unpinned actions      — tag/branch refs instead of full SHA pins
+3. Overly permissive     — write-all or missing permissions block
+4. Secrets in logs       — echoing ${{ secrets.* }} in run: steps
 5. pull_request_target with PR-head checkout (fork secrets leak)
 6. Self-hosted runner usage (isolation risk)
+7. Self-propagation      — credential ref + outbound push/repo-create in same step
 
 This complements gha_scanner.py (which focuses on action dependency supply
 chain) by analysing the workflow logic itself for misconfigurations.
@@ -62,6 +63,43 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 
 # Triggers that indicate pull_request_target
 _PRT_TRIGGER = "pull_request_target"
+
+# ---------------------------------------------------------------------------
+# Self-propagation detection regexes
+# ---------------------------------------------------------------------------
+
+# Credential references: GITHUB_TOKEN, named PATs, x-access-token URLs, bare env names
+_CRED_REF_RE = re.compile(
+    r"secrets\.GITHUB_TOKEN"
+    r"|secrets\.[A-Z_]*(TOKEN|PAT)\b"
+    r"|x-access-token:[^@\s]+@github\.com"
+    r"|\bGH_TOKEN\b"
+    r"|\bGITHUB_PAT\b",
+    re.IGNORECASE,
+)
+
+# Outbound push / repo-create patterns that target a non-self repository
+_PUSH_RE = re.compile(
+    r"git\s+push\b"                                          # git push (any form)
+    r"|gh\s+repo\s+create\b"                                 # gh repo create
+    r"|gh\s+api\s+.*-X\s+POST\s+['\"]?/(user/repos|orgs/[^/]+/repos)\b"  # gh api POST /repos
+    r"|octokit\.[a-zA-Z.]*(?:createForAuthenticatedUser|createOrUpdateFileContents)\b"  # Octokit SDK
+    r"|for\s+.+\s+in\s+.+;\s*do\s+.*git\s+push\b"           # iterate-and-push loops (bash)
+    r"|\.forEach\s*\(.*=>\s*.*git\s+push\b",                 # iterate-and-push loops (js)
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Allowlisted: self-repo push (explicit github.repository target)
+_SELF_REPO_RE = re.compile(r"git\s+push\s+.*\$\{\{?\s*github\.repository\s*\}?\}", re.IGNORECASE)
+
+# Allowlisted action slugs for known legitimate release/pages deployment actions
+_ALLOWLISTED_USES = frozenset([
+    "peter-evans/actions-gh-pages",
+    "jamesives/github-pages-deploy-action",
+    "cycjimmy/semantic-release-action",
+    "semantic-release/semantic-release",
+    "actions/deploy-pages",
+])
 
 
 # ---------------------------------------------------------------------------
@@ -571,6 +609,102 @@ def _check_self_hosted_runners(
     return findings
 
 
+def _check_self_propagation(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Flag steps that combine a credential reference with an outbound push/repo-create.
+
+    A workflow step that authenticates with a token AND pushes to a non-self
+    repository (or creates one) is a structural self-propagation primitive —
+    the pattern used to spread malicious workflows across repositories.
+
+    Allowlisted:
+    - git push targeting ${{ github.repository }} (self-repo push)
+    - Known release/pages deployment actions (peter-evans/actions-gh-pages,
+      JamesIves/github-pages-deploy-action, semantic-release, actions/deploy-pages)
+    """
+    findings: list[Finding] = []
+
+    for job_id, job in _iter_jobs(workflow):
+        for step in _iter_steps(job):
+            # --- Check uses: steps (allowlisted actions are fine) ---
+            uses = step.get("uses") or ""
+            if isinstance(uses, str) and uses.strip():
+                owner_repo, _ = _parse_uses(uses.strip())
+                if owner_repo.lower() in _ALLOWLISTED_USES:
+                    continue
+
+            # --- Collect the text corpus for this step ---
+            # For run: steps we check the script body.
+            # For uses: steps we check the 'with' block values for inline credentials.
+            run_text = step.get("run") or ""
+            with_text = " ".join(
+                str(v) for v in (step.get("with") or {}).values()
+            )
+            env_text = " ".join(
+                str(v) for v in (step.get("env") or {}).values()
+            )
+            corpus = "\n".join(filter(None, [run_text, with_text, env_text]))
+
+            if not corpus.strip():
+                continue
+
+            # (a) credential reference present?
+            if not _CRED_REF_RE.search(corpus):
+                continue
+
+            # (b) outbound push / repo-create pattern present?
+            if not _PUSH_RE.search(corpus):
+                continue
+
+            # Allowlist: self-repo push pattern
+            if _SELF_REPO_RE.search(corpus):
+                continue
+
+            # Collect matched snippets for the detail message
+            cred_matches = list({m.group() for m in _CRED_REF_RE.finditer(corpus)})
+            push_matches = list({m.group()[:80] for m in _PUSH_RE.finditer(corpus)})
+            step_name = step.get("name") or uses or "<unnamed>"
+            snippet = corpus[:500].replace("\n", " ")
+
+            findings.append(Finding(
+                finding_type=FindingType.BEHAVIORAL,
+                severity=Severity.CRITICAL,
+                package=pkg,
+                title=(
+                    f"Possible self-propagation: credential + outbound push in "
+                    f"job '{job_id}', step '{step_name}' [{workflow_path}]"
+                ),
+                detail=(
+                    "A workflow step combines a credential reference with an outbound "
+                    "push or repository-create operation targeting what appears to be a "
+                    "non-self repository. This structural pattern matches self-propagating "
+                    "workflow malware that clones credentials into other repos.\n\n"
+                    f"Credential refs: {', '.join(cred_matches)}\n"
+                    f"Push/create ops: {', '.join(push_matches)}\n"
+                    f"Snippet: {snippet}\n\n"
+                    "If this is an intentional cross-repo deployment, scope the token "
+                    "minimally, add the target to the allowlist, and document the intent. "
+                    "Replace broad PATs with per-repo deploy keys or OIDC where possible."
+                ),
+                cwe="CWE-494",
+                references=[
+                    "https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions",
+                    "https://www.microsoft.com/en-us/security/blog/2023/04/18/github-actions-supply-chain-attack/",
+                ],
+                confidence=0.85,
+                metadata={
+                    "workflow": workflow_path,
+                    "job": job_id,
+                    "step": step_name,
+                    "credential_refs": cred_matches,
+                    "push_patterns": push_matches,
+                },
+            ))
+
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Main scanner class
 # ---------------------------------------------------------------------------
@@ -619,5 +753,6 @@ class GhaWorkflowScanner:
         findings.extend(_check_secrets_in_logs(workflow, pkg, rel))
         findings.extend(_check_pull_request_target(workflow, pkg, rel))
         findings.extend(_check_self_hosted_runners(workflow, pkg, rel))
+        findings.extend(_check_self_propagation(workflow, pkg, rel))
 
         return findings

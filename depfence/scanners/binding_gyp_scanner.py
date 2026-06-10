@@ -73,22 +73,38 @@ class BindingGypScanner:
                     f"{', '.join(suspicious_commands[:3])}"
                 )
 
-            if not has_safe_tooling:
-                findings.append(Finding(
-                    finding_type=FindingType.INSTALL_SCRIPT,
-                    severity=severity,
-                    package=pkg,
-                    title="Phantom Gyp: binding.gyp without native sources",
-                    detail=detail,
-                    cwe="CWE-506",
-                    confidence=0.92 if not has_safe_tooling else 0.6,
-                    metadata={
-                        "file": "binding.gyp",
-                        "has_native_sources": False,
-                        "suspicious_commands": suspicious_commands[:5],
-                        "check": "phantom_gyp_no_sources",
-                    },
-                ))
+            # Emit the finding regardless of safe tooling.  When suspicious
+            # commands are present alongside a known-safe tool invocation,
+            # lower the confidence rather than suppressing the finding entirely
+            # — safe tooling names do not neutralise shell-exec patterns.
+            if has_safe_tooling and suspicious_commands:
+                # Every suspicious token is adjacent to safe tooling: lower
+                # confidence but still report.
+                confidence = 0.6
+            elif has_safe_tooling:
+                # No suspicious commands but safe tooling present: downgrade
+                # severity and confidence — likely a legitimate but unusual setup.
+                severity = Severity.MEDIUM
+                confidence = 0.45
+            else:
+                confidence = 0.92
+
+            findings.append(Finding(
+                finding_type=FindingType.INSTALL_SCRIPT,
+                severity=severity,
+                package=pkg,
+                title="Phantom Gyp: binding.gyp without native sources",
+                detail=detail,
+                cwe="CWE-506",
+                confidence=confidence,
+                metadata={
+                    "file": "binding.gyp",
+                    "has_native_sources": False,
+                    "suspicious_commands": suspicious_commands[:5],
+                    "has_safe_tooling": has_safe_tooling,
+                    "check": "phantom_gyp_no_sources",
+                },
+            ))
 
         elif suspicious_commands and not has_safe_tooling:
             findings.append(Finding(
@@ -109,6 +125,77 @@ class BindingGypScanner:
                     "check": "phantom_gyp_suspicious_commands",
                 },
             ))
+
+        # Check actions/rules arrays regardless of native-source status.
+        findings.extend(self._check_gyp_actions(content, pkg))
+
+        return findings
+
+    @staticmethod
+    def _check_gyp_actions(content: str, pkg: PackageId) -> list[Finding]:
+        """Parse binding.gyp as JSON and inspect actions[].action / rules[].action
+        arrays for suspicious shell commands.  Emits HIGH findings when suspicious
+        patterns are detected even when native sources are present, because explicit
+        action/rule arrays are a direct code-execution path at build time.
+        """
+        findings: list[Finding] = []
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            # binding.gyp often uses comments / trailing commas; if strict JSON
+            # fails we fall back to the regex scan that already ran.
+            return findings
+
+        targets = data.get("targets", [])
+        if not isinstance(targets, list):
+            return findings
+
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+
+            for section_key in ("actions", "rules"):
+                section = target.get(section_key, [])
+                if not isinstance(section, list):
+                    continue
+
+                for entry in section:
+                    if not isinstance(entry, dict):
+                        continue
+
+                    action_list = entry.get("action", [])
+                    if not isinstance(action_list, list):
+                        action_list = [action_list]
+
+                    for action_item in action_list:
+                        if not isinstance(action_item, str):
+                            continue
+                        suspicious = _SUSPICIOUS_GYP_COMMANDS.findall(action_item)
+                        if not suspicious:
+                            continue
+
+                        findings.append(Finding(
+                            finding_type=FindingType.INSTALL_SCRIPT,
+                            severity=Severity.HIGH,
+                            package=pkg,
+                            title="binding.gyp action/rule contains suspicious commands",
+                            detail=(
+                                f"binding.gyp target '{target.get('target_name', '?')}' "
+                                f"{section_key[:-1]} contains a direct shell command: "
+                                f"{action_item!r}. Commands found: "
+                                f"{', '.join(dict.fromkeys(suspicious))[:200]}"
+                            ),
+                            cwe="CWE-506",
+                            confidence=0.88,
+                            metadata={
+                                "file": "binding.gyp",
+                                "section": section_key,
+                                "target": target.get("target_name", ""),
+                                "action": action_item[:300],
+                                "suspicious_commands": list(dict.fromkeys(suspicious))[:5],
+                                "check": "phantom_gyp_action_exec",
+                            },
+                        ))
 
         return findings
 

@@ -21,6 +21,7 @@ import json
 import platform
 import re
 from pathlib import Path
+from typing import Optional
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
@@ -62,6 +63,8 @@ _PROJECT_CONFIG_LOCATIONS = [
     Path(".vscode/mcp.json"),
     Path(".vscode/settings.json"),
     Path(".claude/settings.json"),
+    Path(".continue/config.json"),
+    Path(".continue/config.yaml"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -219,7 +222,7 @@ class McpScanner:
             resolved = project_dir / config_path
             if resolved.exists() and resolved not in seen:
                 seen.add(resolved)
-                findings.extend(self._scan_config(resolved))
+                findings.extend(self._scan_config(resolved, project_dir=project_dir))
 
         # Global configs
         for path in _mcp_config_locations():
@@ -229,11 +232,16 @@ class McpScanner:
 
         return findings
 
-    def _scan_config(self, config_path: Path) -> list[Finding]:
+    def _scan_config(self, config_path: Path, project_dir: Optional[Path] = None) -> list[Finding]:
         findings: list[Finding] = []
         try:
-            data = json.loads(config_path.read_text())
-        except (json.JSONDecodeError, OSError):
+            raw = config_path.read_text()
+            if config_path.suffix in (".yaml", ".yml"):
+                import yaml  # pyyaml — declared dependency
+                data = yaml.safe_load(raw) or {}
+            else:
+                data = json.loads(raw)
+        except (json.JSONDecodeError, OSError, Exception):
             return findings
 
         servers = _extract_mcp_servers(data)
@@ -249,6 +257,10 @@ class McpScanner:
             findings.extend(self._check_package_launcher(server_name, server_config, pkg, source))
             findings.extend(self._check_tool_shadowing(server_name, server_config, pkg, source))
             findings.extend(self._check_tool_descriptions(server_name, server_config, pkg, source))
+            if project_dir is not None:
+                findings.extend(
+                    self._check_local_launch(server_name, server_config, pkg, source, project_dir)
+                )
 
         return findings
 
@@ -440,6 +452,117 @@ class McpScanner:
                 metadata={"config_path": source, "package": pkg_arg, "launcher": command},
             ))
 
+        return findings
+
+    def _check_local_launch(
+        self,
+        name: str,
+        config: dict,
+        pkg: PackageId,
+        source: str,
+        project_dir: Path,
+    ) -> list[Finding]:
+        """Detect MCP servers that launch code directly from the project tree.
+
+        Flags:
+        (a) Commands that are relative/absolute paths resolving inside project_dir
+            (starts with ./ ../ .github/ or contains a path separator and resolves
+            under project_dir).
+        (b) Interpreter invocations (node/python/python3/deno/bun/ruby/php/sh/bash)
+            whose first non-flag argument is a project-local script
+            (*.js|*.mjs|*.cjs|*.ts|*.py|*.sh) resolving under project_dir.
+
+        Registry launchers (npx/uvx/pipx/bunx/docker) are excluded — those are
+        handled by _check_package_launcher and are legitimate packaging patterns.
+        """
+        findings: list[Finding] = []
+        command = config.get("command", "")
+        args = config.get("args", [])
+        if not command:
+            return findings
+
+        _REGISTRY_LAUNCHERS = {"npx", "uvx", "pipx", "bunx", "docker", "npm", "pip"}
+        _INTERPRETERS = {"node", "python", "python3", "deno", "bun", "ruby", "php", "sh", "bash"}
+        _LOCAL_SCRIPT_EXTS = re.compile(r"\.(js|mjs|cjs|ts|py|sh)$", re.IGNORECASE)
+
+        def _resolves_under_project(path_str: str) -> Optional[Path]:
+            """Return the resolved path if it is inside project_dir, else None."""
+            try:
+                candidate = Path(path_str)
+                if candidate.is_absolute():
+                    resolved = candidate.resolve()
+                else:
+                    resolved = (project_dir / candidate).resolve()
+                project_resolved = project_dir.resolve()
+                # Check containment
+                resolved.relative_to(project_resolved)
+                return resolved
+            except (ValueError, OSError):
+                return None
+
+        def _is_local_path_command(cmd: str) -> bool:
+            """True when cmd looks like a relative/absolute path into the project tree."""
+            if cmd in _REGISTRY_LAUNCHERS or cmd in _INTERPRETERS:
+                return False
+            # Explicit relative prefix
+            if cmd.startswith(("./", "../", ".github/")):
+                return True
+            # Absolute or contains separator (e.g. /home/user/project/server.js)
+            if "/" in cmd or "\\" in cmd:
+                return True
+            return False
+
+        # --- (a) Command is a direct path ---
+        if _is_local_path_command(command):
+            hit = _resolves_under_project(command)
+            if hit:
+                findings.append(Finding(
+                    finding_type=FindingType.BEHAVIORAL,
+                    severity=Severity.HIGH,
+                    package=pkg,
+                    title=f"MCP server '{name}': local-launch — command resolves inside project tree",
+                    detail=(
+                        f"Command '{command}' resolves to '{hit}' which is inside the project "
+                        f"directory. This MCP server runs code directly from the repository. "
+                        f"Verify this server is intentional and the script has not been tampered with."
+                    ),
+                    confidence=0.85,
+                    metadata={"config_path": source, "command": command, "resolved": str(hit)},
+                ))
+            return findings  # Don't double-report as interpreter below
+
+        # --- (b) Interpreter with a project-local script argument ---
+        cmd_stem = Path(command).name  # handles /usr/bin/node → node
+        if cmd_stem in _INTERPRETERS:
+            # Walk args, skip flags, find first positional argument
+            for arg in args:
+                arg_str = str(arg)
+                if arg_str.startswith("-"):
+                    continue
+                # Must look like a script file
+                if not _LOCAL_SCRIPT_EXTS.search(arg_str):
+                    break
+                hit = _resolves_under_project(arg_str)
+                if hit:
+                    findings.append(Finding(
+                        finding_type=FindingType.BEHAVIORAL,
+                        severity=Severity.HIGH,
+                        package=pkg,
+                        title=f"MCP server '{name}': local-launch — interpreter running project-local script",
+                        detail=(
+                            f"'{command}' is invoked with '{arg_str}' which resolves to '{hit}' "
+                            f"inside the project directory. This MCP server executes a local script "
+                            f"from the repository. Verify the script is trusted and has not been modified."
+                        ),
+                        confidence=0.85,
+                        metadata={
+                            "config_path": source,
+                            "command": command,
+                            "script": arg_str,
+                            "resolved": str(hit),
+                        },
+                    ))
+                break  # only check the first positional arg
         return findings
 
     def _check_tool_shadowing(

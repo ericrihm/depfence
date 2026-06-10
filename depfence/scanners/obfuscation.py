@@ -60,6 +60,11 @@ class ObfuscationScanner:
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
         return []
 
+    async def scan_project(self, project_dir: Path) -> list[Finding]:
+        """Walk repo root + common payload dirs (no 500KB cap, not node_modules-only)."""
+        files = self._find_project_script_files(project_dir)
+        return await self.scan_files(project_dir, files)
+
     async def scan_files(self, project_dir: Path, files: list[Path] | None = None) -> list[Finding]:
         """Scan source files for obfuscation patterns."""
         findings: list[Finding] = []
@@ -76,6 +81,42 @@ class ObfuscationScanner:
             findings.extend(self._analyze_content(content, fpath, project_dir))
 
         return findings
+
+    _PROJECT_SCAN_DIRS = [
+        ".github", "scripts", ".vscode", "src", "tools",
+        ".claude", ".cursor", ".gemini",
+    ]
+    _PROJECT_SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build"}
+
+    def _find_project_script_files(self, project_dir: Path) -> list[Path]:
+        """Find script files in repo root + payload dirs (no size cap)."""
+        extensions = {".js", ".mjs", ".cjs", ".ts", ".py", ".sh"}
+        files: list[Path] = []
+        seen: set[Path] = set()
+
+        def _add(f: Path) -> None:
+            rp = f.resolve()
+            if rp not in seen and f.suffix in extensions:
+                seen.add(rp)
+                files.append(f)
+
+        for item in project_dir.iterdir():
+            if item.name in self._PROJECT_SKIP_DIRS:
+                continue
+            if item.is_file():
+                _add(item)
+
+        for subdir_name in self._PROJECT_SCAN_DIRS:
+            subdir = project_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for f in subdir.rglob("*"):
+                if any(skip in f.parts for skip in self._PROJECT_SKIP_DIRS):
+                    continue
+                if f.is_file():
+                    _add(f)
+
+        return files
 
     def _find_script_files(self, project_dir: Path) -> list[Path]:
         """Find JS/TS/Python files in common locations."""

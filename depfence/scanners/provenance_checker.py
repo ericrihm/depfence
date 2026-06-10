@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -109,6 +110,69 @@ def _extract_npm_repo(statement: dict) -> str | None:
     return None
 
 
+def _normalise_repo_url(url: str) -> str:
+    """Normalise a GitHub (or generic git) repo URL for comparison.
+
+    Strips scheme, ``www.``, trailing ``.git``, and trailing slashes so that
+    ``https://github.com/foo/bar.git`` and ``github.com/foo/bar`` compare equal.
+    """
+    url = url.strip().lower()
+    # Remove scheme
+    url = re.sub(r"^https?://", "", url)
+    url = re.sub(r"^git://", "", url)
+    url = re.sub(r"^git\+https://", "", url)
+    # Remove www.
+    url = re.sub(r"^www\.", "", url)
+    # Remove trailing .git
+    url = re.sub(r"\.git$", "", url)
+    # Remove trailing slash
+    url = url.rstrip("/")
+    return url
+
+
+def _repos_match(attestation_repo: str | None, declared_repo: str | None) -> bool:
+    """Return True when the two repo URLs resolve to the same canonical path.
+
+    Either argument being ``None`` or empty is treated as *unknown* (returns
+    True so that missing data does not generate false-positive mismatches).
+    """
+    if not attestation_repo or not declared_repo:
+        return True
+    return _normalise_repo_url(attestation_repo) == _normalise_repo_url(declared_repo)
+
+
+def _extract_declared_npm_repo(data: dict) -> str | None:
+    """Extract the declared repository URL from an npm registry package object."""
+    repository = data.get("repository")
+    if isinstance(repository, str):
+        return repository
+    if isinstance(repository, dict):
+        return repository.get("url")
+    return None
+
+
+def _extract_declared_pypi_repo(info: dict) -> str | None:
+    """Extract the source repository URL from a PyPI /json info block.
+
+    Tries ``project_urls`` keys that typically carry the source repo, then falls
+    back to the plain ``home_page`` field.
+    """
+    project_urls: dict = info.get("project_urls") or {}
+    for key in ("Source", "Source Code", "Repository", "Code", "Homepage"):
+        url = project_urls.get(key, "")
+        if url and "github.com" in url.lower():
+            return url
+    # Broader fallback — any project_url that looks like a VCS host
+    for url in project_urls.values():
+        if url and re.search(r"github\.com|gitlab\.com|bitbucket\.org", url, re.I):
+            return url
+    # Last resort
+    home_page: str = info.get("home_page") or ""
+    if home_page and re.search(r"github\.com|gitlab\.com|bitbucket\.org", home_page, re.I):
+        return home_page
+    return None
+
+
 class ProvenanceChecker:
     """Async client that checks npm and PyPI packages for build provenance.
 
@@ -165,6 +229,9 @@ class ProvenanceChecker:
             data: dict = resp.json()
             dist: dict = data.get("dist") or {}
 
+            # The package's own declared source repository (used for mismatch check).
+            declared_repo = _extract_declared_npm_repo(data)
+
             # PEP 740-equivalent: dist.attestations (modern npm provenance)
             attestations = dist.get("attestations")
             if attestations:
@@ -182,6 +249,7 @@ class ProvenanceChecker:
                 if statements:
                     builder = _extract_npm_builder(statements[0])
                     repo = _extract_npm_repo(statements[0])
+                verified = _repos_match(repo, declared_repo)
                 return ProvenanceStatus(
                     package=pkg,
                     has_provenance=True,
@@ -189,7 +257,7 @@ class ProvenanceChecker:
                     builder=builder,
                     source_repo=repo,
                     transparency_log=True,  # npm attestations use Sigstore/Rekor
-                    verified=True,
+                    verified=verified,
                 )
 
             # Older signature-based provenance
@@ -202,7 +270,9 @@ class ProvenanceChecker:
                     builder=None,
                     source_repo=None,
                     transparency_log=True,
-                    verified=True,
+                    # No source repo in old signatures — treat as unverified
+                    # only if we have a declared repo to compare against.
+                    verified=declared_repo is None,
                 )
 
             return ProvenanceStatus(
@@ -247,6 +317,10 @@ class ProvenanceChecker:
             resp.raise_for_status()
             data: dict = resp.json()
 
+            info: dict = data.get("info") or {}
+            # The package's own declared source repository (used for mismatch check).
+            declared_repo = _extract_declared_pypi_repo(info)
+
             # Check each release file for a provenance marker
             urls: list[dict] = data.get("urls") or []
             for release_file in urls:
@@ -263,6 +337,7 @@ class ProvenanceChecker:
                             repo = first.get("source_repository") or first.get(
                                 "source_repo"
                             )
+                    verified = _repos_match(repo, declared_repo)
                     return ProvenanceStatus(
                         package=pkg,
                         has_provenance=True,
@@ -272,11 +347,10 @@ class ProvenanceChecker:
                         builder=builder,
                         source_repo=repo,
                         transparency_log=True,
-                        verified=True,
+                        verified=verified,
                     )
 
             # Fallback: check info-level attestation URL
-            info: dict = data.get("info") or {}
             if info.get("attestation_url"):
                 return ProvenanceStatus(
                     package=pkg,
@@ -285,7 +359,9 @@ class ProvenanceChecker:
                     builder=None,
                     source_repo=None,
                     transparency_log=True,
-                    verified=True,
+                    # No repo in fallback attestation — treat as unverified only
+                    # if we have a declared repo to compare against.
+                    verified=declared_repo is None,
                 )
 
             return ProvenanceStatus(
@@ -363,44 +439,78 @@ class ProvenanceChecker:
         statuses = await self.check_batch(packages)
         findings: list[Finding] = []
         for status in statuses:
-            if status.has_provenance:
-                continue
             pkg = status.package
             is_popular = _is_popular(pkg)
-            severity = Severity.HIGH if is_popular else Severity.MEDIUM
-            findings.append(
-                Finding(
-                    finding_type=FindingType.PROVENANCE,
-                    severity=severity,
-                    package=pkg,
-                    title=f"Missing build provenance: {pkg.name}",
-                    detail=(
-                        f"{pkg.ecosystem}:{pkg.name} version {pkg.version} has no "
-                        f"verifiable SLSA/Sigstore provenance attestation. "
-                        f"Without provenance, published artifacts cannot be traced "
-                        f"back to a specific source commit and CI run, making "
-                        f"supply-chain tampering undetectable."
-                        + (
-                            " This is a high-download package — an ideal target for "
-                            "supply-chain attacks."
-                            if is_popular
-                            else ""
-                        )
-                    ),
-                    references=[
-                        "https://slsa.dev/",
-                        "https://docs.npmjs.com/generating-provenance-statements"
-                        if pkg.ecosystem == "npm"
-                        else "https://docs.pypi.org/attestations/",
-                    ],
-                    confidence=0.9,
-                    metadata={
-                        "provenance_type": status.provenance_type,
-                        "transparency_log": status.transparency_log,
-                        "popular": is_popular,
-                    },
+
+            if status.has_provenance and not status.verified:
+                # Attestation present but source repo doesn't match the package's
+                # own declared repository — strong signal of supply-chain tampering.
+                findings.append(
+                    Finding(
+                        finding_type=FindingType.PROVENANCE,
+                        severity=Severity.MEDIUM,
+                        package=pkg,
+                        title=f"Provenance source-repo mismatch: {pkg.name}",
+                        detail=(
+                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} has a "
+                            f"provenance attestation, but the attested source repository "
+                            f"({status.source_repo!r}) does not match the package's own "
+                            f"declared repository URL. This may indicate a compromised "
+                            f"build pipeline or a typosquat with a forged attestation."
+                        ),
+                        references=[
+                            "https://slsa.dev/",
+                            "https://docs.npmjs.com/generating-provenance-statements"
+                            if pkg.ecosystem == "npm"
+                            else "https://docs.pypi.org/attestations/",
+                        ],
+                        confidence=0.85,
+                        metadata={
+                            "provenance_type": status.provenance_type,
+                            "attested_repo": status.source_repo,
+                            "builder": status.builder,
+                            "transparency_log": status.transparency_log,
+                            "popular": is_popular,
+                        },
+                    )
                 )
-            )
+                continue
+
+            if not status.has_provenance:
+                severity = Severity.HIGH if is_popular else Severity.MEDIUM
+                findings.append(
+                    Finding(
+                        finding_type=FindingType.PROVENANCE,
+                        severity=severity,
+                        package=pkg,
+                        title=f"Missing build provenance: {pkg.name}",
+                        detail=(
+                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} has no "
+                            f"verifiable SLSA/Sigstore provenance attestation. "
+                            f"Without provenance, published artifacts cannot be traced "
+                            f"back to a specific source commit and CI run, making "
+                            f"supply-chain tampering undetectable."
+                            + (
+                                " This is a high-download package — an ideal target for "
+                                "supply-chain attacks."
+                                if is_popular
+                                else ""
+                            )
+                        ),
+                        references=[
+                            "https://slsa.dev/",
+                            "https://docs.npmjs.com/generating-provenance-statements"
+                            if pkg.ecosystem == "npm"
+                            else "https://docs.pypi.org/attestations/",
+                        ],
+                        confidence=0.9,
+                        metadata={
+                            "provenance_type": status.provenance_type,
+                            "transparency_log": status.transparency_log,
+                            "popular": is_popular,
+                        },
+                    )
+                )
         return findings
 
 
