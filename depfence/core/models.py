@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class Severity(str, enum.Enum):
@@ -102,7 +102,7 @@ class Finding:
 class ScanResult:
     target: str
     ecosystem: str
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     completed_at: datetime | None = None
     packages_scanned: int = 0
     findings: list[Finding] = field(default_factory=list)

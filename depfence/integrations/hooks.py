@@ -10,3 +10,30 @@ Available hooks:
   - on_finding: When a finding is created (kwargs: finding)
   - on_threat: When a high-confidence threat is detected (kwargs: finding, meta)
 """
+
+from __future__ import annotations
+
+from typing import Any, Callable
+
+
+def register(event: str, callback: Callable[..., Any]) -> None:
+    """Register a hook callback for the given event name.
+
+    This is a convenience wrapper around the plugin registry's hook system.
+    """
+    from depfence.core.registry import get_registry
+
+    registry = get_registry()
+    registry.register_hook(event, callback)
+
+
+async def fire(event: str, **kwargs: Any) -> None:
+    """Fire all registered callbacks for the given event.
+
+    Convenience wrapper — engine.py calls ``registry.fire_hook`` directly,
+    but integrations that don't hold a registry reference can use this.
+    """
+    from depfence.core.registry import get_registry
+
+    registry = get_registry()
+    await registry.fire_hook(event, **kwargs)

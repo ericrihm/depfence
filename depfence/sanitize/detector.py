@@ -63,11 +63,12 @@ class DetectorConfig:
                 extra_pats.append((p.get("regex", ""), p.get("label", "Custom Pattern")))
             elif isinstance(p, str):
                 extra_pats.append((p, "Custom Pattern"))
+        history_depth = max(1, min(int(secrets_cfg.get("history_depth", 50)), 10000))
         return cls(
             extra_patterns=extra_pats,
             org_terms=secrets_cfg.get("org_terms", []) or [],
             scan_history=secrets_cfg.get("scan_history", True),
-            history_depth=int(secrets_cfg.get("history_depth", 50)),
+            history_depth=history_depth,
             entropy_threshold=float(secrets_cfg.get("entropy_threshold", 4.5)),
             min_secret_len=int(secrets_cfg.get("min_secret_len", 20)),
         )
@@ -79,12 +80,13 @@ class SecretsDetector:
     def __init__(self, config: DetectorConfig | None = None) -> None:
         self._config = config or DetectorConfig()
         self._scanner = SecretsScanner(org_terms=self._config.org_terms)
-        # Register extra patterns
         for regex, label in self._config.extra_patterns:
             try:
                 compiled = re.compile(regex)
+                # Probe with a short pathological input to catch ReDoS-prone patterns
+                compiled.search("a" * 100)
                 self._scanner._compiled.append((compiled, label, None, 0))  # type: ignore[arg-type]
-            except re.error:
+            except (re.error, RecursionError):
                 pass
 
     @classmethod

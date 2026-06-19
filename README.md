@@ -39,7 +39,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
                                           │
                               ┌───────────┴───────────┐
                      entry-point scanners      project scanners
-                     (36, via pip registry)    (6, filesystem-based)
+                     (42, via pip registry)    (18, filesystem-based)
                               │                       │
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -51,8 +51,8 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 2. **Metadata fetch**: async batch fetch (20 concurrent) from npm registry, PyPI JSON API, etc. Populates `PackageMeta` with maintainers, download counts, repository URLs, license, install scripts.
 
 3. **Scanner execution**: two scanner types run concurrently via `asyncio.gather`:
-   - **Entry-point scanners** (38): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
-   - **Project scanners** (8): hardcoded in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, and SHA pin resolution.
+   - **Entry-point scanners** (42): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
+   - **Project scanners** (18): instantiated in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, model files (pickle/GGUF/ONNX/TFLite), and SHA pin resolution.
 
 4. **Enrichment**: EPSS exploit probability, CISA KEV status, and reachability analysis are added to vulnerability findings as metadata. These are not scanners — they augment findings for triage.
 
@@ -66,7 +66,7 @@ Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Sw
 
 ## Scanners
 
-39 total: 38 entry-point scanners + 1 project scanner (`resolve_existence`).
+42 entry-point scanners + 18 project scanners (some scanners serve both roles).
 
 ### Prompt injection and AI safety
 
@@ -557,7 +557,7 @@ pytest
 depfence/          36K LOC
   cli/             CLI commands (click), 3K LOC
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        37 scanners (36 entry-point + 1 project scanner)
+  scanners/        44 scanner modules (42 entry-point, 18 project scanners)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook

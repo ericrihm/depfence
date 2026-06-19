@@ -42,6 +42,7 @@ def cli() -> None:
     help="Number of concurrent scan workers (implies --parallel when > 1).",
 )
 @click.option("--no-cache", is_flag=True, help="Bypass advisory and metadata caches (always fetch fresh data).")
+@click.option("--verbose", "-v", is_flag=True, help="Show progress messages during scan.")
 def scan(
     path: str,
     fmt: str,
@@ -56,6 +57,7 @@ def scan(
     parallel: bool,
     workers: int,
     no_cache: bool,
+    verbose: bool,
 ) -> None:
     """Scan dependencies for vulnerabilities and suspicious behavior.
 
@@ -67,6 +69,10 @@ def scan(
 
     # --parallel or an explicit -j value > 1 activates the concurrent path
     use_parallel = parallel or workers > 1
+
+    if no_cache:
+        from depfence.core.fetcher import set_cache_enabled
+        set_cache_enabled(False)
 
     if use_parallel:
         from depfence.core.parallel import parallel_scan
@@ -88,23 +94,20 @@ def scan(
                 skip_behavioral=no_behavioral,
                 skip_reputation=no_reputation,
                 fetch_metadata=not no_fetch,
-                project_scanners=not no_fetch,
+                project_scanners=True,
                 enrich=not no_enrich,
                 progress_callback=_progress,
             )
         )
-        if no_cache:
-            from depfence.core.fetcher import set_cache_enabled
-            set_cache_enabled(False)
         result = para_result.merged
         if result is None:
-            # Nothing was scanned — build an empty result
             from depfence.core.models import ScanResult
             result = ScanResult(target=str(project_dir), ecosystem="multi")
     else:
-        if no_cache:
-            from depfence.core.fetcher import set_cache_enabled
-            set_cache_enabled(False)
+        def _verbose_progress(msg: str) -> None:
+            if verbose:
+                click.echo(msg, err=True)
+
         result = asyncio.run(scan_directory(
             project_dir,
             ecosystems=list(ecosystem) if ecosystem else None,
@@ -112,9 +115,10 @@ def scan(
             skip_behavioral=no_behavioral,
             skip_reputation=no_reputation,
             fetch_metadata=not no_fetch,
-            project_scanners=not no_fetch,
+            project_scanners=True,
             enrich=not no_enrich,
             use_cache=not no_cache,
+            progress_callback=_verbose_progress,
         ))
 
     # Evaluate policy rules if a policy file exists
@@ -405,27 +409,32 @@ def gha_scan(path: str, fmt: str, fail_on: str) -> None:
 @click.option("--fail-on", default="high", type=click.Choice(["critical", "high", "medium", "low", "any", "none"]))
 def license_scan(path: str, fmt: str, fail_on: str) -> None:
     """Check dependency licenses for compliance risks."""
-    from depfence.core.engine import render_result, scan_directory
+    from depfence.core.engine import render_result
+    from depfence.core.fetcher import fetch_batch
+    from depfence.core.lockfile import detect_ecosystem, parse_lockfile
+    from depfence.core.models import PackageMeta, ScanResult
+    from depfence.scanners.license_scanner import LicenseScanner
 
     project_dir = Path(path).resolve()
-    result = asyncio.run(scan_directory(
-        project_dir,
-        skip_advisory=True,
-        skip_behavioral=True,
-        skip_reputation=True,
-        fetch_metadata=True,
-    ))
+    lockfiles = detect_ecosystem(project_dir)
+    packages = []
+    for eco, lockfile_path in lockfiles:
+        try:
+            packages.extend(parse_lockfile(eco, lockfile_path))
+        except Exception:
+            pass
 
-    from depfence.scanners.license_scanner import LicenseScanner
+    if not packages:
+        click.echo("No lockfiles found — nothing to scan.", err=True)
+        sys.exit(0)
+
+    metas = asyncio.run(fetch_batch(packages, concurrency=20))
     scanner = LicenseScanner()
-    license_findings = asyncio.run(scanner.scan(
-        [meta for meta in getattr(result, '_packages', []) if meta]
-    )) if hasattr(result, '_packages') else []
+    license_findings = asyncio.run(scanner.scan(metas))
 
-    from depfence.core.models import ScanResult
     lic_result = ScanResult(target=str(project_dir), ecosystem="license")
     lic_result.findings = license_findings
-    lic_result.packages_scanned = result.packages_scanned
+    lic_result.packages_scanned = len(packages)
 
     click.echo(render_result(lic_result, fmt))
     if _should_fail(lic_result, fail_on):
@@ -1100,6 +1109,8 @@ def firewall_status(path: str) -> None:
     status = get_status(Path(path).resolve())
     click.echo(f"npm: {'enabled' if status['npm'] else 'disabled'}")
     click.echo(f"pip: {'enabled' if status['pip'] else 'disabled'}")
+    if status.get("degraded"):
+        click.echo(f"status: DEGRADED ({status['degraded_reason']})", err=True)
 
 
 @firewall.command("check-npm")
@@ -1236,7 +1247,7 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
 
     from depfence.core.lockfile import detect_ecosystem, parse_lockfile
     from depfence.core.models import PackageId, PackageMeta
-    from depfence.scanners.license import LicenseScanner
+    from depfence.scanners.license import LicensePolicyScanner as LicenseScanner
 
     project_dir = Path(path).resolve()
 

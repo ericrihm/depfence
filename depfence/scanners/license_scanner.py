@@ -152,6 +152,13 @@ _COPYLEFT_LICENSES = {
 }
 
 
+_TIER_RANK = {"CLEAN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4, "UNKNOWN": 5}
+
+
+def _tier_rank(tier: str) -> int:
+    return _TIER_RANK.get(tier, 5)
+
+
 # ---------------------------------------------------------------------------
 # Scanner
 # ---------------------------------------------------------------------------
@@ -186,16 +193,35 @@ class LicenseScanner:
 
         Handles:
         - Exact SPDX identifiers  (e.g. "MIT", "GPL-3.0-only")
+        - Compound SPDX expressions  (e.g. "MIT OR Apache-2.0")
         - Common human variations  (e.g. "MIT License", "GPLv3", "Apache 2.0")
         - Empty / ``"UNKNOWN"`` / ``None`` → ``("UNKNOWN", Severity.MEDIUM)``
         """
         if not license_str or license_str.strip().upper() in ("UNKNOWN", "NONE", "PROPRIETARY"):
             tier = "UNKNOWN" if not license_str or license_str.strip().upper() == "UNKNOWN" else "CRITICAL"
-            # Proprietary means commercial use is defined by the owner, treat as CRITICAL.
             if license_str and license_str.strip().upper() == "PROPRIETARY":
                 return ("CRITICAL", Severity.CRITICAL)
             return ("UNKNOWN", Severity.MEDIUM)
 
+        normalized = license_str.strip()
+
+        # 1. Compound SPDX expressions — delegate to the policy scanner's parser
+        if any(op in normalized.upper() for op in (" OR ", " AND ", " WITH ")):
+            from depfence.scanners.license import parse_spdx_expression
+            ids = parse_spdx_expression(normalized)
+            best_tier = "UNKNOWN"
+            for sid in ids:
+                tier, _ = self._classify_single(sid)
+                if _TIERS[tier][0] is None:
+                    return (tier, None)
+                if best_tier == "UNKNOWN" or _tier_rank(tier) < _tier_rank(best_tier):
+                    best_tier = tier
+            return (best_tier, _TIERS[best_tier][0])
+
+        return self._classify_single(normalized)
+
+    def _classify_single(self, license_str: str) -> tuple[str, Severity | None]:
+        """Classify a single (non-compound) license identifier."""
         normalized = license_str.strip()
 
         # 1. Exact SPDX match (case-sensitive first, then case-folded)

@@ -214,12 +214,15 @@ class LicensePolicyResult:
 # Main scanner class
 # ---------------------------------------------------------------------------
 
-class LicenseScanner:
+class LicensePolicyScanner:
     """Policy-aware license compliance scanner.
+
+    For commercial-risk tier classification (without policy), see
+    :class:`depfence.scanners.license_scanner.LicenseScanner`.
 
     Usage::
 
-        scanner = LicenseScanner()
+        scanner = LicensePolicyScanner()
         findings = scanner.scan(packages, project_dir=Path("."))
     """
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -98,11 +99,15 @@ async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], 
 
 
 async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[str]]:
+    from depfence.scanners.ai_bom_generator import AiBomGenerator
     from depfence.scanners.binding_gyp_scanner import BindingGypScanner
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
     from depfence.scanners.editor_config_scanner import EditorConfigScanner
     from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
     from depfence.scanners.git_message_scanner import GitMessageScanner
+    from depfence.scanners.model_format_scanner import ModelFormatScanner
+    from depfence.scanners.model_integrity import ModelIntegrityScanner
+    from depfence.scanners.model_scanner import ModelScanner
     from depfence.scanners.network_scanner import NetworkScanner
     from depfence.scanners.obfuscation import ObfuscationScanner
     from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
@@ -119,6 +124,8 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         EditorConfigScanner(), BindingGypScanner(),
         ObfuscationScanner(), PreinstallScanner(), NetworkScanner(),
         GitMessageScanner(), PayloadBehaviorScanner(), RubyLifecycleScanner(),
+        ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
+        AiBomGenerator(),
     ]
     findings: list[Finding] = []
     errors: list[str] = []
@@ -213,14 +220,17 @@ async def scan_directory(
     project_scanners: bool = True,
     enrich: bool = True,
     use_cache: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ScanResult:
     result = ScanResult(target=str(project_dir), ecosystem="multi")
+    _progress = progress_callback or (lambda _msg: None)
 
     # Tell network-doing scanners (e.g. version_existence) whether fetching is allowed,
     # so --no-fetch is genuinely offline rather than just skipping the metadata pre-fetch.
     from depfence.core.fetcher import set_fetch_enabled
     set_fetch_enabled(fetch_metadata)
 
+    _progress("Detecting lockfiles...")
     lockfiles, all_packages, parse_errors = _parse_lockfiles(project_dir, ecosystems)
     result.errors.extend(parse_errors)
     result.packages_scanned = len(all_packages)
@@ -236,16 +246,19 @@ async def scan_directory(
     # GitHub-Actions-only repo still has pins to verify.
     if all_packages:
         if fetch_metadata:
+            _progress(f"Fetching metadata for {len(all_packages)} packages...")
             metas = await fetch_batch(all_packages, concurrency=20)
         else:
             metas = [PackageMeta(pkg=p) for p in all_packages]
 
+        _progress("Running entry-point scanners...")
         scanner_findings, scanner_errors = await _run_scanners(
             registry, metas, skip_advisory, skip_behavioral, skip_reputation
         )
         all_findings.extend(scanner_findings)
         result.errors.extend(scanner_errors)
 
+        _progress("Running analyzers...")
         analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
         all_findings.extend(analyzer_findings)
         result.errors.extend(analyzer_errors)
@@ -253,11 +266,13 @@ async def scan_directory(
         await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
 
     if project_scanners:
+        _progress("Running project scanners (18 scanners)...")
         proj_findings, proj_errors = await _run_project_scanners(project_dir)
         all_findings.extend(proj_findings)
         result.errors.extend(proj_errors)
 
     if enrich:
+        _progress("Enriching findings (EPSS, KEV, threat intel)...")
         all_findings, enrich_errors = await _enrich_findings(all_packages, all_findings)
         result.errors.extend(enrich_errors)
 

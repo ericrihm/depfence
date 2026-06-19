@@ -250,6 +250,7 @@ class ScanHistory:
 
     def get_last(self, project_path: str = ".", n: int = 5) -> list[ScanSnapshot]:
         """Return the n most recent scan snapshots for this project."""
+        n = max(1, min(n, 1000))
         proj_hash = _project_hash(project_path)
         with self._connect() as conn:
             rows = conn.execute(

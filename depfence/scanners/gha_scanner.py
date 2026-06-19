@@ -140,6 +140,10 @@ class GhaScanner:
     async def scan(self, packages: list) -> list[Finding]:  # type: ignore[type-arg]
         return []
 
+    async def scan_alerts(self, project_dir: Path) -> list[Finding]:
+        """Named entry point for ``depfence alerts`` and integration hooks."""
+        return await self.scan_project(project_dir)
+
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         workflows_dir = project_dir / ".github" / "workflows"

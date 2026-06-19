@@ -382,21 +382,18 @@ class ScanOrchestrator:
     ) -> tuple[list[Finding], list[EnrichmentResult]]:
         """Run all project-level scanners in parallel.
 
-        Scanners:
-        - DockerfileScanner
-        - TerraformScanner
-        - GhaWorkflowScanner
-        - SecretsScanner
-        - PinningScanner
-
         Returns a flat list of findings from all scanners, plus an
         EnrichmentResult per scanner (for timing/error tracking).
         """
+        from depfence.scanners.ai_bom_generator import AiBomGenerator
         from depfence.scanners.binding_gyp_scanner import BindingGypScanner
         from depfence.scanners.dockerfile_scanner import DockerfileScanner
         from depfence.scanners.editor_config_scanner import EditorConfigScanner
         from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
         from depfence.scanners.git_message_scanner import GitMessageScanner
+        from depfence.scanners.model_format_scanner import ModelFormatScanner
+        from depfence.scanners.model_integrity import ModelIntegrityScanner
+        from depfence.scanners.model_scanner import ModelScanner
         from depfence.scanners.network_scanner import NetworkScanner
         from depfence.scanners.obfuscation import ObfuscationScanner
         from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
@@ -422,6 +419,10 @@ class ScanOrchestrator:
             ("git_message", GitMessageScanner()),
             ("payload_behavior", PayloadBehaviorScanner()),
             ("ruby_lifecycle", RubyLifecycleScanner()),
+            ("model_scanner", ModelScanner()),
+            ("model_format", ModelFormatScanner()),
+            ("model_integrity", ModelIntegrityScanner()),
+            ("ai_bom", AiBomGenerator()),
         ]
 
         async def _run_scanner(name: str, scanner) -> tuple[str, list[Finding], str | None]:

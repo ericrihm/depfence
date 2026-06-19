@@ -143,26 +143,26 @@ async def test_safetensors_low(scanner: ModelScanner):
 
 
 @pytest.mark.asyncio
-async def test_gguf_high(scanner: ModelScanner):
-    """A .gguf file should produce a HIGH finding (CVE-2026-5760 SSTI risk)."""
+async def test_gguf_inventory(scanner: ModelScanner):
+    """A .gguf file should produce a LOW inventory finding (content analysis in model_format_scanner)."""
     with tempfile.TemporaryDirectory() as d:
         gguf_file = Path(d) / "llama.gguf"
         gguf_file.write_bytes(b"\x00" * 128)
         findings = await scanner.scan_project(Path(d))
         file_findings = [f for f in findings if "llama.gguf" in f.title]
         assert file_findings
-        assert all(f.severity == Severity.HIGH for f in file_findings)
+        assert all(f.severity == Severity.LOW for f in file_findings)
 
 
 @pytest.mark.asyncio
-async def test_onnx_medium(scanner: ModelScanner):
-    """>1 MB .onnx file should produce a MEDIUM finding."""
+async def test_onnx_inventory(scanner: ModelScanner):
+    """>1 MB .onnx file should produce a LOW inventory finding."""
     with tempfile.TemporaryDirectory() as d:
         onnx_file = Path(d) / "model.onnx"
         onnx_file.write_bytes(b"\x00" * (1024 * 1024 + 100))
         findings = await scanner.scan_project(Path(d))
         assert any(
-            f.severity == Severity.MEDIUM
+            f.severity == Severity.LOW
             and "model.onnx" in f.title
             for f in findings
         )
@@ -345,14 +345,39 @@ async def test_model_scanner_npz_detected(scanner: ModelScanner):
 
 
 @pytest.mark.asyncio
-async def test_model_scanner_gguf_severity_high(scanner: ModelScanner):
-    """A .gguf file should produce a HIGH finding (SSTI risk, CVE-2026-5760)."""
+async def test_model_scanner_gguf_severity_low(scanner: ModelScanner):
+    """A .gguf file should produce a LOW inventory finding (content analysis in model_format_scanner)."""
     with tempfile.TemporaryDirectory() as d:
         gguf_file = Path(d) / "chat-model.gguf"
         gguf_file.write_bytes(b"\x00" * 128)
         findings = await scanner.scan_project(Path(d))
         gguf_findings = [f for f in findings if "chat-model.gguf" in f.title]
         assert gguf_findings, f"Expected finding for .gguf file; got: {[f.title for f in findings]}"
-        assert gguf_findings[0].severity == Severity.HIGH, (
-            f"Expected HIGH severity for .gguf; got {gguf_findings[0].severity}"
+        assert gguf_findings[0].severity == Severity.LOW, (
+            f"Expected LOW severity for .gguf; got {gguf_findings[0].severity}"
         )
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_ckpt_detected(scanner: ModelScanner):
+    """A .ckpt file (PyTorch checkpoint) should produce a HIGH finding."""
+    with tempfile.TemporaryDirectory() as d:
+        ckpt_file = Path(d) / "model.ckpt"
+        ckpt_file.write_bytes(b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        ckpt_findings = [f for f in findings if "model.ckpt" in f.title]
+        assert ckpt_findings, f"Expected finding for .ckpt; got: {[f.title for f in findings]}"
+        assert ckpt_findings[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_joblib_detected(scanner: ModelScanner):
+    """A .joblib file should produce a HIGH finding (pickle-based)."""
+    with tempfile.TemporaryDirectory() as d:
+        joblib_file = Path(d) / "classifier.joblib"
+        joblib_file.write_bytes(b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        joblib_findings = [f for f in findings if "classifier.joblib" in f.title]
+        assert joblib_findings, f"Expected finding for .joblib; got: {[f.title for f in findings]}"
+        assert joblib_findings[0].severity == Severity.HIGH
+        assert joblib_findings[0].metadata["format"] == "joblib (pickle)"

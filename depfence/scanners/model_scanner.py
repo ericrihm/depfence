@@ -101,11 +101,10 @@ _MODEL_FILE_RISKS: list[tuple[str, Severity, str, str]] = [
     ),
     (
         ".onnx",
-        Severity.MEDIUM,
+        Severity.LOW,
         "onnx",
-        "ONNX models can embed custom operators implemented as shared libraries. "
-        "A malicious ONNX file from an untrusted source could load arbitrary native code. "
-        "Verify the model source and use a sandboxed inference runtime.",
+        "ONNX model file detected (inventory). Custom operator analysis is performed "
+        "by the model_format scanner — this entry tracks file presence only.",
     ),
     (
         ".npy",
@@ -131,12 +130,10 @@ _MODEL_FILE_RISKS: list[tuple[str, Severity, str, str]] = [
     ),
     (
         ".gguf",
-        Severity.HIGH,
+        Severity.LOW,
         "gguf",
-        "GGUF files embed Jinja2 chat templates that inference frameworks (SGLang, "
-        "llama.cpp) render without sandboxing. CVE-2026-5760 demonstrates full RCE "
-        "via Server-Side Template Injection in GGUF metadata. Inspect chat_template "
-        "metadata before loading.",
+        "GGUF model file detected (inventory). SSTI and header anomaly analysis is "
+        "performed by the model_format scanner — this entry tracks file presence only.",
     ),
 ]
 

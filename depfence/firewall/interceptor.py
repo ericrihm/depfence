@@ -137,9 +137,11 @@ def disable_firewall(project_dir: Path) -> str:
 
 
 def get_status(project_dir: Path) -> dict:
-    """Check current firewall status."""
+    """Check current firewall status including degraded-mode detection."""
     npm_enabled = False
     pip_enabled = False
+    degraded = False
+    degraded_reason = ""
 
     npmrc = project_dir / ".npmrc"
     if npmrc.exists() and "depfence" in npmrc.read_text():
@@ -149,8 +151,19 @@ def get_status(project_dir: Path) -> dict:
     if pip_script.exists():
         pip_enabled = True
 
+    try:
+        db = ThreatDB()
+        if db._connect() is None:
+            degraded = True
+            degraded_reason = "threat database not found"
+    except Exception:
+        degraded = True
+        degraded_reason = "threat database unavailable"
+
     return {
         "npm": npm_enabled,
         "pip": pip_enabled,
         "active": npm_enabled or pip_enabled,
+        "degraded": degraded,
+        "degraded_reason": degraded_reason,
     }
