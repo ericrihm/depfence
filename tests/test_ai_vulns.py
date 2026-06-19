@@ -112,3 +112,31 @@ output = model(input_ids)
 def test_unknown_package_no_findings(scanner):
     findings = scanner.check_package_version("some-random-pkg", "1.0.0")
     assert len(findings) == 0
+
+
+def test_sglang_vuln_detected(scanner):
+    findings = scanner.check_package_version("sglang", "0.3.5")
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+    assert findings[0].cve == "CVE-2026-5760"
+
+
+def test_sglang_fixed_version(scanner):
+    findings = scanner.check_package_version("sglang", "0.4.1")
+    assert len(findings) == 0
+
+
+def test_transformers_old_vuln(scanner):
+    findings = scanner.check_package_version("transformers", "4.45.0")
+    assert any(f.severity == Severity.CRITICAL for f in findings)
+
+
+def test_gradio_5_safe(scanner):
+    findings = scanner.check_package_version("gradio", "5.1.0")
+    assert len(findings) == 0
+
+
+def test_autogpt_vuln(scanner):
+    findings = scanner.check_package_version("auto-gpt", "0.5.0")
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL

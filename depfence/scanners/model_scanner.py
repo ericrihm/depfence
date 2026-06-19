@@ -50,7 +50,7 @@ _KNOWN_SAFE_ORGS: frozenset[str] = frozenset({
 
 # Minimum file size (bytes) below which a file is unlikely to be actual model
 # weights and should be skipped.
-_MIN_MODEL_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
+_MIN_MODEL_FILE_SIZE = 64  # small files are still risky
 
 # (extension, Severity, format_label, detail_snippet)
 _MODEL_FILE_RISKS: list[tuple[str, Severity, str, str]] = [
@@ -79,12 +79,48 @@ _MODEL_FILE_RISKS: list[tuple[str, Severity, str, str]] = [
         "Prefer .safetensors format or verify the file hash before loading.",
     ),
     (
+        ".pth",
+        Severity.HIGH,
+        "pytorch-checkpoint (pickle)",
+        "PyTorch .pth checkpoint files are pickle archives. They share the same RCE "
+        "risk as .bin files. Migrate to .safetensors.",
+    ),
+    (
+        ".ckpt",
+        Severity.HIGH,
+        "checkpoint (pickle)",
+        "Checkpoint files (.ckpt) from PyTorch Lightning and other frameworks use "
+        "pickle serialization. Verify provenance before loading.",
+    ),
+    (
+        ".joblib",
+        Severity.HIGH,
+        "joblib (pickle)",
+        "Joblib files use pickle internally for scikit-learn model serialization. "
+        "A malicious .joblib can execute code via joblib.load().",
+    ),
+    (
         ".onnx",
         Severity.MEDIUM,
         "onnx",
         "ONNX models can embed custom operators implemented as shared libraries. "
         "A malicious ONNX file from an untrusted source could load arbitrary native code. "
         "Verify the model source and use a sandboxed inference runtime.",
+    ),
+    (
+        ".npy",
+        Severity.MEDIUM,
+        "numpy",
+        "NumPy .npy files can contain pickled Python objects when using object dtype. "
+        "Object-dtype arrays execute pickle deserialization on numpy.load(allow_pickle=True). "
+        "Verify object arrays are not present or use allow_pickle=False.",
+    ),
+    (
+        ".npz",
+        Severity.MEDIUM,
+        "numpy-archive",
+        "NumPy .npz files are ZIP archives of .npy arrays. If any member uses object dtype, "
+        "it can trigger pickle deserialization on load. Use allow_pickle=False.",
     ),
     (
         ".safetensors",
@@ -95,10 +131,12 @@ _MODEL_FILE_RISKS: list[tuple[str, Severity, str, str]] = [
     ),
     (
         ".gguf",
-        Severity.LOW,
+        Severity.HIGH,
         "gguf",
-        "GGUF (llama.cpp quantized) is a safe binary format that does not support "
-        "arbitrary code execution. Recorded for inventory purposes.",
+        "GGUF files embed Jinja2 chat templates that inference frameworks (SGLang, "
+        "llama.cpp) render without sandboxing. CVE-2026-5760 demonstrates full RCE "
+        "via Server-Side Template Injection in GGUF metadata. Inspect chat_template "
+        "metadata before loading.",
     ),
 ]
 

@@ -86,6 +86,62 @@ _KNOWN_VULNS: list[dict] = [
         "title": "Unauthenticated RCE on Ray dashboard",
         "cve": "CVE-2023-48022",
     },
+    {
+        "package": "auto-gpt",
+        "versions": ["<0.6.0"],
+        "severity": Severity.CRITICAL,
+        "title": "Arbitrary code execution in AutoGPT plugin system",
+        "cve": "CVE-2026-33233",
+    },
+    {
+        "package": "lerobot",
+        "versions": ["<0.4.0"],
+        "severity": Severity.HIGH,
+        "title": "Unsafe pickle deserialization in LeRobot model loading",
+        "cve": "CVE-2026-25874",
+    },
+    {
+        "package": "onnx",
+        "versions": ["<1.17.0"],
+        "severity": Severity.HIGH,
+        "title": "Hub.load bypass allows loading from arbitrary URLs",
+        "cve": "CVE-2026-28500",
+    },
+    {
+        "package": "sglang",
+        "versions": ["<0.4.0"],
+        "severity": Severity.CRITICAL,
+        "title": "GGUF Jinja2 SSTI enables full RCE via chat templates",
+        "cve": "CVE-2026-5760",
+    },
+    {
+        "package": "transformers",
+        "versions": ["<4.48.0"],
+        "severity": Severity.CRITICAL,
+        "title": "RCE via from_pretrained with crafted model repos",
+        "cve": "CVE-2025-47250",
+    },
+    {
+        "package": "pytorch-lightning",
+        "versions": ["<2.5.0"],
+        "severity": Severity.CRITICAL,
+        "title": "Supply chain compromise via malicious checkpoint loading",
+        "cve": "CVE-2026-XXXXX",
+    },
+    {
+        "package": "litellm",
+        "versions": ["<1.55.0"],
+        "severity": Severity.HIGH,
+        "title": "SSRF and credential exposure in proxy endpoint",
+        "cve": "CVE-2026-XXXXX",
+    },
+    {
+        "package": "gradio",
+        "versions": ["<5.0.0"],
+        "severity": Severity.HIGH,
+        "title": "Multiple path traversal and SSRF vulnerabilities",
+        "cve": "CVE-2025-23042",
+    },
 ]
 
 _UNSAFE_PATTERNS: list[dict] = [

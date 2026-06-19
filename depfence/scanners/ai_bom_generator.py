@@ -1,7 +1,7 @@
 """AI Bill of Materials (AI-BOM) generator.
 
 Produces a structured inventory of all AI/ML components in a project:
-  - Model weight files (.safetensors, .bin, .pkl, .pt, .onnx, .gguf)
+  - Model weight files (.safetensors, .bin, .pkl, .pt, .npy, .npz, .onnx, .gguf)
   - config.json / model.json architecture metadata
   - MCP server configurations (Claude Code, Cursor, VS Code, etc.)
   - AI framework packages from lockfiles and requirement files
@@ -33,6 +33,11 @@ _MODEL_EXTENSIONS: list[tuple[str, str, bool]] = [
     (".pkl",         "pickle", True),
     (".pickle",      "pickle", True),
     (".pt",          "pytorch (pickle)", True),
+    (".pth",         "pytorch-checkpoint (pickle)", True),
+    (".ckpt",        "checkpoint (pickle)", True),
+    (".joblib",      "joblib (pickle)", True),
+    (".npy",         "numpy", False),
+    (".npz",         "numpy-archive", False),
     (".onnx",        "onnx", False),
     (".gguf",        "gguf", False),
 ]
@@ -42,7 +47,7 @@ _MODEL_EXT_INFO: dict[str, tuple[str, bool]] = {
 }
 
 # Minimum file size to be considered actual model weights (not a stub/config).
-_MIN_MODEL_BYTES = 1 * 1024 * 1024  # 1 MB
+_MIN_MODEL_BYTES = 64
 
 # Chunk size for streaming sha256 — never load full weight files into memory.
 _HASH_CHUNK = 64 * 1024  # 64 KB

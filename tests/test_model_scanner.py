@@ -143,15 +143,15 @@ async def test_safetensors_low(scanner: ModelScanner):
 
 
 @pytest.mark.asyncio
-async def test_gguf_low(scanner: ModelScanner):
-    """>1 MB .gguf file should produce only LOW findings."""
+async def test_gguf_high(scanner: ModelScanner):
+    """A .gguf file should produce a HIGH finding (CVE-2026-5760 SSTI risk)."""
     with tempfile.TemporaryDirectory() as d:
         gguf_file = Path(d) / "llama.gguf"
-        gguf_file.write_bytes(b"\x00" * (1024 * 1024 + 100))
+        gguf_file.write_bytes(b"\x00" * 128)
         findings = await scanner.scan_project(Path(d))
         file_findings = [f for f in findings if "llama.gguf" in f.title]
         assert file_findings
-        assert all(f.severity in (Severity.LOW, Severity.INFO) for f in file_findings)
+        assert all(f.severity == Severity.HIGH for f in file_findings)
 
 
 @pytest.mark.asyncio
@@ -170,10 +170,10 @@ async def test_onnx_medium(scanner: ModelScanner):
 
 @pytest.mark.asyncio
 async def test_small_bin_file_skipped(scanner: ModelScanner):
-    """A .bin file under 1 MB should not be flagged (likely not model weights)."""
+    """A .bin file under 64 bytes should not be flagged."""
     with tempfile.TemporaryDirectory() as d:
         small_file = Path(d) / "config.bin"
-        small_file.write_bytes(b"\x00" * 100)
+        small_file.write_bytes(b"\x00" * 32)
         findings = await scanner.scan_project(Path(d))
         assert not any("config.bin" in f.title for f in findings)
 
@@ -300,3 +300,59 @@ async def test_source_finding_metadata_fields(scanner: ModelScanner):
         assert src_finding is not None
         assert src_finding.metadata["source_file"].endswith("train.py")
         assert src_finding.metadata["line"] == 1
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_pth_detected(scanner: ModelScanner):
+    """A .pth file >= 64 bytes should produce a HIGH finding with pytorch-checkpoint format."""
+    with tempfile.TemporaryDirectory() as d:
+        pth_file = Path(d) / "model.pth"
+        # Synthetic pickle header bytes — static analysis only, never unpickled
+        pth_file.write_bytes(b"\x80\x04\x95" + b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        pth_findings = [f for f in findings if "model.pth" in f.title]
+        assert pth_findings, f"Expected finding for .pth file; got: {[f.title for f in findings]}"
+        assert pth_findings[0].severity == Severity.HIGH
+        assert pth_findings[0].metadata["format"] == "pytorch-checkpoint (pickle)"
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_npy_detected(scanner: ModelScanner):
+    """A .npy file >= 64 bytes should produce a MEDIUM finding with numpy format."""
+    with tempfile.TemporaryDirectory() as d:
+        npy_file = Path(d) / "embeddings.npy"
+        # Synthetic .npy header bytes — static analysis only, never loaded
+        npy_file.write_bytes(b"\x93NUMPY" + b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        npy_findings = [f for f in findings if "embeddings.npy" in f.title]
+        assert npy_findings, f"Expected finding for .npy file; got: {[f.title for f in findings]}"
+        assert npy_findings[0].severity == Severity.MEDIUM
+        assert npy_findings[0].metadata["format"] == "numpy"
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_npz_detected(scanner: ModelScanner):
+    """A .npz file >= 64 bytes should produce a MEDIUM finding with numpy-archive format."""
+    with tempfile.TemporaryDirectory() as d:
+        npz_file = Path(d) / "weights.npz"
+        # Synthetic bytes — static analysis only, never loaded
+        npz_file.write_bytes(b"PK\x03\x04" + b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        npz_findings = [f for f in findings if "weights.npz" in f.title]
+        assert npz_findings, f"Expected finding for .npz file; got: {[f.title for f in findings]}"
+        assert npz_findings[0].severity == Severity.MEDIUM
+        assert npz_findings[0].metadata["format"] == "numpy-archive"
+
+
+@pytest.mark.asyncio
+async def test_model_scanner_gguf_severity_high(scanner: ModelScanner):
+    """A .gguf file should produce a HIGH finding (SSTI risk, CVE-2026-5760)."""
+    with tempfile.TemporaryDirectory() as d:
+        gguf_file = Path(d) / "chat-model.gguf"
+        gguf_file.write_bytes(b"\x00" * 128)
+        findings = await scanner.scan_project(Path(d))
+        gguf_findings = [f for f in findings if "chat-model.gguf" in f.title]
+        assert gguf_findings, f"Expected finding for .gguf file; got: {[f.title for f in findings]}"
+        assert gguf_findings[0].severity == Severity.HIGH, (
+            f"Expected HIGH severity for .gguf; got {gguf_findings[0].severity}"
+        )
