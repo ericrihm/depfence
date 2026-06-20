@@ -41,6 +41,8 @@ _WORKFLOW_RE = re.compile(r"(^|/)\.github/workflows/[^/]+\.ya?ml$")
 _DISABLE = {"0", "false", "no", "off"}
 _FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
+_SIGNAL_BUS_PENDING = os.path.expanduser("~/.dynamo/signal_bus/pending.jsonl")
+
 
 def _gh_api(path: str) -> tuple[int, str | None]:
     """Call `gh api <path>`. Returns (returncode, api_status_string_or_None).
@@ -97,6 +99,27 @@ def _new_content(tool_name: str, tool_input: dict) -> str:
     return ""
 
 
+def _emit_dynamo_signal(fabricated: list[str], file_path: str) -> None:
+    """Best-effort write a depfence_sha_fabrication signal to the Dynamo signal bus."""
+    import time as _time
+    try:
+        sig = json.dumps({
+            "name": "depfence_sha_fabrication",
+            "value": {
+                "fabricated_pins": fabricated,
+                "file": file_path,
+                "reason": "resolve-never-predict: SHA does not resolve",
+                "count": len(fabricated),
+            },
+            "source": "depfence_pretooluse_hook",
+            "timestamp": _time.time(),
+        })
+        with open(_SIGNAL_BUS_PENDING, "a") as f:
+            f.write(sig + "\n")
+    except OSError:
+        pass  # best-effort — never crash the hook
+
+
 def main(data: dict) -> dict:
     """Return the hook's JSON output (empty dict = no-op, exit 0)."""
     if os.environ.get("DEPFENCE_PRETOOLUSE", "1").lower() in _DISABLE:
@@ -140,6 +163,9 @@ def main(data: dict) -> dict:
         "do not resolve to a real commit:\n  - " + "\n  - ".join(fabricated)
         + "\nNever hand-write a SHA — emit a tag (e.g. @v4) and let `ratchet pin` resolve it."
     )
+
+    # Emit a Dynamo signal so Elara records SHA fabrication events.
+    _emit_dynamo_signal(fabricated, file_path)
 
     if os.environ.get("DEPFENCE_PRETOOLUSE_BLOCK", "").lower() in ("1", "true", "yes", "on"):
         return {"hookSpecificOutput": {
