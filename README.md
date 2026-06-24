@@ -1,6 +1,6 @@
 # depfence
 
-Static analysis tool for dependency security. Scans lockfiles, workflow files, Dockerfiles, Terraform configs, and MCP server configurations for supply chain risks — including categories that CVE-based scanners don't cover: prompt injection payloads, typosquatting variants LLMs commonly hallucinate, fabricated version/SHA pins, and CI/CD workflow injection vectors.
+Static analysis for dependency and CI/CD supply chain security. Scans lockfiles, workflow files, Dockerfiles, Terraform configs, AI model files, and MCP server configurations — including attack classes that CVE-based scanners miss: prompt injection payloads, typosquatting variants LLMs hallucinate, fabricated version/SHA pins, Cordyceps-class CI/CD workflow attacks, and agent skill manipulation.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
 
@@ -9,8 +9,6 @@ git clone https://github.com/ericrihm/depfence && cd depfence
 pip install -e .
 depfence scan .
 ```
-
-Example output:
 
 ```
  depfence v0.6.0  scanning 142 packages across 3 lockfiles + 4 workflows
@@ -30,9 +28,23 @@ Example output:
 
 ---
 
-## Architecture
+## What depfence catches that others don't
 
-depfence runs a four-stage pipeline:
+| Attack class | Scanner | Real-world example |
+|---|---|---|
+| Prompt injection in dependencies | `prompt_injection`, `docker_layer`, `git_message` | ANSI-hidden overrides, AI code review manipulation |
+| LLM-hallucinated packages | `slopsquat` | Typosquats matching names LLMs fabricate |
+| Fabricated SHA/version pins | `resolve_existence`, `version_existence` | `actions/checkout@<hallucinated-sha>`, `requests==99.99.99` |
+| MCP tool manipulation | `mcp_scanner`, `mcp_fingerprint` | Tool shadowing, rug-pull attacks, credential leaks |
+| Agent skill attacks | `agent_skill` | External instruction fetch, domain spoofing, deferred payloads |
+| CI/CD workflow exploitation | `gha_workflow` | Cordyceps `workflow_run` escalation, `issue_comment` TOCTOU |
+| AI model file threats | `model_format`, `model_integrity` | TFLite custom ops, GGUF chat template SSTI, pickle RCE |
+| Editor config injection | `editor_config` | Claude Code hook injection, Cursor `alwaysApply` |
+| Phantom Gyp attacks | `binding_gyp` | `binding.gyp` without native code — stealth install hook |
+
+---
+
+## Architecture
 
 ```
 lockfile detection → metadata fetch → scanner execution → enrichment
@@ -46,141 +58,137 @@ lockfile detection → metadata fetch → scanner execution → enrichment
                                                 Dockerfiles, .tf, etc.)
 ```
 
-1. **Lockfile detection**: auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`. Parses each into a `PackageId(name, version, ecosystem)` list.
+1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`.
 
-2. **Metadata fetch**: async batch fetch (20 concurrent) from npm registry, PyPI JSON API, etc. Populates `PackageMeta` with maintainers, download counts, repository URLs, license, install scripts.
+2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc. Populates maintainers, download counts, repository URLs, license, install scripts.
 
-3. **Scanner execution**: two scanner types run concurrently via `asyncio.gather`:
-   - **Entry-point scanners** (42): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
-   - **Project scanners** (21): instantiated in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, model files (pickle/GGUF/ONNX/TFLite), MCP server configurations, and SHA pin resolution.
+3. **Scanner execution** — two scanner types run concurrently:
+   - **Entry-point scanners** (42): loaded via pip entry points. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`.
+   - **Project scanners** (21): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
 
-4. **Enrichment**: EPSS exploit probability, CISA KEV status, and reachability analysis are added to vulnerability findings as metadata. These are not scanners — they augment findings for triage.
+4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis augment findings for triage.
 
-After enrichment, inline `depfence:ignore` suppressions and baseline snapshots are applied, and results are rendered in the requested format (table, JSON, SARIF, HTML, CycloneDX, SPDX). Findings from multiple scanners targeting the same package are not deduplicated — each scanner produces independent findings.
+After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
 
-**Architectural invariants**: depfence never executes package code during analysis. Source code and lockfiles are processed locally; no source code is transmitted to any external service. Network calls are limited to the endpoints listed in the [Network behavior](#network-behavior) section and can be fully disabled with `--no-fetch`.
+**Invariants**: depfence never executes package code. All analysis is local and static. No source code is transmitted to any external service. Network calls are limited to the endpoints in [Network behavior](#network-behavior) and can be fully disabled with `--no-fetch`.
 
-Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Docker, HuggingFace, MCP, GitHub Actions.
+**Ecosystems**: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Docker, HuggingFace, MCP, GitHub Actions.
 
 ---
 
 ## Scanners
 
-42 entry-point scanners + 21 project scanners (some scanners serve both roles).
+42 entry-point scanners + 21 project scanners. Some serve both roles.
 
 ### Prompt injection and AI safety
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `prompt_injection` | 34 compiled regex patterns run against source strings, comments, and docstrings extracted via Python AST. Multi-pass normalization strips hex/unicode/URL encoding and zero-width characters before matching. Scans `node_modules/`, `site-packages/`, and project source. 451 LOC. |
-| `git_message` | Pattern matching on commit messages, PR templates, and issue templates for instruction-override payloads targeting AI code review bots |
-| `ci_ai_bot` | Detects `${{ github.event.* }}` expressions flowing into `run:` blocks in workflows that invoke AI tools — the [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/) attack pattern |
-| `mcp_scanner` | Parses MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed) for tool shadowing, credential leakage, missing TLS, domain spoofing, dynamic DNS, and prompt injection in tool descriptions |
-| `mcp_fingerprint` | Schema fingerprinting to detect MCP rug-pull attacks (servers that change tool definitions after initial approval) |
-| `agent_skill` | Detects agent skill attacks: external instruction fetch directives in tool descriptions (NLP pattern matching + URL analysis), domain spoofing via Levenshtein similarity against 50+ well-known services with TLD-swap detection, deferred payload bait-and-switch via content hash fingerprinting across scans, and suspicious hosting (dynamic DNS, free TLDs). Covers the [brand-landingpage](https://thehackernews.com/2026/06/fake-ai-agent-skill-passed-security.html) attack pattern. |
+| Scanner | What it detects |
+|---|---|
+| `prompt_injection` | 34 regex patterns against source strings/comments/docstrings (AST-extracted). Multi-pass normalization strips hex/unicode/URL encoding and zero-width characters. |
+| `git_message` | Instruction-override payloads in commit messages, PR templates, and issue templates targeting AI code review bots |
+| `ci_ai_bot` | `${{ github.event.* }}` flowing into AI tool invocations in workflows — the [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/) pattern |
+| `mcp_scanner` | MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed): tool shadowing, credential leakage, missing TLS, domain spoofing, prompt injection in tool descriptions |
+| `mcp_fingerprint` | Schema fingerprinting for MCP rug-pull attacks (servers that change tool definitions after initial approval) |
+| `agent_skill` | External instruction fetch directives (NLP + URL analysis), domain spoofing via Levenshtein similarity against 50+ services, deferred payload bait-and-switch via content hash fingerprinting, suspicious hosting. Covers the [brand-landingpage](https://thehackernews.com/2026/06/fake-ai-agent-skill-passed-security.html) attack. |
 
 ### AI/ML model security
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `slopsquat` | Composite similarity scoring: Levenshtein distance (threshold ≤2), character confusion matrix (l/1, O/0, rn/m), QWERTY keyboard adjacency, prefix/suffix manipulation, and separator variation against curated lists of popular npm/PyPI packages. Score ≥0.8 triggers a finding. |
-| `model_scanner` | AST scan for `torch.load()` without `weights_only=True`, pickle file detection, unverified HuggingFace pulls |
-| `model_integrity` | Checksum verification, SafeTensors header validation, file size anomaly detection, prompt injection in model card metadata |
-| `ai_vulns` | Pattern detection for LangChain RCE vectors, `trust_remote_code=True`, `eval(response)`, unsafe deserialization |
-| `ai_bom` | Inventory generator: catalogues model files (.safetensors, .bin, .pkl, .pt, .onnx, .gguf), MCP configs, and AI framework packages into a structured BOM |
-| `docker_layer` | Scans Dockerfile labels, ENV, ARG, entrypoint for prompt injection payloads and metadata exfiltration |
+| Scanner | What it detects |
+|---|---|
+| `model_scanner` | `torch.load()` without `weights_only=True`, pickle file detection, unverified HuggingFace pulls |
+| `model_integrity` | Checksum verification, SafeTensors header validation, file size anomalies, prompt injection in model card metadata |
+| `model_format` | TFLite custom operator detection (FlexWriteFile, EagerPyFunc), NumPy object-dtype pickle, HDF5/Keras Lambda layers, ONNX custom operators, GGUF chat template SSTI (Jinja2 injection), GGUF header anomalies (CVE-2024-25664) |
+| `ai_vulns` | LangChain RCE vectors, `trust_remote_code=True`, `eval(response)`, unsafe deserialization |
+| `ai_bom` | Inventory: model files (.safetensors, .bin, .pkl, .pt, .onnx, .gguf), MCP configs, AI framework packages |
+| `docker_layer` | Prompt injection payloads and metadata exfiltration in Dockerfile labels, ENV, ARG, entrypoint |
+| `slopsquat` | Composite similarity scoring: Levenshtein (≤2), character confusion (l/1, O/0, rn/m), QWERTY adjacency, prefix/suffix manipulation against curated popular-package lists |
 
 ### Editor config injection and build hooks
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `editor_config` | Detects malicious AI-tool and editor config files that auto-execute payloads: Claude Code `SessionStart` hook injection, Gemini CLI hook injection, Cursor `alwaysApply` prompt injection with execution instructions, VS Code `runOn: folderOpen` auto-run tasks, suspicious `.github/setup.*` scripts (oversized or obfuscated), and backdated config-only commits with `[skip ci]`. |
-| `binding_gyp` | Detects Phantom Gyp attacks: `binding.gyp` files in packages without native C/C++ source files, and gyp files that shell out to unexpected commands. node-gyp executes during `npm install`, providing an alternate code execution vector that bypasses standard hook detection. |
+| Scanner | What it detects |
+|---|---|
+| `editor_config` | Claude Code `SessionStart` hook injection, Gemini CLI hooks, Cursor `alwaysApply` prompt injection, VS Code `runOn: folderOpen` auto-run tasks, suspicious `.github/setup.*` scripts, backdated config-only commits with `[skip ci]` |
+| `binding_gyp` | Phantom Gyp: `binding.gyp` without native C/C++ source — stealth `npm install` code execution that bypasses standard hook detection |
 
 ### Supply chain
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `preinstall` | AST-level analysis of install scripts for pipe-to-shell, credential theft, and exfiltration patterns (Python). Regex-based for npm preinstall/postinstall hooks. Includes Phantom Gyp cross-reference for `binding.gyp` as an alternate hook vector. |
-| `dep_confusion` | Checks for private registry misconfiguration that enables namespace hijacking |
-| `scope_squatting` | npm scope typosquatting detection (`@angulr` vs `@angular`) |
-| `ownership` | Detects maintainer takeovers and version-order anomalies |
-| `provenance` | Flags high-value packages missing SLSA build attestations |
-| `provenance_checker` | Verifies SLSA/Sigstore attestation signatures for npm and PyPI packages |
-| `behavioral` | Static pattern detection for runtime red flags: `eval`, `exec`, `child_process`, DNS resolve, exfiltration endpoints |
-| `obfuscation` | Detects base64-exec, hex encoding, charcode obfuscation, high-entropy strings, ANSI escape content hiding, and very large (>4MB) obfuscated JavaScript with staged decryption patterns (ROT/charcode + AES-128-GCM) |
-| `network` | Flags hardcoded IPs, mining pool domains, webhook exfiltration URLs, DNS tunneling indicators |
-| `reputation` | Low-trust heuristics: package age < 30 days, no source repository, single maintainer with no other packages |
+| Scanner | What it detects |
+|---|---|
+| `preinstall` | AST-level install script analysis: pipe-to-shell, credential theft, exfiltration patterns. Phantom Gyp cross-reference. |
+| `payload_behavior` | Credential harvesting (`.aws/credentials`, `.kube/config`, `.npmrc`), destructive sinks, decode-then-execute, exfil co-location, env-token scraping, identity-forge patterns |
+| `dep_confusion` | Private registry misconfiguration enabling namespace hijacking |
+| `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`) |
+| `ownership` | Maintainer takeovers and version-order anomalies |
+| `provenance` | High-value packages missing SLSA build attestations |
+| `provenance_checker` | SLSA/Sigstore attestation signature verification for npm and PyPI |
+| `behavioral` | Runtime red flags: `eval`, `exec`, `child_process`, DNS resolve, exfiltration endpoints |
+| `obfuscation` | Base64-exec, hex/charcode encoding, high-entropy strings, ANSI content hiding, large (>4MB) staged decryption (ROT/charcode + AES-128-GCM) |
+| `network` | Hardcoded IPs, mining pool domains, webhook exfiltration URLs, DNS tunneling indicators |
+| `reputation` | Low-trust heuristics: age < 30 days, no source repo, single maintainer |
+| `ruby_lifecycle` | Malicious Ruby build/install files: `extconf.rb`, `Rakefile`, `*.gemspec` exec/exfil patterns (backticks, `%x{}`, `system`, `eval`, dangerous requires, download-piped-to-sh, ENV token+net combos) |
 
 ### Vulnerabilities
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `osv` | Queries [OSV.dev](https://osv.dev) for known vulnerabilities across npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
+| Scanner | What it detects |
+|---|---|
+| `osv` | Known vulnerabilities via [OSV.dev](https://osv.dev) across npm, PyPI, Cargo, Go, Maven, NuGet, Ruby, PHP, Swift |
 | `npm_advisory` | npm-specific advisories from GitHub Advisory Database |
 | `pypi_advisory` | PyPI-specific advisories from GitHub Advisory Database |
 
 ### CI/CD and infrastructure
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `gha_workflow` | 12 checks: `${{ }}` expression injection in `run:` blocks, `pull_request_target` + PR-head checkout, overly permissive `permissions:`, secrets in logs, self-hosted runner risks, self-propagation detection, and 5 Cordyceps-class checks — `workflow_run` privilege escalation via artifact download, `issue_comment` TOCTOU race conditions, `actions/github-script` code injection, artifact trust boundary violations, and `actions/checkout` < v7 missing fork-PR protection |
-| `gha_scanner` | Flags unpinned GitHub Actions (tag refs instead of SHA pins) and actions with known compromised versions |
-| `resolve_existence` | Resolves every `uses: owner/repo@<40-hex-sha>` against the GitHub API (`GET /repos/{owner}/{repo}/commits/{sha}`). HTTP 422 = non-existent commit (fabricated pin). HTTP 404 with repo unreachable = flagged separately. Emits INFO `unverified_reference` when API is unreachable rather than silently passing. Project scanner, not entry-point. Disable: `DEPFENCE_RESOLVE_EXISTENCE=0`. |
-| `version_existence` | Resolves exact npm/PyPI version pins against registries. npm: checks `version in data['versions']` from full-package GET. PyPI: per-version endpoint 404 AND release-map membership (both must agree). Skips ranges, wildcards, git/url/local refs, dist-tags. Canonical version comparison (`1.0` == `1.0.0` via `packaging.version.Version`). PEP 503 name normalization. Yanked versions are real and not flagged. Disable: `DEPFENCE_VERSION_EXISTENCE=0`. |
+| Scanner | What it detects |
+|---|---|
+| `gha_workflow` | 12 checks: `${{ }}` expression injection in `run:` blocks, `pull_request_target` + PR-head checkout, overly permissive `permissions:`, secrets in logs, self-hosted runner risks, self-propagation detection, and 5 Cordyceps-class checks — `workflow_run` privilege escalation via artifact download, `issue_comment` TOCTOU race, `actions/github-script` code injection, artifact trust boundary violations, `actions/checkout` < v7 missing fork-PR protection |
+| `gha_scanner` | Unpinned GitHub Actions (tag refs instead of SHA pins) and actions with known compromised versions |
+| `resolve_existence` | Resolves `uses: owner/repo@<sha>` against GitHub API. HTTP 422 = fabricated pin (CRITICAL). Emits INFO on auth/rate-limit (never false CRITICAL). Disable: `DEPFENCE_RESOLVE_EXISTENCE=0`. |
+| `version_existence` | Resolves exact npm/PyPI version pins against registries. Canonical version comparison, PEP 503 normalization. Yanked versions NOT flagged. Disable: `DEPFENCE_VERSION_EXISTENCE=0`. |
 | `dockerfile` | Unpinned base images, root user, secrets in ENV/ARG |
 | `terraform` | Unpinned modules, HTTP sources, unverified registry namespaces |
 | `secrets` | Regex patterns for AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |
-| `ci_secrets` | Correlates CI secret exposure with suspicious package behavior |
+| `ci_secrets` | CI secret exposure correlated with suspicious package behavior |
 
 ### Compliance and hygiene
 
-| Scanner | Detection mechanism |
-|---------|-------------------|
-| `license_scanner` | SPDX license identification and copyleft compatibility checking |
-| `reachability` | AST import tracing to determine which vulnerable packages are actually imported |
-| `phantom_deps` | Cross-references declared dependencies against actual imports to find unused packages |
-| `freshness` | Flags packages with no release in 2+ years |
-| `pinning` | Detects unpinned versions, wildcard ranges, and missing lockfiles |
+| Scanner | What it detects |
+|---|---|
+| `license_scanner` | SPDX license identification and copyleft compatibility |
+| `reachability` | AST import tracing to identify which vulnerable packages are actually imported |
+| `phantom_deps` | Declared dependencies never imported (unused attack surface) |
+| `freshness` | Packages with no release in 2+ years |
+| `pinning` | Unpinned versions, wildcard ranges, missing lockfiles |
 
 ### Enrichment (not scanners)
 
-These augment vulnerability findings with triage context:
-
-- **EPSS** — FIRST.org Exploit Prediction Scoring System probability, added to every CVE finding
-- **CISA KEV** — flags vulnerabilities on the Known Exploited Vulnerabilities catalog
-- **Risk scoring** — composite A-F grades from EPSS + KEV + CVSS + reachability + OpenSSF Scorecard
-- **SBOM generation** — CycloneDX 1.5 and SPDX 2.3
+- **EPSS** — Exploit Prediction Scoring System probability on every CVE finding
+- **CISA KEV** — Known Exploited Vulnerabilities catalog flag
+- **Risk scoring** — composite A-F grades from EPSS + KEV + CVSS + reachability + Scorecard
+- **SBOM** — CycloneDX 1.5 and SPDX 2.3
 
 ---
 
 ## Fabricated-pin verification
 
-Most pinning linters verify that a SHA string is present in an action reference. The `resolve_existence` scanner additionally verifies that the SHA references an existing commit by querying the GitHub API.
-
-**How it works**: for every `uses: owner/repo@<sha>` in `.github/workflows/*.yml`, the scanner calls `GET /repos/{owner}/{repo}/commits/{sha}` with `GITHUB_TOKEN`. Response codes:
+Most pinning linters check that a SHA string exists in an action reference. `resolve_existence` verifies the SHA references a real commit by querying the GitHub API.
 
 | HTTP status | Interpretation |
-|------------|----------------|
+|---|---|
 | 200 | Valid commit — no finding |
 | 422 | Commit does not exist — `CRITICAL fabricated_reference` |
-| 404 | Repository not found or inaccessible — `HIGH fabricated_reference` (possible private repo) |
+| 404 | Repo unreachable — `HIGH fabricated_reference` |
 | 401/403/429 | Auth/rate-limit — `INFO unverified_reference` (never false CRITICAL) |
 
-When a fabricated pin carries a `# vX.Y.Z` comment, the scanner resolves the real tag to characterize the fault: if the fabricated SHA shares a long prefix with the tag's real SHA, it's labeled "conflation" (real prefix + hallucinated tail). A valid commit whose tag has moved is NOT flagged — that's normal pin aging, not fabrication.
+When a fabricated pin has a `# vX.Y.Z` comment, the scanner resolves the real tag to characterize the fault: a long prefix match = "conflation" (real prefix + hallucinated tail). Valid commits whose tags moved are NOT flagged.
 
-The `version_existence` scanner applies the same principle to package versions: `requests==99.99.99` is syntactically valid but resolves to nothing on PyPI.
+`version_existence` applies the same principle to package versions: `requests==99.99.99` resolves to nothing on PyPI.
 
-**False positive discipline**: yanked-but-real versions are never flagged. Network/auth failures degrade to INFO, never false CRITICAL. Both scanners gate on `fetch_enabled()` and respect `--no-fetch`.
-
-**Performance**: each pinned SHA requires one GitHub API call. A workflow with 15 pinned actions costs 15 requests. With `GITHUB_TOKEN` (5,000 requests/hour authenticated, 60/hour unauthenticated), this is not a bottleneck for typical projects. The scanner emits INFO-level findings when rate-limited — never false CRITICALs.
+**False positive discipline**: yanked-but-real versions are never flagged. Network failures degrade to INFO. Both scanners gate on `fetch_enabled()` and respect `--no-fetch`.
 
 ---
 
 ## Installation
 
 ```bash
-# PyPI publication pending — install from source
 git clone https://github.com/ericrihm/depfence
 cd depfence
 pip install -e .                      # core
@@ -228,10 +236,10 @@ depfence sbom . -o sbom.json                       # CycloneDX 1.5
 depfence sbom . --format spdx -o sbom.spdx.json    # SPDX 2.3
 depfence sbom-diff before.json after.json           # compare SBOMs
 depfence license-scan .                             # license compliance
-depfence compliance . -o compliance.html            # full report
+depfence compliance . -o compliance.html            # full compliance report
 ```
 
-### Analysis
+### Analysis and triage
 
 ```bash
 depfence risk-score .            # composite A-F risk grades
@@ -243,6 +251,9 @@ depfence trust lodash npm        # package trust score
 depfence why lodash              # dependency path trace
 depfence threat-brief .          # threat landscape summary
 depfence trends --days 30        # finding trends over time
+depfence stats .                 # scan statistics summary
+depfence summary .               # findings summary
+depfence info lodash npm         # package metadata
 ```
 
 ### Operations
@@ -254,6 +265,11 @@ depfence baseline . --create     # snapshot current findings (suppress known iss
 depfence red-team .              # security assessment
 depfence remediate .             # remediation suggestions
 depfence outdated .              # outdated dependencies
+depfence policy .                # policy evaluation
+depfence firewall .              # dependency firewall check
+depfence health .                # project health assessment
+depfence ignore CVE-2021-23337   # add to ignore list
+depfence cache clear             # clear metadata cache
 depfence doctor                  # diagnostics
 depfence plugins                 # list loaded scanners
 ```
@@ -269,7 +285,7 @@ depfence scan . --format html -o report.html
 ```
 
 | Format | Use case |
-|--------|----------|
+|---|---|
 | `table` (default) | Terminal |
 | `json` | Scripting, `jq` |
 | `html` | Shareable reports |
@@ -284,7 +300,6 @@ depfence scan . --format html -o report.html
 ### GitHub Actions
 
 ```yaml
-# Install via pip (composite action tag not yet published)
 - uses: actions/checkout@v4
 - uses: actions/setup-python@v5
   with:
@@ -299,7 +314,7 @@ depfence scan . --format html -o report.html
     category: depfence
 ```
 
-A composite GitHub Action is defined in [`action.yml`](action.yml). Once a release tag is published, usage simplifies to `uses: ericrihm/depfence@v1`.
+A composite GitHub Action is defined in [`action.yml`](action.yml). Once a release tag is published: `uses: ericrihm/depfence@v1`.
 
 <details>
 <summary>Full workflow example</summary>
@@ -350,8 +365,6 @@ repos:
     hooks:
       - id: depfence
 ```
-
-Triggers on lockfile and `.github/workflows/*.yml` changes. Runs resolve-existence and GHA workflow scanners on workflow edits.
 
 ### GitLab CI
 
@@ -419,7 +432,7 @@ depfence scan .                  # automatically filters baselined findings
 ### Exit codes
 
 | Code | Meaning |
-|------|---------|
+|---|---|
 | `0` | No findings above threshold |
 | `1` | Findings at or above `--fail-on` severity |
 | `2` | Scan error |
@@ -431,7 +444,7 @@ depfence scan .                  # automatically filters baselined findings
 All source code and lockfiles are processed locally. No source code is transmitted. Scanners that make network calls:
 
 | Scanner | Endpoint | Data sent | Disable |
-|---------|----------|-----------|---------|
+|---|---|---|---|
 | `resolve_existence` | GitHub API | repo owner/name, commit SHA | `DEPFENCE_RESOLVE_EXISTENCE=0` |
 | `version_existence` | npm registry, PyPI JSON API | package name, version | `DEPFENCE_VERSION_EXISTENCE=0` |
 | `osv` | OSV.dev | package name, version, ecosystem | `--no-advisory` |
@@ -463,7 +476,7 @@ depfence mcp serve
 ```
 
 | Tool | Description |
-|------|-------------|
+|---|---|
 | `check_package` | Risk score, CVEs, typosquat detection for a single package |
 | `scan_project` | Full project scan |
 | `is_typosquat` | Typosquat/slopsquat check |
@@ -493,7 +506,7 @@ class MyScanner:
 my_scanner = "my_package.scanner:MyScanner"
 ```
 
-Project-level scanners use `async def scan_project(self, project_dir: Path) -> list[Finding]` instead. These are currently registered directly in `engine._run_project_scanners()`.
+Project-level scanners use `async def scan_project(self, project_dir: Path) -> list[Finding]` instead.
 
 ```bash
 depfence plugins   # verify loaded scanners
@@ -503,41 +516,40 @@ depfence plugins   # verify loaded scanners
 
 ## Limitations
 
-- `resolve_existence` and `version_existence` require network access and valid tokens. Without `GITHUB_TOKEN`, GitHub API calls are rate-limited to 60/hour.
-- Slopsquatting detection uses curated popular-package lists, not a complete registry mirror. Packages not in the curated list won't be matched.
-- Prompt injection patterns are regex-based. Sophisticated obfuscation or novel injection techniques may evade detection.
+- `resolve_existence` and `version_existence` require network access. Without `GITHUB_TOKEN`, GitHub API is rate-limited to 60/hour.
+- Slopsquatting uses curated popular-package lists, not a complete registry mirror.
+- Prompt injection patterns are regex-based. Novel obfuscation techniques may evade detection.
 - EPSS and KEV enrichment require network access to FIRST.org and CISA APIs.
-- `reachability` scanner performs static import tracing, not runtime analysis. Dynamic imports (`importlib`, `__import__`) are not resolved.
-- Behavioral, reputation, and obfuscation scanners are heuristic-based and will produce false positives. Legitimate use of `eval` (template engines), `child_process` (build tools), and base64 (data encoding) triggers findings. Use `depfence:ignore` or baseline management to suppress known-good patterns.
-- All detection is static. depfence does not perform dynamic analysis, sandboxed execution, or runtime monitoring.
-- depfence is not yet published on PyPI. Install from source (see [Installation](#installation)).
-- The GitHub Action (`action.yml`) exists but has no release tag yet. See [CI/CD integration](#cicd-integration) for current usage.
+- `reachability` performs static import tracing only. Dynamic imports (`importlib`, `__import__`) are not resolved.
+- Heuristic scanners (`behavioral`, `reputation`, `obfuscation`, `payload_behavior`) produce false positives. Use `depfence:ignore` or baselines to suppress known-good patterns.
+- All detection is static. No dynamic analysis, sandboxed execution, or runtime monitoring.
+- Not yet published on PyPI. Install from source.
+- The GitHub Action (`action.yml`) has no release tag yet.
 
 ### False positive expectations
 
-Scanners that verify against authoritative sources (`resolve_existence`, `version_existence`, `osv`, `npm_advisory`, `pypi_advisory`) have zero expected false positives.
+Authoritative-source scanners (`resolve_existence`, `version_existence`, `osv`, `npm_advisory`, `pypi_advisory`) have zero expected false positives.
 
-Heuristic scanners have non-zero false positive rates:
-
-| Scanner | Common false positive scenario | Suppression |
-|---------|-------------------------------|-------------|
+| Scanner | Common false positive | Suppression |
+|---|---|---|
 | `behavioral` | Legitimate `eval` in template engines, `child_process` in build tools | `depfence:ignore` |
 | `obfuscation` | Base64 data URIs, high-entropy generated code | `depfence:ignore` |
-| `reputation` | New but legitimate packages from established maintainers | `depfence:ignore` or baseline |
+| `reputation` | New but legitimate packages from established maintainers | baseline |
 | `slopsquat` | Legitimate packages with names similar to popular ones | `depfence:ignore` |
 | `prompt_injection` | Security comments discussing injection attacks | `depfence:ignore` |
-| `agent_skill` | Legitimate tools referencing external documentation or lesser-known domains with names similar to well-known services | `depfence:ignore` |
+| `agent_skill` | Legitimate tools referencing external documentation or lesser-known domains | `depfence:ignore` |
+| `payload_behavior` | Build scripts with legitimate credential-store access patterns | `depfence:ignore` |
 
 ---
 
 ## When to use something else
 
-- **CVE/advisory scanning only**: Dependabot, Snyk, or Grype have larger advisory databases and broader ecosystem maturity.
-- **Runtime behavioral analysis** (sandboxed package execution): depfence is purely static.
+- **CVE/advisory scanning only**: Dependabot, Snyk, or Grype have larger advisory databases.
+- **Runtime behavioral analysis** (sandboxed execution): depfence is purely static.
 - **Container image scanning** (not just Dockerfile linting): Trivy or Grype.
-- **SAST** (vulnerabilities in your own source code): semgrep or CodeQL.
+- **SAST** (vulnerabilities in your own code): semgrep or CodeQL.
 
-depfence covers the gap between these tools: AI-specific supply chain threats, fabricated version/SHA pins, prompt injection in dependencies, and CI/CD workflow security.
+depfence covers the gap: AI-specific supply chain threats, fabricated pins, prompt injection in dependencies, agent skill manipulation, and CI/CD workflow security.
 
 ---
 
@@ -551,15 +563,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3,100+ tests across 120 test files. Run `ruff check` before opening a PR.
+3,177 tests across 120 test files. Run `ruff check` before opening a PR.
 
 ### Project structure
 
 ```
-depfence/          43K LOC
-  cli/             CLI commands (click), 3K LOC
+depfence/          ~44K LOC
+  cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        45 scanner modules (42 entry-point, 21 project scanners)
+  scanners/        45 scanner modules (42 entry-point, 21 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
@@ -576,4 +588,4 @@ See [SECURITY.md](SECURITY.md) or open a [GitHub security advisory](https://gith
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).
