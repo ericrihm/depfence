@@ -501,26 +501,28 @@ def _findings_from_bom(
 ) -> list[Finding]:
     findings: list[Finding] = []
 
-    # One INFO finding carries the full BOM.
-    bom_pkg = PackageId("ai-bom", str(project_dir), None)
-    findings.append(Finding(
-        finding_type=FindingType.BEHAVIORAL,
-        severity=Severity.INFO,
-        package=bom_pkg,
-        title=f"AI-BOM: {bom['risk_summary']['total_models']} model(s), "
-              f"{bom['risk_summary']['mcp_servers']} MCP server(s), "
-              f"{len(bom['ai_frameworks'])} AI framework(s)",
-        detail=(
-            f"Full AI component inventory: "
-            f"{bom['risk_summary']['total_models']} model file(s) "
-            f"({bom['risk_summary']['pickle_models']} pickle-based, "
-            f"{bom['risk_summary']['unverified_models']} without checksum), "
-            f"{bom['risk_summary']['mcp_servers']} MCP server(s), "
-            f"{len(bom['ai_frameworks'])} AI framework package(s) detected."
-        ),
-        confidence=1.0,
-        metadata={"ai_bom": bom},
-    ))
+    # One INFO finding carries the full BOM (only when non-empty).
+    total = bom['risk_summary']['total_models'] + bom['risk_summary']['mcp_servers'] + len(bom['ai_frameworks'])
+    if total > 0:
+        bom_pkg = PackageId("ai-bom", str(project_dir), None)
+        findings.append(Finding(
+            finding_type=FindingType.BEHAVIORAL,
+            severity=Severity.INFO,
+            package=bom_pkg,
+            title=f"AI-BOM: {bom['risk_summary']['total_models']} model(s), "
+                  f"{bom['risk_summary']['mcp_servers']} MCP server(s), "
+                  f"{len(bom['ai_frameworks'])} AI framework(s)",
+            detail=(
+                f"Full AI component inventory: "
+                f"{bom['risk_summary']['total_models']} model file(s) "
+                f"({bom['risk_summary']['pickle_models']} pickle-based, "
+                f"{bom['risk_summary']['unverified_models']} without checksum), "
+                f"{bom['risk_summary']['mcp_servers']} MCP server(s), "
+                f"{len(bom['ai_frameworks'])} AI framework package(s) detected."
+            ),
+            confidence=1.0,
+            metadata={"ai_bom": bom},
+        ))
 
     # WARNING: pickle model files without checksums.
     for model in bom["models"]:
