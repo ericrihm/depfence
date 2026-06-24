@@ -180,3 +180,287 @@ class TestScanInterface:
         with tempfile.TemporaryDirectory() as d:
             findings = await scanner.scan_project(Path(d))
             assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Cordyceps-class checks
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowRunEscalation:
+    @pytest.mark.asyncio
+    async def test_detects_artifact_download_in_workflow_run(self, scanner):
+        workflow = """
+name: Deploy
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: echo "${{ secrets.DEPLOY_TOKEN }}"
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            cordyceps = [f for f in findings if "workflow_run" in f.title and "Cordyceps" in f.title]
+            assert len(cordyceps) >= 1
+            assert cordyceps[0].severity.value == "critical"
+
+    @pytest.mark.asyncio
+    async def test_no_finding_without_artifact_download(self, scanner):
+        workflow = """
+name: Deploy
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - run: echo "deploying"
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            cordyceps = [f for f in findings if "workflow_run" in f.title and "Cordyceps" in f.title]
+            assert len(cordyceps) == 0
+
+    @pytest.mark.asyncio
+    async def test_detects_third_party_download_action(self, scanner):
+        workflow = """
+name: Deploy
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dawidd6/action-download-artifact@v3
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            cordyceps = [f for f in findings if "workflow_run" in f.title and "Cordyceps" in f.title]
+            assert len(cordyceps) >= 1
+
+
+class TestIssueCommentCheckout:
+    @pytest.mark.asyncio
+    async def test_detects_issue_comment_with_checkout(self, scanner):
+        workflow = """
+name: Approve
+on: issue_comment
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            toctou = [f for f in findings if "issue_comment" in f.title and "TOCTOU" in f.title]
+            assert len(toctou) >= 1
+
+    @pytest.mark.asyncio
+    async def test_detects_mutable_head_ref(self, scanner):
+        workflow = """
+name: Approve
+on: issue_comment
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            toctou = [f for f in findings if "TOCTOU" in f.title]
+            assert len(toctou) >= 1
+
+    @pytest.mark.asyncio
+    async def test_no_finding_on_push_trigger(self, scanner):
+        workflow = """
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            toctou = [f for f in findings if "TOCTOU" in f.title]
+            assert len(toctou) == 0
+
+
+class TestGithubScriptInjection:
+    @pytest.mark.asyncio
+    async def test_detects_event_in_github_script(self, scanner):
+        workflow = """
+name: Triage
+on: issues
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `${{ github.event.issue.title }}`;
+            if (title.includes('bug')) {
+              github.rest.issues.addLabels({labels: ['bug']});
+            }
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            script_inj = [f for f in findings if "Code injection" in f.title and "github-script" in f.title]
+            assert len(script_inj) >= 1
+            assert script_inj[0].severity.value == "critical"
+
+    @pytest.mark.asyncio
+    async def test_no_finding_without_event_interpolation(self, scanner):
+        workflow = """
+name: Triage
+on: issues
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.list();
+            console.log(issues.data.length);
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            script_inj = [f for f in findings if "Code injection" in f.title and "github-script" in f.title]
+            assert len(script_inj) == 0
+
+
+class TestArtifactTrustBoundary:
+    @pytest.mark.asyncio
+    async def test_detects_unvalidated_download_in_prt(self, scanner):
+        workflow = """
+name: CI
+on: pull_request_target
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: bash ./deploy.sh
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            artifact = [f for f in findings if "artifact" in f.title.lower() and "poisoning" in f.title.lower()]
+            assert len(artifact) >= 1
+
+    @pytest.mark.asyncio
+    async def test_safe_with_name_and_path(self, scanner):
+        workflow = """
+name: CI
+on: pull_request_target
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: /tmp/artifacts
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            artifact = [f for f in findings if "artifact" in f.title.lower() and "poisoning" in f.title.lower()]
+            assert len(artifact) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_finding_on_push_trigger(self, scanner):
+        workflow = """
+name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            artifact = [f for f in findings if "artifact" in f.title.lower() and "poisoning" in f.title.lower()]
+            assert len(artifact) == 0
+
+
+class TestCheckoutVersion:
+    @pytest.mark.asyncio
+    async def test_detects_old_checkout_in_prt(self, scanner):
+        workflow = """
+name: CI
+on: pull_request_target
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            checkout = [f for f in findings if "checkout@v4" in f.title and "fork-PR" in f.title]
+            assert len(checkout) >= 1
+
+    @pytest.mark.asyncio
+    async def test_v7_no_finding(self, scanner):
+        workflow = """
+name: CI
+on: pull_request_target
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            checkout = [f for f in findings if "fork-PR" in f.title]
+            assert len(checkout) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_finding_on_push_trigger(self, scanner):
+        workflow = """
+name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+"""
+        with tempfile.TemporaryDirectory() as d:
+            _write_workflow(Path(d), workflow)
+            findings = await scanner.scan_project(Path(d))
+            checkout = [f for f in findings if "fork-PR" in f.title]
+            assert len(checkout) == 0

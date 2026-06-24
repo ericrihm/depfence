@@ -1,16 +1,21 @@
 """GitHub Actions workflow YAML security scanner.
 
 Detects insecure patterns directly in workflow YAML files:
-1. Script injection      — ${{ github.event.* }} in run: blocks
-2. Unpinned actions      — tag/branch refs instead of full SHA pins
-3. Overly permissive     — write-all or missing permissions block
-4. Secrets in logs       — echoing ${{ secrets.* }} in run: steps
+1. Script injection       — ${{ github.event.* }} in run: blocks
+2. Unpinned actions       — tag/branch refs instead of full SHA pins
+3. Overly permissive      — write-all or missing permissions block
+4. Secrets in logs        — echoing ${{ secrets.* }} in run: steps
 5. pull_request_target with PR-head checkout (fork secrets leak)
 6. Self-hosted runner usage (isolation risk)
-7. Self-propagation      — credential ref + outbound push/repo-create in same step
+7. Self-propagation       — credential ref + outbound push/repo-create in same step
+8. workflow_run escalation — privileged workflow_run downloading artifacts from untrusted trigger
+9. issue_comment TOCTOU    — issue_comment trigger + code checkout (race window)
+10. github-script injection — ${{ github.event.* }} in actions/github-script script: blocks
+11. Artifact trust boundary — upload/download chains without validation
+12. Checkout version        — actions/checkout < v7 missing fork-PR protection
 
-This complements gha_scanner.py (which focuses on action dependency supply
-chain) by analysing the workflow logic itself for misconfigurations.
+Checks 8-12 cover the Cordyceps (Novee, 2026-06) vulnerability class:
+cross-workflow privilege escalation, artifact poisoning, and TOCTOU races.
 """
 
 from __future__ import annotations
@@ -706,6 +711,378 @@ def _check_self_propagation(
 
 
 # ---------------------------------------------------------------------------
+# Cordyceps-class checks (Novee, 2026-06)
+# ---------------------------------------------------------------------------
+
+_GITHUB_SCRIPT_RE = re.compile(r"actions/github-script", re.IGNORECASE)
+
+_ISSUE_COMMENT_TRIGGER = "issue_comment"
+
+_CHECKOUT_VERSION_RE = re.compile(
+    r"actions/checkout@v([0-9]+)",
+    re.IGNORECASE,
+)
+
+
+def _get_triggers(workflow: dict[str, Any]) -> set[str]:
+    """Extract all trigger names from the workflow's 'on' block."""
+    on_block = workflow.get("on") or workflow.get(True)
+    if not on_block:
+        return set()
+    if isinstance(on_block, str):
+        return {on_block}
+    if isinstance(on_block, list):
+        return set(on_block)
+    if isinstance(on_block, dict):
+        return set(on_block.keys())
+    return set()
+
+
+def _check_workflow_run_escalation(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Detect workflow_run trigger downloading artifacts — Cordyceps cross-workflow escalation.
+
+    A workflow_run workflow runs with elevated privileges (secrets, write token)
+    regardless of the triggering workflow's privilege level. If it downloads
+    artifacts from the triggering workflow, those artifacts may contain
+    attacker-controlled content from a fork PR.
+    """
+    findings: list[Finding] = []
+    triggers = _get_triggers(workflow)
+
+    if "workflow_run" not in triggers:
+        return findings
+
+    for job_id, job in _iter_jobs(workflow):
+        has_artifact_download = False
+        has_secrets_access = False
+
+        for step in _iter_steps(job):
+            uses = step.get("uses") or ""
+            run = step.get("run") or ""
+            env = step.get("env") or {}
+
+            if "actions/download-artifact" in uses or "dawidd6/action-download-artifact" in uses:
+                has_artifact_download = True
+
+            if _SECRET_IN_RUN_RE.search(run):
+                has_secrets_access = True
+            if any("secrets." in str(v) for v in env.values()):
+                has_secrets_access = True
+
+        if has_artifact_download:
+            severity = Severity.CRITICAL if has_secrets_access else Severity.HIGH
+            findings.append(Finding(
+                finding_type=FindingType.WORKFLOW,
+                severity=severity,
+                package=pkg,
+                title=(
+                    f"workflow_run downloads artifacts in job '{job_id}' "
+                    f"[{workflow_path}] — Cordyceps escalation risk"
+                ),
+                detail=(
+                    "This workflow is triggered by 'workflow_run' (which runs with elevated "
+                    "privileges including secret access and write tokens) and downloads artifacts "
+                    "from the triggering workflow. If the triggering workflow runs on fork PRs "
+                    "(pull_request event), an attacker can upload poisoned artifacts that this "
+                    "privileged workflow will download and potentially execute.\n\n"
+                    "This is the core Cordyceps cross-workflow privilege escalation pattern. "
+                    "Mitigations: validate all downloaded artifact content, extract to isolated "
+                    "directories, never execute downloaded artifacts directly, verify the "
+                    "triggering workflow's conclusion and event type."
+                ),
+                cwe="CWE-269",
+                references=[
+                    "https://novee.security/blog/cordyceps/",
+                    "https://securitylab.github.com/resources/github-actions-new-patterns-and-mitigations/",
+                ],
+                confidence=0.9,
+                metadata={
+                    "workflow": workflow_path,
+                    "job": job_id,
+                    "trigger": "workflow_run",
+                    "has_secrets": has_secrets_access,
+                    "cordyceps_class": "cross-workflow-escalation",
+                },
+            ))
+
+    return findings
+
+
+def _check_issue_comment_checkout(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Detect issue_comment trigger with code checkout — TOCTOU race window.
+
+    The issue_comment event bypasses PR approval mechanisms. An attacker can:
+    1. Submit a clean PR
+    2. Wait for a maintainer to approve via comment (e.g., /approve)
+    3. Force-push malicious commits before the workflow checks out the code
+    The workflow executes the malicious code with whatever privileges it has.
+    """
+    findings: list[Finding] = []
+    triggers = _get_triggers(workflow)
+
+    if _ISSUE_COMMENT_TRIGGER not in triggers:
+        return findings
+
+    for job_id, job in _iter_jobs(workflow):
+        for step in _iter_steps(job):
+            uses = step.get("uses") or ""
+            if "actions/checkout" not in uses:
+                continue
+
+            with_block = step.get("with") or {}
+            ref_val = str(with_block.get("ref", ""))
+
+            uses_mutable_ref = (
+                "head.ref" in ref_val
+                or "head_ref" in ref_val
+                or not ref_val  # default checkout checks out the merge commit
+            )
+
+            if uses_mutable_ref:
+                findings.append(Finding(
+                    finding_type=FindingType.WORKFLOW,
+                    severity=Severity.HIGH,
+                    package=pkg,
+                    title=(
+                        f"issue_comment trigger + checkout in job '{job_id}' "
+                        f"[{workflow_path}] — TOCTOU race window"
+                    ),
+                    detail=(
+                        "This workflow is triggered by 'issue_comment' and checks out code "
+                        "using a mutable reference. An attacker can submit a clean PR, wait "
+                        "for comment-based approval (/approve, /ok-to-test), then force-push "
+                        "malicious commits before the workflow runs. The checkout fetches the "
+                        "malicious code because the ref is mutable.\n\n"
+                        f"Checkout ref: {ref_val or '(default — mutable)'}\n"
+                        "Mitigation: use label-based triggers instead of comment-based. The "
+                        "'labeled' activity type includes the commit SHA at label time, "
+                        "eliminating the TOCTOU window."
+                    ),
+                    cwe="CWE-367",
+                    references=[
+                        "https://novee.security/blog/cordyceps/",
+                        "https://securitylab.github.com/resources/github-actions-new-patterns-and-mitigations/",
+                    ],
+                    confidence=0.85,
+                    metadata={
+                        "workflow": workflow_path,
+                        "job": job_id,
+                        "trigger": _ISSUE_COMMENT_TRIGGER,
+                        "ref": ref_val or "(default)",
+                        "cordyceps_class": "toctou-race",
+                    },
+                ))
+                break  # one finding per job
+
+    return findings
+
+
+def _check_github_script_injection(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Detect ${{ github.event.* }} in actions/github-script script: blocks.
+
+    This is code injection (JavaScript eval), not command injection (shell).
+    The run: block injection check doesn't cover this because the untrusted
+    input lands in a script: key, not a run: key.
+    """
+    findings: list[Finding] = []
+
+    for job_id, job in _iter_jobs(workflow):
+        for step in _iter_steps(job):
+            uses = step.get("uses") or ""
+            if not _GITHUB_SCRIPT_RE.search(uses):
+                continue
+
+            with_block = step.get("with") or {}
+            script = str(with_block.get("script", ""))
+            if not script.strip():
+                continue
+
+            matches = _INJECTION_RE.findall(script)
+            if not matches:
+                matches = _INJECTION_BROAD_RE.findall(script)
+                if not matches:
+                    continue
+
+            snippet = script[:400].replace("\n", " ")
+            findings.append(Finding(
+                finding_type=FindingType.WORKFLOW,
+                severity=Severity.CRITICAL,
+                package=pkg,
+                title=(
+                    f"Code injection via github.event in github-script "
+                    f"[{workflow_path}]"
+                ),
+                detail=(
+                    f"The actions/github-script step in job '{job_id}' interpolates "
+                    f"user-controlled ${{{{ github.event.* }}}} expressions into JavaScript "
+                    f"code. Unlike run: block injection (shell), this is code injection into "
+                    f"a Node.js runtime with full Octokit API access — the attacker can "
+                    f"read/write issues, PRs, releases, and repository contents.\n\n"
+                    f"Matched: {', '.join(set(matches))}\n"
+                    f"Snippet: {snippet}"
+                ),
+                cwe="CWE-94",
+                references=[
+                    "https://novee.security/blog/cordyceps/",
+                    "https://securitylab.github.com/research/github-actions-untrusted-input/",
+                ],
+                confidence=0.95,
+                metadata={
+                    "workflow": workflow_path,
+                    "job": job_id,
+                    "matched_expressions": list(set(matches)),
+                    "cordyceps_class": "code-injection",
+                },
+            ))
+
+    return findings
+
+
+def _check_artifact_trust_boundary(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Flag artifact download in workflows triggered by events that accept untrusted input.
+
+    Workflows triggered by pull_request, pull_request_target, or workflow_run
+    that download artifacts without validation create a trust boundary violation.
+    The upload side may be attacker-controlled.
+    """
+    findings: list[Finding] = []
+    triggers = _get_triggers(workflow)
+
+    risky_triggers = triggers & {
+        "pull_request_target", "workflow_run",
+        "issue_comment", "pull_request_review",
+    }
+    if not risky_triggers:
+        return findings
+
+    for job_id, job in _iter_jobs(workflow):
+        for step in _iter_steps(job):
+            uses = step.get("uses") or ""
+            if "actions/download-artifact" not in uses and "dawidd6/action-download-artifact" not in uses:
+                continue
+
+            with_block = step.get("with") or {}
+            has_name_filter = bool(with_block.get("name"))
+            has_path_isolation = bool(with_block.get("path"))
+
+            if has_name_filter and has_path_isolation:
+                continue
+
+            missing = []
+            if not has_name_filter:
+                missing.append("artifact name filter")
+            if not has_path_isolation:
+                missing.append("isolated extraction path")
+
+            findings.append(Finding(
+                finding_type=FindingType.WORKFLOW,
+                severity=Severity.HIGH,
+                package=pkg,
+                title=(
+                    f"Unvalidated artifact download in '{job_id}' "
+                    f"[{workflow_path}] — artifact poisoning risk"
+                ),
+                detail=(
+                    f"This workflow is triggered by {', '.join(sorted(risky_triggers))} and "
+                    f"downloads artifacts without adequate isolation. Missing: "
+                    f"{', '.join(missing)}.\n\n"
+                    "An attacker can submit a PR that uploads a poisoned artifact (e.g., "
+                    "overwriting workspace files, injecting shell scripts). When this "
+                    "workflow downloads the artifact into the workspace root without name "
+                    "filtering, the poisoned content can influence subsequent steps.\n\n"
+                    "Mitigations: always specify 'name' to download only expected artifacts, "
+                    "extract to an isolated 'path' (e.g., /tmp/artifacts), validate content "
+                    "before use."
+                ),
+                cwe="CWE-494",
+                references=[
+                    "https://novee.security/blog/cordyceps/",
+                    "https://securitylab.github.com/resources/github-actions-new-patterns-and-mitigations/",
+                ],
+                confidence=0.8,
+                metadata={
+                    "workflow": workflow_path,
+                    "job": job_id,
+                    "triggers": sorted(risky_triggers),
+                    "missing_safeguards": missing,
+                    "cordyceps_class": "artifact-poisoning",
+                },
+            ))
+
+    return findings
+
+
+def _check_checkout_version(
+    workflow: dict[str, Any], pkg: PackageId, workflow_path: str
+) -> list[Finding]:
+    """Flag actions/checkout < v7 in workflows with risky triggers.
+
+    checkout@v7 (June 2026) refuses to fetch fork PR code in pull_request_target
+    and workflow_run contexts unless allow-unsafe-pr-checkout is set. Older
+    versions silently allow it.
+    """
+    findings: list[Finding] = []
+    triggers = _get_triggers(workflow)
+
+    risky_triggers = triggers & {"pull_request_target", "workflow_run"}
+    if not risky_triggers:
+        return findings
+
+    for job_id, job in _iter_jobs(workflow):
+        for step in _iter_steps(job):
+            uses = step.get("uses") or ""
+            m = _CHECKOUT_VERSION_RE.search(uses)
+            if not m:
+                continue
+
+            version = int(m.group(1))
+            if version >= 7:
+                continue
+
+            findings.append(Finding(
+                finding_type=FindingType.WORKFLOW,
+                severity=Severity.HIGH,
+                package=pkg,
+                title=(
+                    f"actions/checkout@v{version} lacks fork-PR protection "
+                    f"[{workflow_path}]"
+                ),
+                detail=(
+                    f"Job '{job_id}' uses actions/checkout@v{version} with a "
+                    f"{', '.join(sorted(risky_triggers))} trigger. checkout@v7+ "
+                    f"refuses to fetch fork PR code in these contexts unless "
+                    f"'allow-unsafe-pr-checkout: true' is explicitly set. Older versions "
+                    f"silently allow fork PR checkout, enabling the classic pwn-request "
+                    f"attack.\n\n"
+                    f"Upgrade to actions/checkout@v7 or later."
+                ),
+                cwe="CWE-829",
+                references=[
+                    "https://thehackernews.com/2026/06/github-updates-actionscheckout-to-block.html",
+                    "https://github.com/actions/checkout/releases",
+                ],
+                confidence=0.9,
+                metadata={
+                    "workflow": workflow_path,
+                    "job": job_id,
+                    "checkout_version": version,
+                    "triggers": sorted(risky_triggers),
+                    "cordyceps_class": "outdated-checkout",
+                },
+            ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Main scanner class
 # ---------------------------------------------------------------------------
 
@@ -754,5 +1131,10 @@ class GhaWorkflowScanner:
         findings.extend(_check_pull_request_target(workflow, pkg, rel))
         findings.extend(_check_self_hosted_runners(workflow, pkg, rel))
         findings.extend(_check_self_propagation(workflow, pkg, rel))
+        findings.extend(_check_workflow_run_escalation(workflow, pkg, rel))
+        findings.extend(_check_issue_comment_checkout(workflow, pkg, rel))
+        findings.extend(_check_github_script_injection(workflow, pkg, rel))
+        findings.extend(_check_artifact_trust_boundary(workflow, pkg, rel))
+        findings.extend(_check_checkout_version(workflow, pkg, rel))
 
         return findings
