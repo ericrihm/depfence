@@ -11,15 +11,14 @@ import pytest
 from depfence.core.models import FindingType, Severity
 from depfence.scanners.model_format_scanner import (
     ModelFormatScanner,
-    _extract_tflite_custom_ops,
     _extract_onnx_custom_ops,
+    _extract_tflite_custom_ops,
     _parse_protobuf_strings,
     _scan_gguf,
     _scan_hdf5,
     _scan_onnx,
     _scan_tflite,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

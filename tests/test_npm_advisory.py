@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
+from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.npm_advisory import NpmAdvisoryScanner
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -131,7 +129,6 @@ async def test_scan_osv_no_vulns_returns_empty():
 
         findings = await scanner.scan([npm_meta("safe-pkg", "1.0.0")])
 
-    db_findings = [f for f in findings if f.metadata.get("source") == "local_threat_db"]
     osv_findings = [f for f in findings if f.metadata.get("source") != "local_threat_db"]
     assert osv_findings == []
 

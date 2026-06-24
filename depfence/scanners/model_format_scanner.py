@@ -585,7 +585,7 @@ def _scan_onnx(path: Path) -> list[Finding]:
         node_lines = [f'{op_type} (domain: {domain})'
                       for op_type, domain in custom_nodes[:20]]
         node_detail = (
-            f'\n\nCustom operator nodes found:\n    '
+            '\n\nCustom operator nodes found:\n    '
             + '\n    '.join(node_lines)
         )
 

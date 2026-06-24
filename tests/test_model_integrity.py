@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import io
 import json
-import pickle
-import pickletools
 import struct
 import tempfile
 import zipfile
-import zlib
 from pathlib import Path
 
 import pytest
@@ -3376,7 +3373,7 @@ async def test_combined_hidden_nested_traversal(scanner: ModelIntegrityScanner):
         pt_path.write_bytes(outer_buf.getvalue())
 
         findings = await scanner.scan_project(Path(d))
-        assert len(findings) > 0, f"Expected findings for combined attack; got nothing"
+        assert len(findings) > 0, "Expected findings for combined attack; got nothing"
 
 
 # ---------------------------------------------------------------------------
@@ -3428,7 +3425,7 @@ def test_dangerous_globals_then_error_mid_parse():
     assert 'REDUCE' in opcodes_found, f"Expected REDUCE before error; got {opcodes_found}"
     # Should also have parse errors from the garbage second stream
     assert len(parse_errors) > 0, (
-        f"Expected parse errors from garbage after first stream; got none"
+        "Expected parse errors from garbage after first stream; got none"
     )
     # The parse error should record how many ops were found before it
     assert parse_errors[0]['ops_before_error'] >= 2, (

@@ -9,7 +9,6 @@ import pytest
 
 from depfence.scanners.ai_bom_generator import AiBomGenerator
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

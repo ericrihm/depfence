@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
 from depfence.core.models import FindingType, Severity
-
+from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
 
 # ---------------------------------------------------------------------------
 # Helpers

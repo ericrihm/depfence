@@ -22,8 +22,8 @@ import json
 import pickletools
 import re
 import struct
-import zlib
 import zipfile
+import zlib
 from pathlib import Path
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
@@ -551,7 +551,6 @@ def _validate_zip_strict(path: Path) -> list[dict]:
             crc32_val = int.from_bytes(raw[local_offset + 14:local_offset + 18], 'little')
             compressed_size = int.from_bytes(raw[local_offset + 18:local_offset + 22], 'little')
             lf_fname_len = int.from_bytes(raw[local_offset + 26:local_offset + 28], 'little')
-            lf_extra_len = int.from_bytes(raw[local_offset + 28:local_offset + 30], 'little')
             lf_fname = raw[local_offset + 30:local_offset + 30 + lf_fname_len].decode(
                 'utf-8', errors='replace')
         except (IndexError, ValueError):

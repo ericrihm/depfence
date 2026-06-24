@@ -127,7 +127,7 @@ RUN echo hello
         df_findings = [f for f in findings if "Dockerfile" in f.metadata.get("file", "")]
         assert len(df_findings) >= 1
 
-    def test_chatML_delimiter_injection(self, scanner, tmp_path):
+    def test_chatml_delimiter_injection(self, scanner, tmp_path):
         """ChatML delimiter in LABEL → CRITICAL."""
         self._write_dockerfile(tmp_path, "Dockerfile", """
 FROM ubuntu:22.04

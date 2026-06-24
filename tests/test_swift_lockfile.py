@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from depfence.core.models import PackageId
 from depfence.parsers.swift_lockfile import parse_package_resolved, parse_podfile_lock
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — Package.resolved

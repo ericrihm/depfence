@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from depfence.core.models import PackageId
 from depfence.parsers.cargo_lockfile import _parse_blocks, parse_cargo_lock
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -4,11 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import pytest
-
-from depfence.analyzers.ast_analysis import AstAnalyzer, _PY_DANGEROUS_CALLS
+from depfence.analyzers.ast_analysis import AstAnalyzer
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -143,10 +140,7 @@ def test_obfuscation_flagged_for_exec_compile(tmp_path):
     _write(tmp_path / "obf.py", "exec(compile('code', '<string>', 'exec'))\n")
     analyzer = AstAnalyzer()
     findings = _run(analyzer.analyze(_meta(), tmp_path))
-    obf = [f for f in findings if "obfuscation" in f.title.lower() or "Obfuscation" in f.title]
-    # exec(compile(...)) gives signals >= 1; combined with eval-call signal it may cross 0.6
-    # At minimum the dangerous call (exec) should be reported
-    assert findings  # something must be flagged
+    assert findings
 
 
 def test_obfuscation_score_low_for_normal_code():

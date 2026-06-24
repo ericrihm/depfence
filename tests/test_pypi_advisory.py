@@ -7,9 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from depfence.scanners.pypi_advisory import PypiAdvisoryScanner
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
-
+from depfence.scanners.pypi_advisory import PypiAdvisoryScanner
 
 # ---------------------------------------------------------------------------
 # Helpers

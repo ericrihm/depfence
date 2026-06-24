@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
+from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.prompt_injection_scanner import (
     PromptInjectionScanner,
-    _normalize_for_matching,
     _extract_strings_from_python,
     _extract_strings_generic,
+    _normalize_for_matching,
 )
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers

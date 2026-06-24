@@ -4,7 +4,6 @@ deferred payload detection, and suspicious hosting."""
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,6 @@ from depfence.scanners.agent_skill_scanner import (
     _is_free_tld,
     _is_safe_domain,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -379,8 +377,8 @@ class TestFindingTypes:
 class TestOrchestratorRegistration:
     def test_agent_skill_scanner_registered(self):
         """Verify AgentSkillScanner appears in orchestrator scanner_specs."""
-        import ast
         import inspect
+
         from depfence.core.orchestrator import ScanOrchestrator
 
         source = inspect.getsource(ScanOrchestrator._run_project_scanners)

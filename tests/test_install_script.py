@@ -5,11 +5,8 @@ import asyncio
 import json
 from pathlib import Path
 
-import pytest
-
 from depfence.analyzers.install_script import InstallScriptAnalyzer
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
-
 
 # ---------------------------------------------------------------------------
 # Helpers

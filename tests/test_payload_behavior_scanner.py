@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from depfence.core.models import FindingType, Severity
+from depfence.core.models import Severity
 from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
 
 
@@ -53,9 +53,6 @@ class TestCredentialStoreBreadth:
         const tf = readFile('.terraformrc');
         """
         findings = _analyze(scanner, content)
-        critical = [f for f in findings
-                    if "mass" in f.title.lower() or "breadth" in f.title.lower()
-                    and f.severity == Severity.CRITICAL]
         assert any(f.severity == Severity.CRITICAL for f in findings)
 
     def test_multi_store_high(self, scanner):

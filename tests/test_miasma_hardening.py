@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 import textwrap
-from pathlib import Path
 
 import pytest
 
@@ -34,6 +32,7 @@ def run_async(coro):
 class TestWiring:
     def test_engine_has_all_scanners(self):
         import inspect
+
         from depfence.core import engine
         source = inspect.getsource(engine._run_project_scanners)
         for name in [
@@ -45,6 +44,7 @@ class TestWiring:
 
     def test_orchestrator_has_all_scanners(self):
         import inspect
+
         from depfence.core import orchestrator
         source = inspect.getsource(orchestrator.ScanOrchestrator._run_project_scanners)
         for name in [
@@ -593,7 +593,7 @@ class TestProvenanceRepoMatch:
         )
 
     def test_verified_false_on_mismatch(self):
-        from depfence.scanners.provenance_checker import ProvenanceStatus, PackageId
+        from depfence.scanners.provenance_checker import PackageId, ProvenanceStatus
         status = ProvenanceStatus(
             package=PackageId("npm", "test", "1.0.0"),
             has_provenance=True,

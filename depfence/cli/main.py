@@ -412,7 +412,7 @@ def license_scan(path: str, fmt: str, fail_on: str) -> None:
     from depfence.core.engine import render_result
     from depfence.core.fetcher import fetch_batch
     from depfence.core.lockfile import detect_ecosystem, parse_lockfile
-    from depfence.core.models import PackageMeta, ScanResult
+    from depfence.core.models import ScanResult
     from depfence.scanners.license_scanner import LicenseScanner
 
     project_dir = Path(path).resolve()

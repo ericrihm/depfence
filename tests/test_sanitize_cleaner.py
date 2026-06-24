@@ -5,19 +5,17 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
+from depfence.core.models import Severity
 from depfence.sanitize.cleaner import (
+    _DEFAULT_PLACEHOLDER,
+    _PLACEHOLDERS,
     FileCleanResult,
     SanitizeCleaner,
     SanitizeReport,
     _git_rewrite_commands,
-    _PLACEHOLDERS,
-    _DEFAULT_PLACEHOLDER,
 )
 from depfence.sanitize.detector import DetectorConfig, HistoryFinding
 from depfence.scanners.secrets import SecretMatch
-from depfence.core.models import Severity
 
 # ---------------------------------------------------------------------------
 # Fake secret strings assembled at runtime so the write-hook regex can't match.

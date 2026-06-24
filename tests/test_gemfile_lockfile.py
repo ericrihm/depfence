@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from depfence.core.models import PackageId
 from depfence.parsers.gemfile_lockfile import parse_gemfile_lock
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

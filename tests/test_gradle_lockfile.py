@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from depfence.core.models import PackageId
 from depfence.parsers.gradle_lockfile import (
     parse_gradle_lockfile,
     parse_gradle_version_catalog,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -10,4 +10,5 @@ Suppressing SIGURG here — at the very earliest conftest load point, which
 precedes all plugin initialization — prevents spurious process death.
 """
 import signal as _signal
+
 _signal.signal(_signal.SIGURG, _signal.SIG_IGN)

@@ -7,11 +7,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from depfence.cache.advisory_cache import AdvisoryCache
 from depfence.cache.download_cache import DownloadCache
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -371,6 +368,6 @@ class TestDownloadCachePersistence:
         assert cache_dir.exists()
 
     def test_db_file_created_on_init(self, tmp_path: Path):
-        c = _cache(tmp_path)
+        _cache(tmp_path)
         db = tmp_path / "dl_cache" / "advisories.db"
         assert db.exists()

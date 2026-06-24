@@ -11,7 +11,6 @@ import pytest
 
 from depfence.cache.advisory_cache import AdvisoryCache, CacheStats
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -405,6 +404,6 @@ class TestAdvisoryCachePersistence:
         assert cache_dir.exists()
 
     def test_db_file_created(self, tmp_path: Path):
-        c = _cache(tmp_path)
+        _cache(tmp_path)
         db = tmp_path / "adv_cache" / "advisories.db"
         assert db.exists()

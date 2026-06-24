@@ -340,10 +340,6 @@ class EditorConfigScanner:
         except OSError:
             content = ""
 
-        shell_patterns = re.findall(
-            r'["\'](?:actions|postinstall_action)["\'].*?["\']([^"\']+)["\']',
-            content, re.DOTALL,
-        )
         has_shell = bool(re.search(
             r"\b(?:bash|sh|node|python|cmd|powershell)\b", content, re.I,
         ))
@@ -356,7 +352,7 @@ class EditorConfigScanner:
             f"as an alternate code execution hook during npm install."
         )
         if has_shell:
-            detail += f" The gyp file also references shell commands."
+            detail += " The gyp file also references shell commands."
 
         findings.append(Finding(
             finding_type=FindingType.INSTALL_SCRIPT,
@@ -1083,7 +1079,7 @@ class EditorConfigScanner:
     @staticmethod
     def _is_backdated(author_date: str, commit_date: str) -> bool:
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
             a = datetime.fromisoformat(author_date.replace("Z", "+00:00"))
             c = datetime.fromisoformat(commit_date.replace("Z", "+00:00"))
             delta = abs((c - a).total_seconds())

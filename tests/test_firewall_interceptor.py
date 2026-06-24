@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from depfence.firewall.interceptor import (
     FirewallDecision,
@@ -15,7 +12,6 @@ from depfence.firewall.interceptor import (
     enable_pip_firewall,
     get_status,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

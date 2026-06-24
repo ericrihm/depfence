@@ -21,7 +21,6 @@ import json
 import platform
 import re
 from pathlib import Path
-from typing import Optional
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
@@ -232,7 +231,7 @@ class McpScanner:
 
         return findings
 
-    def _scan_config(self, config_path: Path, project_dir: Optional[Path] = None) -> list[Finding]:
+    def _scan_config(self, config_path: Path, project_dir: Path | None = None) -> list[Finding]:
         findings: list[Finding] = []
         try:
             raw = config_path.read_text()
@@ -538,7 +537,7 @@ class McpScanner:
         _INTERPRETERS = {"node", "python", "python3", "deno", "bun", "ruby", "php", "sh", "bash"}
         _LOCAL_SCRIPT_EXTS = re.compile(r"\.(js|mjs|cjs|ts|py|sh)$", re.IGNORECASE)
 
-        def _resolves_under_project(path_str: str) -> Optional[Path]:
+        def _resolves_under_project(path_str: str) -> Path | None:
             """Return the resolved path if it is inside project_dir, else None."""
             try:
                 candidate = Path(path_str)
