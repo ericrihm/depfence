@@ -145,5 +145,8 @@ async def test_bom_skips_tiny_files(scanner: AiBomGenerator):
         tiny.write_bytes(b"\x80\x04")  # 2 bytes — below threshold
 
         findings = await scanner.scan_project(Path(d))
-        bom = findings[0].metadata["ai_bom"]
-        assert len(bom["models"]) == 0
+        bom_findings = [f for f in findings if f.metadata.get("ai_bom")]
+        if bom_findings:
+            assert len(bom_findings[0].metadata["ai_bom"]["models"]) == 0
+        else:
+            assert findings == []
