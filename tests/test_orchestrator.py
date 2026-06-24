@@ -52,6 +52,9 @@ _SCANNER_PATCH_TARGETS = [
     "depfence.scanners.gha_workflow_scanner.GhaWorkflowScanner.scan_project",
     "depfence.scanners.secrets_scanner.SecretsScanner.scan_project",
     "depfence.scanners.pinning_scanner.PinningScanner.scan_project",
+    "depfence.scanners.mcp_scanner.McpScanner.scan_project",
+    "depfence.scanners.mcp_fingerprint.McpFingerprintScanner.scan_project",
+    "depfence.scanners.agent_skill_scanner.AgentSkillScanner.scan_project",
 ]
 _EPSS_TARGET = "depfence.core.epss_enricher.enrich_findings"
 _KEV_TARGET = "depfence.core.kev_enricher.enrich_with_kev"

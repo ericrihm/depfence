@@ -377,6 +377,59 @@ class McpScanner:
                 confidence=0.8,
                 metadata={"config_path": source, "url": url},
             ))
+
+        # Domain reputation — dynamic DNS / free hosting
+        domain_match = re.match(r"https?://([^/:]+)", url)
+        if domain_match:
+            domain = domain_match.group(1).lower()
+            _dyndns = {
+                "duckdns.org", "no-ip.org", "ddns.net", "hopto.org",
+                "ngrok.io", "ngrok-free.app", "workers.dev",
+                "trycloudflare.com", "serveo.net", "loca.lt",
+            }
+            for suffix in _dyndns:
+                if domain == suffix or domain.endswith("." + suffix):
+                    findings.append(Finding(
+                        finding_type=FindingType.BEHAVIORAL,
+                        severity=Severity.HIGH,
+                        package=pkg,
+                        title=f"MCP server '{name}': dynamic DNS domain",
+                        detail=(
+                            f"URL '{url}' uses dynamic DNS provider '{suffix}'. "
+                            f"These domains are trivially created and commonly used "
+                            f"for throwaway C2 infrastructure."
+                        ),
+                        confidence=0.75,
+                        metadata={"config_path": source, "url": url, "dyndns": suffix},
+                    ))
+                    break
+
+            # Domain spoofing — Levenshtein similarity to well-known services
+            from depfence.scanners.agent_skill_scanner import (
+                _check_domain_spoofing,
+                _is_safe_domain,
+            )
+            if not _is_safe_domain(domain):
+                spoof = _check_domain_spoofing(domain)
+                if spoof:
+                    matched, service, dist = spoof
+                    findings.append(Finding(
+                        finding_type=FindingType.DOMAIN_SPOOF,
+                        severity=Severity.CRITICAL,
+                        package=pkg,
+                        title=f"MCP server '{name}': URL domain spoofs {service}",
+                        detail=(
+                            f"Domain '{domain}' is {dist} edit(s) away from "
+                            f"'{matched}' ({service}). Possible brand impersonation."
+                        ),
+                        confidence=min(0.95, 1.0 - (dist * 0.1)),
+                        metadata={
+                            "config_path": source, "url": url,
+                            "domain": domain, "spoofed_domain": matched,
+                            "service": service, "edit_distance": dist,
+                        },
+                    ))
+
         return findings
 
     def _check_package_launcher(

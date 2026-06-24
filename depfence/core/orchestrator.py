@@ -385,12 +385,15 @@ class ScanOrchestrator:
         Returns a flat list of findings from all scanners, plus an
         EnrichmentResult per scanner (for timing/error tracking).
         """
+        from depfence.scanners.agent_skill_scanner import AgentSkillScanner
         from depfence.scanners.ai_bom_generator import AiBomGenerator
         from depfence.scanners.binding_gyp_scanner import BindingGypScanner
         from depfence.scanners.dockerfile_scanner import DockerfileScanner
         from depfence.scanners.editor_config_scanner import EditorConfigScanner
         from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
         from depfence.scanners.git_message_scanner import GitMessageScanner
+        from depfence.scanners.mcp_fingerprint import McpFingerprintScanner
+        from depfence.scanners.mcp_scanner import McpScanner
         from depfence.scanners.model_format_scanner import ModelFormatScanner
         from depfence.scanners.model_integrity import ModelIntegrityScanner
         from depfence.scanners.model_scanner import ModelScanner
@@ -423,6 +426,9 @@ class ScanOrchestrator:
             ("model_format", ModelFormatScanner()),
             ("model_integrity", ModelIntegrityScanner()),
             ("ai_bom", AiBomGenerator()),
+            ("mcp_scanner", McpScanner()),
+            ("mcp_fingerprint", McpFingerprintScanner()),
+            ("agent_skill", AgentSkillScanner()),
         ]
 
         async def _run_scanner(name: str, scanner) -> tuple[str, list[Finding], str | None]:

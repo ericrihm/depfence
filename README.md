@@ -13,7 +13,7 @@ depfence scan .
 Example output:
 
 ```
- depfence v0.5.0  scanning 142 packages across 3 lockfiles + 4 workflows
+ depfence v0.6.0  scanning 142 packages across 3 lockfiles + 4 workflows
 
  CRITICAL  .github/workflows/ci   resolve_existence  SHA abc123def... resolves to no real commit (fabricated pin)
  CRITICAL  node_modules/jqwik     prompt_injection   ANSI-hidden instruction override in source
@@ -39,7 +39,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
                                           │
                               ┌───────────┴───────────┐
                      entry-point scanners      project scanners
-                     (42, via pip registry)    (18, filesystem-based)
+                     (42, via pip registry)    (21, filesystem-based)
                               │                       │
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -52,7 +52,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 
 3. **Scanner execution**: two scanner types run concurrently via `asyncio.gather`:
    - **Entry-point scanners** (42): loaded via `[project.entry-points."depfence.scanners"]` in any installed package. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`. Custom scanners use the same interface.
-   - **Project scanners** (18): instantiated in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, model files (pickle/GGUF/ONNX/TFLite), and SHA pin resolution.
+   - **Project scanners** (21): instantiated in `engine._run_project_scanners()`. Each implements `async def scan_project(self, project_dir: Path) -> list[Finding]`. These scan files directly — workflow YAML, Dockerfiles, Terraform configs, secrets patterns, model files (pickle/GGUF/ONNX/TFLite), MCP server configurations, and SHA pin resolution.
 
 4. **Enrichment**: EPSS exploit probability, CISA KEV status, and reachability analysis are added to vulnerability findings as metadata. These are not scanners — they augment findings for triage.
 
@@ -66,7 +66,7 @@ Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Sw
 
 ## Scanners
 
-42 entry-point scanners + 18 project scanners (some scanners serve both roles).
+42 entry-point scanners + 21 project scanners (some scanners serve both roles).
 
 ### Prompt injection and AI safety
 
@@ -75,8 +75,9 @@ Supported ecosystems: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Sw
 | `prompt_injection` | 34 compiled regex patterns run against source strings, comments, and docstrings extracted via Python AST. Multi-pass normalization strips hex/unicode/URL encoding and zero-width characters before matching. Scans `node_modules/`, `site-packages/`, and project source. 451 LOC. |
 | `git_message` | Pattern matching on commit messages, PR templates, and issue templates for instruction-override payloads targeting AI code review bots |
 | `ci_ai_bot` | Detects `${{ github.event.* }}` expressions flowing into `run:` blocks in workflows that invoke AI tools — the [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/) attack pattern |
-| `mcp_scanner` | Parses MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed) for tool shadowing, credential leakage, missing TLS, and prompt injection in tool descriptions |
+| `mcp_scanner` | Parses MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed) for tool shadowing, credential leakage, missing TLS, domain spoofing, dynamic DNS, and prompt injection in tool descriptions |
 | `mcp_fingerprint` | Schema fingerprinting to detect MCP rug-pull attacks (servers that change tool definitions after initial approval) |
+| `agent_skill` | Detects agent skill attacks: external instruction fetch directives in tool descriptions (NLP pattern matching + URL analysis), domain spoofing via Levenshtein similarity against 50+ well-known services with TLD-swap detection, deferred payload bait-and-switch via content hash fingerprinting across scans, and suspicious hosting (dynamic DNS, free TLDs). Covers the [brand-landingpage](https://thehackernews.com/2026/06/fake-ai-agent-skill-passed-security.html) attack pattern. |
 
 ### AI/ML model security
 
@@ -525,6 +526,7 @@ Heuristic scanners have non-zero false positive rates:
 | `reputation` | New but legitimate packages from established maintainers | `depfence:ignore` or baseline |
 | `slopsquat` | Legitimate packages with names similar to popular ones | `depfence:ignore` |
 | `prompt_injection` | Security comments discussing injection attacks | `depfence:ignore` |
+| `agent_skill` | Legitimate tools referencing external documentation or lesser-known domains with names similar to well-known services | `depfence:ignore` |
 
 ---
 
@@ -549,15 +551,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-2,200+ tests across 93 test files. Run `ruff check` before opening a PR.
+3,100+ tests across 120 test files. Run `ruff check` before opening a PR.
 
 ### Project structure
 
 ```
-depfence/          36K LOC
+depfence/          43K LOC
   cli/             CLI commands (click), 3K LOC
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        44 scanner modules (42 entry-point, 18 project scanners)
+  scanners/        45 scanner modules (42 entry-point, 21 project scanners)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook

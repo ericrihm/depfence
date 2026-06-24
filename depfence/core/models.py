@@ -42,6 +42,9 @@ class FindingType(str, enum.Enum):
     FABRICATED_REF = "fabricated_reference"  # pinned SHA/version that resolves to no real upstream object
     MUTABLE_TAG = "mutable_tag_masquerade"  # # vX comment disagrees with the SHA it labels
     UNVERIFIED_REF = "unverified_reference"  # could not resolve (no token / rate-limited) — never a silent pass
+    EXTERNAL_INSTRUCTION_FETCH = "external_instruction_fetch"  # skill/tool fetches instructions from external URL
+    DOMAIN_SPOOF = "domain_spoof"  # referenced domain is a lookalike of a well-known service
+    DEFERRED_PAYLOAD = "deferred_payload"  # content at a referenced URL changed since last scan (bait-and-switch)
 
 
 @dataclass(frozen=True)
