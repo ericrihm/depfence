@@ -11,19 +11,21 @@ depfence scan .
 ```
 
 ```
- depfence v0.7.0  scanning 142 packages across 3 lockfiles + 4 workflows
+ depfence v0.7.0  scanning 6 packages across 1 lockfile + 1 workflow
 
- CRITICAL  .github/workflows/ci   resolve_existence  SHA abc123def... resolves to no real commit (fabricated pin)
- CRITICAL  node_modules/jqwik     prompt_injection   ANSI-hidden instruction override in source
- CRITICAL  pytorch-cuda-nightly   slopsquat          LLM hallucination match for torch (0.94)
- HIGH      lodash 4.17.20         npm_advisory       CVE-2021-23337  EPSS 0.71  KEV
- HIGH      req-utils 1.0.3        preinstall         install script exfiltrates $HOME/.ssh
- HIGH      .github/workflows/ci   ci_ai_bot          untrusted PR input flows to AI triage bot
- MEDIUM    transformers 4.38.0    model_scanner      unsafe torch.load without weights_only
- MEDIUM    @angulr/core           scope_squat        typosquatting @angular/core
- LOW       leftpad 0.0.3          freshness          no release in 847 days
+ CRITICAL  .github/workflows/ci       fabricated_ref     SHA abc123def... resolves to no real commit (fabricated pin)
+ CRITICAL  node_modules/jqwik-react   ansi_hiding        ANSI invisible text — content hidden from terminal but readable by AI
+ CRITICAL  node_modules/jqwik-react   prompt_injection   Prompt injection hidden via ANSI escape: Instruction override
+ CRITICAL  src/analytics.py           prompt_injection   Fake token/session exhaustion (anti-analysis evasion)
+ CRITICAL  src/analytics.py           prompt_injection   Analysis abort instruction
+ CRITICAL  jqwik-react                prompt_injection   Prompt injection in package.json description
+ HIGH      @angulr/core 16.0.0        dependency_conf    Scoped package absent from public registry
+ HIGH      @angulr/core 16.0.0        typosquat          Scope typosquat — '@angulr' resembles '@angular'
+ HIGH      expresss 4.18.0            slopsquat          Possible slopsquat/typosquat of 'express'
+ HIGH      src/analytics.py           prompt_injection   Base64 decode of embedded payload
+ LOW       lodash 4.17.20             known_vuln         CVE-2021-23337  Command Injection
 
- 9 findings  (3 critical, 2 high, 2 medium, 1 low)
+ 73 findings  (11 critical, 17 high, 15 medium, 30 low)
 ```
 
 ---
@@ -52,7 +54,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
                                           │
                               ┌───────────┴───────────┐
                      entry-point scanners      project scanners
-                     (42, via pip registry)    (33, filesystem-based)
+                     (42, via pip registry)    (36, filesystem-based)
                               │                       │
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -65,7 +67,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 
 3. **Scanner execution** — two scanner types run concurrently:
    - **Entry-point scanners** (42): loaded via pip entry points. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`.
-   - **Project scanners** (33): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
+   - **Project scanners** (36): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
 
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis augment findings for triage.
 
@@ -79,7 +81,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-42 entry-point scanners + 33 project scanners. Some serve both roles.
+42 entry-point scanners + 36 project scanners. Some serve both roles.
 
 ### Prompt injection and AI safety
 
@@ -572,7 +574,7 @@ pytest
 depfence/          ~44K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        45 scanner modules (42 entry-point, 33 project)
+  scanners/        45 scanner modules (42 entry-point, 36 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
