@@ -3,6 +3,10 @@
 Static analysis for dependency and CI/CD supply chain security. Scans lockfiles, workflow files, Dockerfiles, Terraform configs, AI model files, and MCP server configurations — including attack classes that CVE-based scanners miss: prompt injection payloads, typosquatting variants LLMs hallucinate, fabricated version/SHA pins, Cordyceps-class CI/CD workflow attacks, and agent skill manipulation.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![Scanners: 78](https://img.shields.io/badge/scanners-78-orange)](docs/site/docs.html)
+[![Tests: 3331](https://img.shields.io/badge/tests-3331-brightgreen)](tests/)
 
 ```bash
 git clone https://github.com/ericrihm/depfence && cd depfence
