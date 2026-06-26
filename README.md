@@ -45,7 +45,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
                                             |
                               +-------------+-------------+
                      entry-point scanners      project scanners
-                     (44, via pip registry)    (43, filesystem-based)
+                     (44, via pip registry)    (44, filesystem-based)
                               |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -54,7 +54,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
 
 1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, `libs.versions.toml`.
 2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
-3. **Scanner execution** — 44 entry-point scanners + 43 project scanners run concurrently.
+3. **Scanner execution** — 44 entry-point scanners + 44 project scanners run concurrently.
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
@@ -67,7 +67,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-44 entry-point scanners + 43 project scanners. 56 scanner files total — many serve both roles.
+44 entry-point scanners + 44 project scanners. 56 scanner files total — many serve both roles.
 
 <details>
 <summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
@@ -99,7 +99,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 </details>
 
 <details>
-<summary><strong>Editor config injection and build hooks</strong> (13 scanners)</summary>
+<summary><strong>Editor config injection and build hooks</strong> (12 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -151,7 +151,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 </details>
 
 <details>
-<summary><strong>CI/CD and infrastructure</strong> (7 scanners)</summary>
+<summary><strong>CI/CD and infrastructure</strong> (8 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -325,6 +325,7 @@ depfence plugins                 # list loaded scanners
 depfence scan . --format json | jq '.findings[] | select(.severity == "CRITICAL")'
 depfence scan . --format sarif -o results.sarif
 depfence scan . --format html -o report.html
+depfence scan . --top 10                       # show only the 10 most severe findings
 ```
 
 | Format | Use case |
@@ -620,7 +621,7 @@ pytest
 depfence/          ~46K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        56 scanner modules (44 entry-point, 43 project)
+  scanners/        56 scanner modules (44 entry-point, 44 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
