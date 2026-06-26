@@ -124,6 +124,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
     from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
     from depfence.scanners.secrets_scanner import SecretsScanner
+    from depfence.scanners.spm_plugin_scanner import SpmPluginScanner
     from depfence.scanners.terraform_scanner import TerraformScanner
 
     instances = [
@@ -134,7 +135,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         GitMessageScanner(), PayloadBehaviorScanner(), ProtestwareScanner(),
         RubyLifecycleScanner(),
         GradlePluginScanner(), AndroidManifestScanner(),
-        CocoaPodsHookScanner(), FlutterPubspecScanner(),
+        CocoaPodsHookScanner(), FlutterPubspecScanner(), SpmPluginScanner(),
         ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
         PromptInjectionScanner(), AgentSkillScanner(), McpScanner(),
         AiBomGenerator(),
