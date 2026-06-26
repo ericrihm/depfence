@@ -311,9 +311,14 @@ async def scan_directory(
     return result
 
 
-def render_result(result: ScanResult, format: str = "table") -> str:
+def render_result(result: ScanResult, format: str = "table", *, max_rows: int | None = None) -> str:
     registry = get_registry()
     for reporter in registry.reporters.values():
         if getattr(reporter, "format", None) == format:
+            if max_rows is not None and hasattr(reporter, "render"):
+                import inspect
+                sig = inspect.signature(reporter.render)
+                if "max_rows" in sig.parameters:
+                    return reporter.render(result, max_rows=max_rows)
             return reporter.render(result)
     return f"{len(result.findings)} findings in {result.packages_scanned} packages"

@@ -43,6 +43,7 @@ def cli() -> None:
 )
 @click.option("--no-cache", is_flag=True, help="Bypass advisory and metadata caches (always fetch fresh data).")
 @click.option("--verbose", "-v", is_flag=True, help="Show progress messages during scan.")
+@click.option("--top", "top_n", default=None, type=int, help="Show only the N most severe findings in the table.")
 def scan(
     path: str,
     fmt: str,
@@ -58,6 +59,7 @@ def scan(
     workers: int,
     no_cache: bool,
     verbose: bool,
+    top_n: int | None,
 ) -> None:
     """Scan dependencies for vulnerabilities and suspicious behavior.
 
@@ -180,7 +182,7 @@ def scan(
             out_path.write_text(formatted, encoding="utf-8")
             click.echo(f"SARIF report written to {out_path}")
     else:
-        rendered = render_result(result, fmt)
+        rendered = render_result(result, fmt, max_rows=top_n)
 
         if output:
             Path(output).write_text(rendered)

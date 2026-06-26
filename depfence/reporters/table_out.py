@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
+import sys
+from collections import Counter
 
 from rich.console import Console
 from rich.table import Table
@@ -23,11 +26,15 @@ class TableReporter:
     name = "table"
     format = "table"
 
-    def render(self, result: ScanResult) -> str:
-        # Record into an in-memory buffer so render() is pure: it returns the
-        # text and never writes to stdout. (Callers click.echo() the return
-        # value; a stdout-backed Console here caused every table to print twice.)
-        console = Console(record=True, width=120, file=io.StringIO())
+    def render(self, result: ScanResult, *, max_rows: int | None = None) -> str:
+        try:
+            term_width = os.get_terminal_size().columns
+        except OSError:
+            term_width = 120
+        width = max(80, min(term_width, 200))
+
+        color = sys.stdout.isatty()
+        console = Console(record=True, width=width, file=io.StringIO(), force_terminal=color)
 
         console.print()
         console.print(f"[bold]depfence scan: {result.target}[/bold]")
@@ -45,8 +52,8 @@ class TableReporter:
 
         table = Table(show_header=True, header_style="bold", expand=True)
         table.add_column("Severity", width=10)
-        table.add_column("Type", width=18)
-        table.add_column("Package", width=25)
+        table.add_column("Type", width=22)
+        table.add_column("Package", width=28)
         table.add_column("Title", min_width=30)
         table.add_column("Fix", width=12)
 
@@ -55,7 +62,10 @@ class TableReporter:
             key=lambda f: list(Severity).index(f.severity),
         )
 
-        for f in sorted_findings:
+        display = sorted_findings if max_rows is None else sorted_findings[:max_rows]
+        remaining = len(sorted_findings) - len(display)
+
+        for f in display:
             sev_text = Text(f.severity.value.upper())
             sev_text.stylize(_SEVERITY_COLORS.get(f.severity, ""))
             # Wrap finding-derived cells in Text() so Rich renders them literally.
@@ -69,10 +79,23 @@ class TableReporter:
                 Text(f.fix_version or ""),
             )
 
+        if remaining > 0:
+            tail = Counter(f.severity.value for f in sorted_findings[len(display):])
+            summary = ", ".join(f"{v} {k}" for k, v in tail.items())
+            table.add_row(
+                Text(""),
+                Text(""),
+                Text(""),
+                Text(f"... {remaining} more findings ({summary})", style="dim"),
+                Text(""),
+            )
+
         console.print(table)
 
         if result.has_blockers:
             console.print()
             console.print("[bold red]BLOCKED: Critical issues or malicious packages detected.[/bold red]")
 
+        if color:
+            return console.file.getvalue()
         return console.export_text()
