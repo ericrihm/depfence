@@ -5,8 +5,8 @@ Static analysis for dependency and CI/CD supply chain security. Catches attack c
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Scanners: 51](https://img.shields.io/badge/scanners-51-orange)](docs/site/docs.html)
-[![Tests: 3407](https://img.shields.io/badge/tests-3407-brightgreen)](tests/)
+[![Scanners: 56](https://img.shields.io/badge/scanners-56-orange)](docs/site/docs.html)
+[![Tests: 3456](https://img.shields.io/badge/tests-3456-brightgreen)](tests/)
 
 <p align="center">
   <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
