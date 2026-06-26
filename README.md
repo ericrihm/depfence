@@ -45,16 +45,16 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
                                             |
                               +-------------+-------------+
                      entry-point scanners      project scanners
-                     (42, via pip registry)    (22, filesystem-based)
+                     (44, via pip registry)    (43, filesystem-based)
                               |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
-                                                Dockerfiles, .tf, etc.)
+                                                Dockerfiles, Package.swift, etc.)
 ```
 
-1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`.
+1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, `libs.versions.toml`.
 2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
-3. **Scanner execution** — 42 entry-point scanners + 22 project scanners run concurrently.
+3. **Scanner execution** — 44 entry-point scanners + 43 project scanners run concurrently.
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
@@ -67,7 +67,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-42 entry-point scanners + 22 project scanners. Some serve both roles.
+44 entry-point scanners + 43 project scanners. 56 scanner files total — many serve both roles.
 
 <details>
 <summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
@@ -99,12 +99,22 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 </details>
 
 <details>
-<summary><strong>Editor config injection and build hooks</strong> (2 scanners)</summary>
+<summary><strong>Editor config injection and build hooks</strong> (13 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
 | `editor_config` | Claude Code `SessionStart` hook injection, Gemini CLI hooks, Cursor `alwaysApply` prompt injection, VS Code `runOn: folderOpen` auto-run tasks, suspicious `.github/setup.*` scripts, backdated config-only commits with `[skip ci]` |
 | `binding_gyp` | Phantom Gyp: `binding.gyp` without native C/C++ source — stealth `npm install` code execution that bypasses standard hook detection |
+| `gradle_plugin` | Untrusted plugin repositories, buildSrc with network/exec, convention plugins, plugin version ranges, init.gradle injection, untrusted annotation processors (kapt/ksp) |
+| `android_manifest` | Dangerous permissions in AAR dependencies, ProGuard rule injection, native `.so` libraries |
+| `cocoapods_hook` | `script_phase` and `prepare_command` in podspecs (arbitrary shell at `pod install`), dangerous `post_install` hooks in Podfile |
+| `flutter_pubspec` | `dependency_overrides`, git deps, external path deps, non-pub.dev registries |
+| `spm_plugin` | SPM `.buildTool` and `.command` plugins, binary targets from remote URLs, `unsafeFlags`, mutable git deps (branch/revision), plugin source with process/network calls |
+| `rust_build` | `build.rs` with network access (reqwest/hyper/ureq), process spawning, env var exfiltration, filesystem writes outside OUT_DIR, suspicious build-dependencies |
+| `go_generate` | `//go:generate` with shell execution, remote downloads (curl/wget), unknown generator tools, CGo LDFLAGS/CFLAGS injection |
+| `composer_script` | Composer lifecycle hooks (post-install-cmd, post-update-cmd) with shell commands, PHP class hooks, curl-pipe-to-sh, custom installer plugins |
+| `python_build` | `setup.py` cmdclass overrides, dangerous imports (subprocess/socket/ctypes), obfuscated exec/eval, remote downloads, non-standard pyproject.toml build backends |
+| `maven_plugin` | Untrusted plugin repositories, plugins bound to early lifecycle phases, maven-antrun-plugin shell execution, exec-maven-plugin, unpinned plugin versions |
 
 </details>
 
@@ -602,15 +612,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3,358 tests across 122 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+3,456 tests across 133 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
 ```
-depfence/          ~44K LOC
+depfence/          ~46K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        46 scanner modules (42 entry-point, 22 project)
+  scanners/        56 scanner modules (44 entry-point, 43 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
