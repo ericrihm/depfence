@@ -61,7 +61,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 **Invariants**: depfence never executes package code. All analysis is local and static. No source code is transmitted to any external service. Network calls are limited to the endpoints in [Network behavior](#network-behavior) and can be fully disabled with `--no-fetch`.
 
-**Ecosystems**: npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Docker, HuggingFace, MCP, GitHub Actions.
+**Ecosystems**: npm, PyPI, Cargo, Go, Maven/Gradle, NuGet, RubyGems, Composer, Swift/SPM, Dart/Flutter, Docker, HuggingFace, MCP, GitHub Actions.
 
 ---
 

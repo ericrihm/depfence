@@ -22,9 +22,14 @@ def detect_ecosystem(project_dir: Path) -> list[tuple[str, Path]]:
         ("cargo", "Cargo.lock"),
         ("go", "go.sum"),
         ("maven", "gradle.lockfile"),
+        ("maven", "pom.xml"),
+        ("maven", "gradle/libs.versions.toml"),
         ("swift", "Package.resolved"),
         ("swift", "Podfile.lock"),
         ("nuget", "packages.lock.json"),
+        ("nuget", "packages.config"),
+        ("dart", "pubspec.lock"),
+        ("dart", "pubspec.yaml"),
         ("rubygems", "Gemfile.lock"),
         ("packagist", "composer.lock"),
     ]
@@ -44,6 +49,7 @@ def parse_lockfile(ecosystem: str, path: Path) -> list[PackageId]:
         "maven": _parse_maven,
         "swift": _parse_swift,
         "nuget": _parse_nuget,
+        "dart": _parse_dart,
         "rubygems": _parse_rubygems,
         "packagist": _parse_composer,
     }
@@ -73,6 +79,20 @@ def _parse_maven(path: Path) -> list[PackageId]:
     if path.name == "pom.xml":
         from depfence.parsers.jvm_lockfiles import parse_pom_xml
         return parse_pom_xml(path)
+    if path.name == "libs.versions.toml":
+        from depfence.parsers.gradle_lockfile import parse_gradle_version_catalog
+        return parse_gradle_version_catalog(path)
+    return []
+
+
+def _parse_dart(path: Path) -> list[PackageId]:
+    """Dispatch to the appropriate Dart/Flutter parser based on filename."""
+    if path.name == "pubspec.lock":
+        from depfence.parsers.pubspec_lockfile import parse_pubspec_lock
+        return parse_pubspec_lock(path)
+    if path.name == "pubspec.yaml":
+        from depfence.parsers.pubspec_lockfile import parse_pubspec_yaml
+        return parse_pubspec_yaml(path)
     return []
 
 
