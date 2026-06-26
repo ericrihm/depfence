@@ -116,6 +116,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.pinning_scanner import PinningScanner
     from depfence.scanners.preinstall import PreinstallScanner
     from depfence.scanners.prompt_injection_scanner import PromptInjectionScanner
+    from depfence.scanners.protestware_scanner import ProtestwareScanner
     from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
     from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
     from depfence.scanners.secrets_scanner import SecretsScanner
@@ -126,7 +127,8 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         SecretsScanner(), PinningScanner(), ResolveExistenceScanner(),
         EditorConfigScanner(), BindingGypScanner(),
         ObfuscationScanner(), PreinstallScanner(), NetworkScanner(),
-        GitMessageScanner(), PayloadBehaviorScanner(), RubyLifecycleScanner(),
+        GitMessageScanner(), PayloadBehaviorScanner(), ProtestwareScanner(),
+        RubyLifecycleScanner(),
         ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
         PromptInjectionScanner(), AgentSkillScanner(), McpScanner(),
         AiBomGenerator(),
