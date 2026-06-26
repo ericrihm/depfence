@@ -45,6 +45,7 @@ class FindingType(str, enum.Enum):
     EXTERNAL_INSTRUCTION_FETCH = "external_instruction_fetch"  # skill/tool fetches instructions from external URL
     DOMAIN_SPOOF = "domain_spoof"  # referenced domain is a lookalike of a well-known service
     DEFERRED_PAYLOAD = "deferred_payload"  # content at a referenced URL changed since last scan (bait-and-switch)
+    PROTESTWARE = "protestware"  # date-gated, locale-gated, or geofenced malicious logic
 
 
 @dataclass(frozen=True)

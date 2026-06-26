@@ -8,9 +8,12 @@ Static analysis for dependency and CI/CD supply chain security. Scans lockfiles,
 [![Scanners: 78](https://img.shields.io/badge/scanners-78-orange)](docs/site/docs.html)
 [![Tests: 3331](https://img.shields.io/badge/tests-3331-brightgreen)](tests/)
 
+<p align="center">
+  <img src="docs/demo.gif" alt="depfence catching AI-specific supply chain attacks" width="800">
+</p>
+
 ```bash
-git clone https://github.com/ericrihm/depfence && cd depfence
-pip install -e .
+pip install depfence
 depfence scan .
 ```
 
