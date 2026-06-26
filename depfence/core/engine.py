@@ -270,7 +270,7 @@ async def scan_directory(
         await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
 
     if project_scanners:
-        _progress("Running project scanners (18 scanners)...")
+        _progress("Running project scanners (21 scanners)...")
         proj_findings, proj_errors = await _run_project_scanners(project_dir)
         all_findings.extend(proj_findings)
         result.errors.extend(proj_errors)
