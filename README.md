@@ -52,7 +52,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
                                           │
                               ┌───────────┴───────────┐
                      entry-point scanners      project scanners
-                     (42, via pip registry)    (21, filesystem-based)
+                     (42, via pip registry)    (33, filesystem-based)
                               │                       │
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -65,7 +65,7 @@ lockfile detection → metadata fetch → scanner execution → enrichment
 
 3. **Scanner execution** — two scanner types run concurrently:
    - **Entry-point scanners** (42): loaded via pip entry points. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`.
-   - **Project scanners** (21): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
+   - **Project scanners** (33): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
 
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis augment findings for triage.
 
@@ -79,7 +79,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-42 entry-point scanners + 21 project scanners. Some serve both roles.
+42 entry-point scanners + 33 project scanners. Some serve both roles.
 
 ### Prompt injection and AI safety
 
@@ -196,7 +196,7 @@ pip install -e .                      # core
 pip install -e ".[ml]"                # with scikit-learn behavioral scoring
 ```
 
-Once published to PyPI: `pip install depfence` / `pipx install depfence`. See [PUBLISHING.md](PUBLISHING.md).
+Once published to PyPI: `pip install depfence` / `pipx install depfence`.
 
 Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13. No native dependencies.
 
@@ -524,8 +524,8 @@ depfence plugins   # verify loaded scanners
 - `reachability` performs static import tracing only. Dynamic imports (`importlib`, `__import__`) are not resolved.
 - Heuristic scanners (`behavioral`, `reputation`, `obfuscation`, `payload_behavior`) produce false positives. Use `depfence:ignore` or baselines to suppress known-good patterns.
 - All detection is static. No dynamic analysis, sandboxed execution, or runtime monitoring.
-- Not yet published on PyPI. Install from source.
-- The GitHub Action (`action.yml`) has no release tag yet.
+- Not yet published on PyPI. Install from source until the first release is published.
+- The GitHub Action (`action.yml`) will be available as `uses: ericrihm/depfence@v1` after the first release tag.
 
 ### False positive expectations
 
@@ -564,7 +564,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3,177 tests across 120 test files. Run `ruff check` before opening a PR.
+3,331 tests across 121 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
@@ -572,7 +572,7 @@ pytest
 depfence/          ~44K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        45 scanner modules (42 entry-point, 21 project)
+  scanners/        45 scanner modules (42 entry-point, 33 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
@@ -581,9 +581,12 @@ depfence/          ~44K LOC
 
 ---
 
-## Security policy
+## Community
 
-See [SECURITY.md](SECURITY.md) or open a [GitHub security advisory](https://github.com/ericrihm/depfence/security/advisories/new).
+- [Contributing guide](CONTRIBUTING.md) — how to add scanners, run tests, submit PRs
+- [Security policy](SECURITY.md) — report vulnerabilities via [GitHub security advisory](https://github.com/ericrihm/depfence/security/advisories/new)
+- [Issue templates](https://github.com/ericrihm/depfence/issues/new/choose) — bug reports, false positives, feature requests
+- [Benchmark](https://ericrihm.github.io/depfence/benchmark.html) — how depfence compares to Snyk, Trivy, Grype, Semgrep, and Socket.dev
 
 ---
 

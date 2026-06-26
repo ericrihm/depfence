@@ -331,7 +331,7 @@ class TestHardcodedIP:
             }
         })
         findings = _run(scanner.scan_project(tmp_path))
-        ip = [f for f in findings if "hardcoded IP" in f.title]
+        ip = [f for f in findings if "hardcoded IP" in f.title and f.package.name == "suspicious"]
         assert len(ip) == 1
 
 

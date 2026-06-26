@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="canonical" href="https://ericrihm.github.io/depfence/">
   <meta property="og:title" content="depfence — AI-Aware Dependency Security">
-  <meta property="og:description" content="The only scanner that catches slopsquatting, MCP rug-pulls, and ML model supply chain attacks. 30 scanners. 9 ecosystems. Open source MIT.">
+  <meta property="og:description" content="The only scanner that catches prompt injection in dependencies, slopsquatting, MCP rug-pulls, agent skill attacks, anti-analysis evasion, and ML model supply chain threats. 45 scanners. 13 ecosystems. Open source Apache 2.0.">
   <meta property="og:type" content="website">
 </head>
 <body>
@@ -23,8 +23,9 @@
       <li><a href="index.html" class="active">Home</a></li>
       <li><a href="docs.html">Docs</a></li>
       <li><a href="api.html">API</a></li>
+      <li><a href="benchmark.html">Benchmark</a></li>
       <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
-      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">PyPI v0.4.0</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">v0.7.0</a></li>
     </ul>
   </div>
 </nav>
@@ -34,7 +35,7 @@
   <div class="container">
     <div class="hero-badge">
       <span class="dot"></span>
-      AI-Aware Security — Slopsquatting &amp; MCP Protection
+      AI-Aware Security — Prompt Injection, Slopsquatting &amp; MCP Protection
     </div>
 
     <h1>
@@ -44,8 +45,9 @@
 
     <p class="hero-desc">
       Traditional scanners match CVEs and stop there. depfence goes further:
-      behavioral analysis, slopsquatting detection, MCP server auditing,
-      ML model provenance, and supply chain intelligence — across 9 package ecosystems.
+      prompt injection detection, anti-analysis evasion (Gaslight-class), slopsquatting,
+      MCP server auditing, agent skill attacks, fabricated SHA/version pins,
+      ML model provenance, and supply chain intelligence — across 13 package ecosystems.
     </p>
 
     <div class="hero-actions">
@@ -82,19 +84,19 @@
   <div class="container">
     <div class="stats-grid">
       <div class="stat-item">
-        <div class="stat-value">43</div>
-        <div class="stat-label">CLI commands</div>
+        <div class="stat-value">45</div>
+        <div class="stat-label">Scanners</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">9</div>
+        <div class="stat-value">13</div>
         <div class="stat-label">Ecosystems</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">1,590+</div>
+        <div class="stat-value">3,330+</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">MIT</div>
+        <div class="stat-value">Apache 2.0</div>
         <div class="stat-label">Open source</div>
       </div>
     </div>
@@ -107,7 +109,7 @@
     <div class="section-header">
       <div class="section-label">What depfence detects</div>
       <h2>Security built for modern stacks</h2>
-      <p>30 scanners covering the full threat surface of a production software supply chain.</p>
+      <p>45 scanners covering the full threat surface of a production software supply chain.</p>
     </div>
 
     <div class="features-grid">
@@ -246,7 +248,7 @@
 <section class="scanners-section">
   <div class="container">
     <div class="section-header">
-      <div class="section-label">30 scanners</div>
+      <div class="section-label">45 scanners</div>
       <h2>Full threat surface coverage</h2>
       <p>Each scanner is independently runnable, testable, and overridable via policy-as-code.</p>
     </div>
@@ -281,6 +283,11 @@
           <li><span class="scanner-name">model_integrity</span><span class="scanner-desc">Weight file provenance</span></li>
           <li><span class="scanner-name">mcp_scanner</span><span class="scanner-desc">MCP server misconfigs</span></li>
           <li><span class="scanner-name">mcp_fingerprint</span><span class="scanner-desc">Rug-pull schema detection</span></li>
+          <li><span class="scanner-name">prompt_injection</span><span class="scanner-desc">LLM-targeted payloads in source</span></li>
+          <li><span class="scanner-name">agent_skill</span><span class="scanner-desc">External instruction fetch, domain spoofing</span></li>
+          <li><span class="scanner-name">ai_bom</span><span class="scanner-desc">AI Bill of Materials generation</span></li>
+          <li><span class="scanner-name">model_format</span><span class="scanner-desc">GGUF SSTI, TFLite custom ops</span></li>
+          <li><span class="scanner-name">payload_behavior</span><span class="scanner-desc">Anti-analysis evasion detection</span></li>
         </ul>
       </div>
       <div class="scanner-group">
@@ -291,6 +298,7 @@
           <li><span class="scanner-name">obfuscation</span><span class="scanner-desc">Base64-exec, hex payloads</span></li>
           <li><span class="scanner-name">network</span><span class="scanner-desc">Mining pools, DNS exfil</span></li>
           <li><span class="scanner-name">ci_secrets</span><span class="scanner-desc">CI secret exposure risk</span></li>
+          <li><span class="scanner-name">ci_ai_bot</span><span class="scanner-desc">AI bot triage injection</span></li>
         </ul>
       </div>
       <div class="scanner-group">
@@ -302,6 +310,12 @@
           <li><span class="scanner-name">terraform</span><span class="scanner-desc">Unpinned modules/providers</span></li>
           <li><span class="scanner-name">secrets</span><span class="scanner-desc">AWS keys, PATs, DB strings</span></li>
           <li><span class="scanner-name">pinning</span><span class="scanner-desc">Wildcard versions, lockfiles</span></li>
+          <li><span class="scanner-name">resolve_existence</span><span class="scanner-desc">Fabricated SHA pin detection</span></li>
+          <li><span class="scanner-name">version_existence</span><span class="scanner-desc">Fabricated version pin detection</span></li>
+          <li><span class="scanner-name">editor_config</span><span class="scanner-desc">Claude/Cursor config injection</span></li>
+          <li><span class="scanner-name">binding_gyp</span><span class="scanner-desc">Phantom native addon attacks</span></li>
+          <li><span class="scanner-name">git_message</span><span class="scanner-desc">Injection in commit messages</span></li>
+          <li><span class="scanner-name">docker_layer</span><span class="scanner-desc">Multi-stage layer leaks</span></li>
         </ul>
       </div>
       <div class="scanner-group">
@@ -311,6 +325,7 @@
           <li><span class="scanner-name">license_compat</span><span class="scanner-desc">Conflict analysis</span></li>
           <li><span class="scanner-name">freshness</span><span class="scanner-desc">Abandoned + EOL packages</span></li>
           <li><span class="scanner-name">phantom_deps</span><span class="scanner-desc">Declared but never imported</span></li>
+          <li><span class="scanner-name">ruby_lifecycle</span><span class="scanner-desc">Ruby gem EOL + abandonment</span></li>
         </ul>
       </div>
     </div>
@@ -532,7 +547,7 @@
           </tr>
           <tr>
             <td class="feature-name">License</td>
-            <td><span class="check-strong">MIT open source</span></td>
+            <td><span class="check-strong">Apache 2.0 open source</span></td>
             <td><span class="paid">freemium</span></td>
             <td><span class="paid">freemium</span></td>
             <td><span class="check">built-in</span></td>
@@ -548,7 +563,7 @@
   <div class="container">
     <div class="section-header">
       <div class="section-label">Supported ecosystems</div>
-      <h2>9 package ecosystems</h2>
+      <h2>13 package ecosystems</h2>
       <p>Lockfile-based parsing with zero false positives from loose manifest matching.</p>
     </div>
     <div class="features-grid">
@@ -597,8 +612,8 @@
         </a>
         <p>AI-aware dependency security scanner. Detects the threats advisory databases miss.</p>
         <div class="badge-row" style="margin-top: 16px;">
-          <span class="badge badge-green">MIT License</span>
-          <span class="badge badge-blue">v0.4.0</span>
+          <span class="badge badge-green">Apache 2.0</span>
+          <span class="badge badge-blue">v0.7.0</span>
           <span class="badge">Python 3.10+</span>
         </div>
       </div>
@@ -631,7 +646,7 @@
       </div>
     </div>
     <div class="footer-bottom">
-      <span>© 2025 depfence contributors. MIT License.</span>
+      <span>© 2025–2026 depfence contributors. Apache 2.0.</span>
       <span>Built by security engineers, not marketers.</span>
     </div>
   </div>

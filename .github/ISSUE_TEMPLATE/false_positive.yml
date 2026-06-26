@@ -1,0 +1,40 @@
+name: False Positive
+description: Report a finding that should not have been flagged
+labels: ["false-positive", "triage"]
+body:
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding details
+      description: Paste the full finding output (table, JSON, or SARIF)
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: scanner
+    attributes:
+      label: Scanner name
+      description: Which scanner produced the false positive
+      placeholder: "prompt_injection"
+    validations:
+      required: true
+  - type: textarea
+    id: why_false
+    attributes:
+      label: Why is this a false positive?
+      description: Explain why the flagged code/package is legitimate
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: File or package context
+      description: The relevant code snippet, dependency, or config
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: depfence version
+      placeholder: "0.7.0"
+    validations:
+      required: true

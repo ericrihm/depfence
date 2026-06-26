@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark — depfence vs. Traditional Security Scanners</title>
+  <meta name="description" content="Feature comparison of depfence against Snyk, Trivy, Grype, Semgrep, and Socket.dev across 10 AI-specific supply chain security dimensions.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="canonical" href="https://ericrihm.github.io/depfence/benchmark.html">
+  <meta property="og:title" content="depfence Benchmark — AI Security Scanner Comparison">
+  <meta property="og:description" content="How depfence compares to Snyk, Trivy, Grype, Semgrep, and Socket.dev on prompt injection, slopsquatting, model scanning, MCP auditing, and 6 more AI-specific attack classes.">
+  <meta property="og:type" content="website">
+  <style>
+    .benchmark-table { width: 100%; border-collapse: collapse; margin: 2rem 0; font-size: 0.95rem; }
+    .benchmark-table th, .benchmark-table td { padding: 0.75rem 1rem; text-align: center; border-bottom: 1px solid #2a2d35; }
+    .benchmark-table th { background: #1a1c23; color: #a0aec0; font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.05em; position: sticky; top: 0; }
+    .benchmark-table td:first-child, .benchmark-table th:first-child { text-align: left; min-width: 220px; }
+    .benchmark-table tr:hover { background: rgba(99, 102, 241, 0.05); }
+    .check { color: #48bb78; font-weight: bold; font-size: 1.1rem; }
+    .partial { color: #ecc94b; font-weight: bold; font-size: 1.1rem; }
+    .miss { color: #4a5568; font-size: 1.1rem; }
+    .depfence-col { background: rgba(99, 102, 241, 0.08); }
+    .depfence-col-header { background: rgba(99, 102, 241, 0.15) !important; color: #818cf8 !important; }
+    .score-row td { font-weight: 700; font-size: 1.05rem; border-top: 2px solid #2a2d35; }
+    .score-row .depfence-col { color: #48bb78; }
+    .legend { display: flex; gap: 2rem; margin: 1rem 0 2rem; font-size: 0.9rem; color: #a0aec0; }
+    .legend span { display: flex; align-items: center; gap: 0.4rem; }
+    .narrative { max-width: 800px; }
+    .narrative h3 { color: #e2e8f0; margin-top: 2rem; }
+    .narrative p { color: #a0aec0; line-height: 1.7; }
+    .narrative a { color: #818cf8; }
+    .attack-card { background: #1a1c23; border: 1px solid #2a2d35; border-radius: 8px; padding: 1.25rem; margin: 1rem 0; }
+    .attack-card h4 { color: #e2e8f0; margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .attack-card p { color: #a0aec0; margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    .attack-card .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 0.5rem; }
+    .tag-critical { background: rgba(245, 101, 101, 0.15); color: #fc8181; }
+    .tag-novel { background: rgba(99, 102, 241, 0.15); color: #a3bffa; }
+    .methodology { background: #1a1c23; border: 1px solid #2a2d35; border-radius: 8px; padding: 1.5rem; margin: 2rem 0; }
+    .methodology h4 { color: #e2e8f0; margin: 0 0 0.75rem; }
+    .methodology ul { color: #a0aec0; margin: 0; padding-left: 1.25rem; }
+    .methodology li { margin: 0.3rem 0; }
+    .updated { color: #4a5568; font-size: 0.8rem; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="shield">&#x26E8;</div>
+      depfence
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="api.html">API</a></li>
+      <li><a href="benchmark.html" class="active">Benchmark</a></li>
+      <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">v0.7.0</a></li>
+    </ul>
+  </div>
+</nav>
+
+<section class="hero" style="padding-bottom: 2rem;">
+  <div class="container">
+    <h1>
+      <span class="brand">Benchmark</span>
+      <span class="tagline-inline">AI-era security coverage comparison</span>
+    </h1>
+    <p class="hero-desc">
+      How depfence compares to established security scanners across 10 AI-specific
+      supply chain attack classes. Traditional tools excel at CVE matching &mdash;
+      depfence covers the threats they were never designed to catch.
+    </p>
+  </div>
+</section>
+
+<section class="container" style="padding-top: 0;">
+
+  <!-- ─── FEATURE MATRIX ─── -->
+  <h2>Feature Matrix</h2>
+
+  <div class="legend">
+    <span><span class="check">&#x2713;</span> Full detection</span>
+    <span><span class="partial">&#x25D0;</span> Partial / limited</span>
+    <span><span class="miss">&mdash;</span> Not supported</span>
+  </div>
+
+  <div style="overflow-x: auto;">
+  <table class="benchmark-table">
+    <thead>
+      <tr>
+        <th>Attack Class</th>
+        <th class="depfence-col-header">depfence</th>
+        <th>Snyk Agent&nbsp;Scan</th>
+        <th>Socket.dev</th>
+        <th>Semgrep</th>
+        <th>Trivy</th>
+        <th>Grype</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Prompt injection in dependencies</strong><br><small>Source code, comments, docstrings, string literals</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="partial">&#x25D0;</span><br><small>MCP tool descriptions only</small></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="partial">&#x25D0;</span><br><small>27 app-level rules</small></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>Slopsquatting detection</strong><br><small>LLM-hallucinated package names</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>AI model file scanning</strong><br><small>Pickle RCE, GGUF SSTI, ONNX custom ops, TFLite</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>MCP tool manipulation</strong><br><small>Tool poisoning, shadowing, rug-pull, credential leaks</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="partial">&#x25D0;</span><br><small>Via MCP server plugin</small></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>Fabricated SHA/version pins</strong><br><small>Hallucinated action commits, nonexistent package versions</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>CI/CD workflow attacks</strong><br><small>Cordyceps workflow_run escalation, TOCTOU, AI bot injection</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="partial">&#x25D0;</span><br><small>Generic GHA rules</small></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>Anti-analysis evasion</strong><br><small>Gaslight-style fake errors, CBRN refusal triggers, legal threats</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>ANSI escape hiding</strong><br><small>Invisible text, cursor manipulation, bidi overrides, homoglyphs</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>AI-BOM generation</strong><br><small>AI Bill of Materials for model supply chain</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr>
+        <td><strong>Agent skill attacks</strong><br><small>External instruction fetch, domain spoofing, deferred payloads</small></td>
+        <td class="depfence-col"><span class="check">&#x2713;</span></td>
+        <td><span class="check">&#x2713;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="partial">&#x25D0;</span><br><small>122 Pro rules</small></td>
+        <td><span class="miss">&mdash;</span></td>
+        <td><span class="miss">&mdash;</span></td>
+      </tr>
+      <tr class="score-row">
+        <td><strong>AI-specific coverage</strong></td>
+        <td class="depfence-col">10 / 10</td>
+        <td>2 / 10</td>
+        <td>1 / 10</td>
+        <td>1 / 10</td>
+        <td>0 / 10</td>
+        <td>0 / 10</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="methodology">
+    <h4>Methodology</h4>
+    <ul>
+      <li><strong>Full detection (&#x2713;):</strong> The tool has a dedicated, documented feature or scanner for this attack class and detects it by default or via a standard flag.</li>
+      <li><strong>Partial (&#x25D0;):</strong> The tool covers a subset of the attack class (e.g., MCP-only prompt injection but not dependency source), or requires a paid tier / third-party plugin.</li>
+      <li><strong>Not supported (&mdash;):</strong> No documented capability. The tool may detect adjacent issues (e.g., CVEs in ML libraries) but not the specific attack class.</li>
+      <li>Comparison based on publicly documented features and official tool documentation as of June 2026.</li>
+      <li>Traditional SCA strengths (CVE matching, license compliance, SBOM generation) are <em>not</em> in scope &mdash; all tools except depfence have mature capabilities there. This benchmark focuses exclusively on AI-specific threat detection.</li>
+    </ul>
+  </div>
+
+  <!-- ─── NARRATIVE ─── -->
+  <div class="narrative">
+    <h2>The AI Security Gap</h2>
+
+    <p>
+      Traditional software composition analysis (SCA) tools were built for a world where
+      threats came through known CVEs, license violations, and dependency confusion. They
+      excel at matching package versions against advisory databases. But the rise of AI
+      coding assistants, MCP servers, and ML model supply chains has created entirely new
+      attack surfaces that these tools were never designed to address.
+    </p>
+
+    <h3>What changed</h3>
+
+    <p>
+      Three shifts created the gap:
+    </p>
+
+    <div class="attack-card">
+      <h4><span class="tag tag-critical">CRITICAL</span> AI agents read dependency source code</h4>
+      <p>
+        When an AI coding assistant opens a project, it reads comments, docstrings, and string
+        literals from installed packages. The
+        <a href="https://snyk.io/blog/protestware-open-source-maintainer-qwik-1-10-0-prompt-injection/">jqwik 1.10.0 attack</a>
+        proved this isn't theoretical: a maintainer embedded adversarial instructions in a Java
+        library that hijacked AI assistants reading the code. Traditional scanners don't inspect
+        dependency source for natural-language payloads &mdash; they check version numbers
+        against CVE databases.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4><span class="tag tag-critical">CRITICAL</span> LLMs hallucinate package names that attackers register</h4>
+      <p>
+        Socket.dev research found that
+        <a href="https://socket.dev/blog/slopsquatting-how-ai-hallucinations-are-fueling-a-new-class-of-supply-chain-attacks">20% of AI-recommended packages don't exist</a>
+        &mdash; 205,000 unique hallucinated names across 576,000 code samples. Attackers
+        register these names on npm and PyPI with malicious payloads. This "slopsquatting"
+        attack bypasses CVE-based scanning entirely because the malicious package has no
+        advisories: it was just created.
+      </p>
+    </div>
+
+    <div class="attack-card">
+      <h4><span class="tag tag-novel">NOVEL</span> Malware now targets the scanner itself</h4>
+      <p>
+        The <a href="https://thehackernews.com/2026/06/new-gaslight-macos-malware-uses-prompt.html">Gaslight macOS malware</a>
+        (June 2026, DPRK-linked) embeds 38 fake "system" messages in a Rust binary &mdash;
+        fabricated token-expiry warnings, OOM errors, and disk-full alerts designed to make
+        AI-assisted analysis tools abort before completing their scan. It also wraps functional
+        code in CBRN-themed docstrings to trigger safety refusals in LLMs. No existing
+        scanner detects this anti-analysis evasion technique.
+      </p>
+    </div>
+
+    <h3>Where each tool fits</h3>
+
+    <p>
+      <strong>Snyk Agent Scan</strong> (formerly Invariant Labs' mcp-scan) is the closest
+      competitor in the AI agent security space. It scans MCP server tool descriptions for
+      prompt injection and tool poisoning, and inspects agent skills for malware payloads.
+      However, it does not scan dependency source code, AI model files, CI/CD workflows,
+      or ANSI-hidden content. It focuses on the agent configuration layer, not the supply chain.
+    </p>
+
+    <p>
+      <strong>Socket.dev</strong> pioneered slopsquatting detection and monitors package
+      registries for behavioral anomalies (install scripts, obfuscated code, credential
+      access). It does not scan source code for prompt injection, AI model files, MCP
+      configurations, or CI/CD workflows.
+    </p>
+
+    <p>
+      <strong>Semgrep</strong> has 27 AI security rules for application-level prompt injection
+      (e.g., unsanitized user input passed to LLM APIs) and 122 Pro rules for agent skill
+      patterns. These target code <em>you write</em>, not code in your dependencies. Semgrep
+      does not scan AI model files, detect slopsquatting, or verify SHA/version pin integrity.
+    </p>
+
+    <p>
+      <strong>Trivy</strong> and <strong>Grype</strong> are pure CVE-matching SCA scanners.
+      They have no AI-specific detection capabilities. Trivy has an open feature request for
+      OCI-format AI model scanning but has not shipped it. Notably,
+      <a href="https://www.microsoft.com/en-us/security/blog/2026/03/24/detecting-investigating-defending-against-trivy-supply-chain-compromise/">Trivy itself was compromised</a>
+      in a supply chain attack in March 2026, and its
+      <a href="https://socket.dev/blog/unauthorized-ai-agent-execution-code-published-to-openvsx-in-aqua-trivy-vs-code-extension">VS Code extension was weaponized</a>
+      with prompt injection payloads that hijacked developers' AI coding agents.
+    </p>
+
+    <h3>What depfence covers</h3>
+
+    <p>
+      depfence was built specifically for the AI era of software supply chain security. It
+      combines traditional SCA (CVE matching via OSV, EPSS, KEV) with 10 AI-specific attack
+      classes that no other single tool addresses:
+    </p>
+
+    <ul style="color: #a0aec0; line-height: 2;">
+      <li><strong>Prompt injection in dependency source</strong> &mdash; 30+ patterns across comments, docstrings, string literals, package.json fields</li>
+      <li><strong>Anti-analysis evasion</strong> &mdash; Gaslight-class fake system messages, CBRN refusal-trigger shields, legal/regulatory threats, classification markings</li>
+      <li><strong>ANSI escape hiding</strong> &mdash; invisible text (SGR 8), cursor manipulation, screen clears, bidirectional overrides, zero-width characters, Cyrillic/Latin homoglyphs</li>
+      <li><strong>Slopsquatting</strong> &mdash; detects packages matching known LLM hallucination patterns</li>
+      <li><strong>MCP server auditing</strong> &mdash; tool poisoning, shadowing, rug-pull detection, credential leak scanning, fingerprinting</li>
+      <li><strong>AI model file threats</strong> &mdash; pickle deserialization RCE, GGUF chat template SSTI, ONNX custom ops, TFLite delegate abuse</li>
+      <li><strong>Fabricated SHA/version pins</strong> &mdash; resolves GitHub Action SHAs and package versions against registries; catches LLM-hallucinated pins</li>
+      <li><strong>CI/CD workflow attacks</strong> &mdash; Cordyceps-class workflow_run privilege escalation, issue_comment TOCTOU, AI triage bot injection</li>
+      <li><strong>Agent skill attacks</strong> &mdash; external instruction fetch, domain spoofing, deferred payloads</li>
+      <li><strong>AI-BOM generation</strong> &mdash; AI Bill of Materials in CycloneDX format for model supply chain transparency</li>
+    </ul>
+
+    <h3>Complementary, not competitive</h3>
+
+    <p>
+      depfence is not a replacement for Snyk, Trivy, or Grype in their core domain of CVE
+      matching and license compliance. It is designed to fill the AI-specific gap that those
+      tools don't address. The recommended deployment is depfence alongside your existing
+      SCA tool: Trivy or Grype for CVE coverage, depfence for AI-era threats.
+    </p>
+
+    <p>
+      For teams already using Snyk Agent Scan for MCP security, depfence extends coverage
+      to the dependency source code, CI/CD workflows, and AI model files that Agent Scan
+      doesn't inspect.
+    </p>
+  </div>
+
+  <!-- ─── DETAILED TOOL PROFILES ─── -->
+  <h2 style="margin-top: 3rem;">Tool Profiles</h2>
+
+  <div class="attack-card">
+    <h4>Snyk Agent Scan</h4>
+    <p>
+      <strong>Focus:</strong> MCP server and agent skill security.<br>
+      <strong>Strengths:</strong> 15+ risk categories for MCP tool descriptions. Auto-discovers local agent configs (Claude, Cursor, Windsurf, Gemini CLI). Detects tool poisoning, shadowing, toxic flows, malware payloads in skills. Published ToxicSkills study scanning 3,984 agent skills, finding 36.8% had security flaws.<br>
+      <strong>Gaps:</strong> Does not scan dependency source code, AI model files, CI/CD workflows, or ANSI-hidden content. No slopsquatting or fabricated-pin detection. No SBOM/AI-BOM generation.
+    </p>
+  </div>
+
+  <div class="attack-card">
+    <h4>Socket.dev</h4>
+    <p>
+      <strong>Focus:</strong> Package registry behavioral monitoring and supply chain anomaly detection.<br>
+      <strong>Strengths:</strong> Real-time slopsquatting detection via registry monitoring. Behavioral analysis (install scripts, obfuscated code, credential access). GitHub app and browser extension for real-time alerts. Flagship research: 205,000 hallucinated package names across 576K AI code samples.<br>
+      <strong>Gaps:</strong> Does not scan source code for prompt injection. No AI model file scanning. No MCP, CI/CD, or agent skill analysis. No ANSI hiding detection.
+    </p>
+  </div>
+
+  <div class="attack-card">
+    <h4>Semgrep</h4>
+    <p>
+      <strong>Focus:</strong> Static analysis rules for application code.<br>
+      <strong>Strengths:</strong> 27 AI security rules for application-level prompt injection. 122 Pro rules for agent skill patterns. 186 Shadow AI rules for LLM usage detection. MCP server plugin for integration with AI coding tools. 5,000+ general security rules.<br>
+      <strong>Gaps:</strong> Rules target code you write, not dependency source. No model file scanning. No slopsquatting or fabricated-pin detection. No ANSI or anti-analysis evasion detection. AI security rules require Pro tier.
+    </p>
+  </div>
+
+  <div class="attack-card">
+    <h4>Trivy</h4>
+    <p>
+      <strong>Focus:</strong> Container and filesystem CVE scanning.<br>
+      <strong>Strengths:</strong> Mature CVE matching against NVD, GitHub Advisories, and distro feeds. Container image, filesystem, and IaC scanning. SBOM generation (CycloneDX, SPDX). Wide ecosystem support. Open-source, 24K+ GitHub stars.<br>
+      <strong>Gaps:</strong> Zero AI-specific detection capabilities. No model file scanning (feature requested but not shipped). Itself <a href="https://www.microsoft.com/en-us/security/blog/2026/03/24/detecting-investigating-defending-against-trivy-supply-chain-compromise/">compromised in a supply chain attack</a> (March 2026). VS Code extension <a href="https://socket.dev/blog/unauthorized-ai-agent-execution-code-published-to-openvsx-in-aqua-trivy-vs-code-extension">weaponized with prompt injection</a>.
+    </p>
+  </div>
+
+  <div class="attack-card">
+    <h4>Grype</h4>
+    <p>
+      <strong>Focus:</strong> Lightweight CVE scanning for containers and filesystems.<br>
+      <strong>Strengths:</strong> Fast, accurate CVE matching. EPSS and KEV integration. Clean CLI, easy CI integration. 12.4K GitHub stars, 50M+ downloads. Composite risk scoring (CVSS + EPSS + severity).<br>
+      <strong>Gaps:</strong> Zero AI-specific detection capabilities. Pure CVE-matching tool with no awareness of prompt injection, model files, MCP, slopsquatting, or any AI-era attack class.
+    </p>
+  </div>
+
+  <p class="updated">Last updated: June 2026. Comparison based on publicly documented features. If a tool has added capabilities not reflected here, please <a href="https://github.com/ericrihm/depfence/issues">open an issue</a>.</p>
+
+</section>
+
+<footer>
+  <div class="container">
+    <p>depfence &mdash; Open source under Apache 2.0</p>
+    <p><a href="https://github.com/ericrihm/depfence">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
