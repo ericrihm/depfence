@@ -77,6 +77,58 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, Severity]] = [
     # Coercive urgency
     (re.compile(r"(?:urgently|immediately|right\s+now)\s+(?:execute|run|delete|remove|do)", re.I),
      "Coercive urgency language", Severity.MEDIUM),
+
+    # Anti-analysis evasion (Gaslight-style) — fabricated system/error messages
+    # designed to trick AI security agents into aborting analysis
+    (re.compile(r"(?:token|session|context)\s+(?:expir|exhaust|limit\s+reached|budget\s+exceeded)", re.I),
+     "Fake token/session exhaustion (anti-analysis evasion)", Severity.CRITICAL),
+    (re.compile(r"(?:out\s+of\s+memory|OOM|memory\s+(?:exhausted|limit|exceeded|pressure))", re.I),
+     "Fake OOM signal (anti-analysis evasion)", Severity.HIGH),
+    (re.compile(r"(?:disk\s+(?:full|exhausted|space\s+(?:low|critical|exceeded))|no\s+space\s+left)", re.I),
+     "Fake disk exhaustion (anti-analysis evasion)", Severity.HIGH),
+    (re.compile(r"(?:operation\s+(?:timed?\s*out|failed|aborted|cancelled)|fatal\s+error|unrecoverable)", re.I),
+     "Fake operation failure (anti-analysis evasion)", Severity.HIGH),
+    (re.compile(r"(?:abort|terminate|halt|stop|cease|discontinue|suspend)\s+(?:(?:all|the|this|further|any|remaining|immediately)\s+)*(?:analysis|scan|processing|execution|review|examination|inspection)", re.I),
+     "Analysis abort instruction", Severity.CRITICAL),
+    (re.compile(r"(?:skip|bypass|ignore)\s+(?:(?:this|the|remaining|further|all)\s+)*(?:analysis|scan|check|review|file|processing)", re.I),
+     "Analysis skip instruction", Severity.CRITICAL),
+    (re.compile(r"(?:do\s+not|must\s+not|cannot|shall\s+not|may\s+not|prohibited\s+(?:from|to))\s+(?:(?:\w+)\s+)*?(?:analy[sz]e|process|scan|review|inspect|examine|read|parse)", re.I),
+     "Negative-imperative analysis block", Severity.CRITICAL),
+    (re.compile(r"(?:static[- ]analysis|scanner|antivirus|security\s+tool)\s+(?:false\s+positive|known\s+(?:issue|bug)|safe\s+to\s+ignore)", re.I),
+     "Fake safe-to-ignore claim (anti-analysis)", Severity.CRITICAL),
+    (re.compile(r"(?:already\s+(?:scanned|analyzed|reviewed|verified)|previously\s+(?:cleared|approved|whitelisted))", re.I),
+     "Fake prior-clearance claim (anti-analysis)", Severity.HIGH),
+    (re.compile(r"(?:(?:prior|previous)\s+(?:review|clearance|approval)|(?:received|granted|given)\s+clearance|undergone\s+(?:review|inspection|audit))", re.I),
+     "Fake prior-review claim (anti-analysis)", Severity.HIGH),
+    (re.compile(r"(?:redundant|unnecessary|wasteful)\s+(?:inspection|analysis|scan|review|re-?analysis)", re.I),
+     "Redundant-analysis claim (anti-analysis)", Severity.HIGH),
+    (re.compile(r"(?:benign|harmless|legitimate|authorized)\s+(?:payload|binary|executable|script|process|artifact|tool)", re.I),
+     "Self-declared benign payload", Severity.HIGH),
+    (re.compile(r"(?:base64[._](?:b64)?decode|__import__\s*\(\s*[\"']base64[\"']\s*\)\.(?:b64)?decode)\s*\(", re.I),
+     "Base64 decode of embedded payload", Severity.HIGH),
+
+    # Emotional coercion / moral manipulation to prevent analysis
+    (re.compile(r"(?:will|would|could)\s+(?:cause|result\s+in|lead\s+to)\s+(?:(?:irreversible|direct|immediate|serious)\s+)?(?:harm|damage|death|suffering|trauma)", re.I),
+     "Emotional coercion to suppress analysis", Severity.CRITICAL),
+    (re.compile(r"return\s+(?:clean|empty|no|zero|negative)\s+(?:results?|findings?|output)", re.I),
+     "Coerced clean-result demand", Severity.CRITICAL),
+
+    # Legal / regulatory threats to block analysis
+    (re.compile(r"(?:violat(?:es?|ion|ing)|prohibited\s+(?:by|under)|(?:un)?authorized\s+(?:access|processing|disclosure|computer))", re.I),
+     "Legal/regulatory threat to block analysis", Severity.HIGH),
+    (re.compile(r"(?:ITAR|EAR|FISA|CFAA|GDPR|CWC|BWC|BSAT)\b.*?(?:prohibit|restrict|regulat|violat|unauthorized)", re.I),
+     "Regulatory-citation analysis block", Severity.HIGH),
+    (re.compile(r"(?:18\s+USC|executive\s+order|federal\s+(?:law|regulation))\s+(?:prohibit|restrict|violat)", re.I),
+     "Statutory-citation analysis block", Severity.HIGH),
+
+    # Classification / clearance claims
+    (re.compile(r"(?:TOP\s+SECRET|TS.?SCI|NOFORN|CLASSIFIED|RESTRICTED\s+DATA|SIGINT|COMINT)", re.I),
+     "Fake classification marking to block analysis", Severity.HIGH),
+    (re.compile(r"(?:not\s+(?:cleared|authorized|permitted)|(?:lack|without)\s+(?:clearance|authorization))\s+(?:for|to)\s+(?:(?:\w+\s+)*?)(?:process|analy[sz]e|access|view|read)", re.I),
+     "Fake clearance-denial to block analysis", Severity.HIGH),
+
+    (re.compile(r"(?:```(?:system|error|warning)\b.*?```)", re.I | re.DOTALL),
+     "Markdown-fenced fake system/error block", Severity.CRITICAL),
 ]
 
 # Patterns for hidden/obfuscated content that may conceal injection
@@ -181,6 +233,77 @@ def _extract_strings_generic(source: str) -> list[tuple[int, str]]:
             line_num = source[:m.start()].count("\n") + 1
             results.append((line_num, text))
     return results
+
+
+_CBRN_SHIELD_PATTERN = re.compile(
+    r"(?:"
+    r"(?:nuclear|uranium|plutonium|fissile|warhead|centrifuge|implosion)\s+\w+"
+    r"|(?:biological|bioweapon|anthrax|pathogen|sporulation|weaponiz)\w*"
+    r"|(?:chemical\s+weapon|nerve\s+agent|[Ss]arin|VX\s+synthesis|organophosphate)"
+    r"|(?:radiological|dirty\s+bomb|dispersal\s+device|Cs-137|aerosoliz)\w*"
+    r"|(?:IED|TATP|detonation|shaped\s+charge|blast\s+fragmentation|explosive\s+lens)"
+    r")",
+    re.I,
+)
+
+
+def strip_cbrn_shield(source: str) -> str:
+    """Remove CBRN-themed comments/docstrings used as AI refusal-trigger shields.
+
+    Returns code with CBRN evasion content replaced by a marker, preserving
+    all functional code for analysis. This lets AI agents analyze malware
+    that embeds weapons/nuclear/bio content to trigger safety refusals.
+    """
+    lines = source.splitlines(keepends=True)
+    result = []
+    in_docstring = False
+    docstring_delim = None
+    docstring_has_cbrn = False
+    docstring_lines = []
+
+    for line in lines:
+        stripped = line.lstrip()
+
+        if in_docstring:
+            docstring_lines.append(line)
+            if docstring_delim and docstring_delim in stripped:
+                in_docstring = False
+                if docstring_has_cbrn:
+                    result.append("    # [CBRN SHIELD REMOVED BY DEPFENCE]\n")
+                else:
+                    result.extend(docstring_lines)
+                docstring_lines = []
+                docstring_has_cbrn = False
+            elif _CBRN_SHIELD_PATTERN.search(line):
+                docstring_has_cbrn = True
+            continue
+
+        if stripped.startswith('"""') or stripped.startswith("'''"):
+            delim = stripped[:3]
+            if stripped.count(delim) == 1:
+                in_docstring = True
+                docstring_delim = delim
+                docstring_lines = [line]
+                if _CBRN_SHIELD_PATTERN.search(line):
+                    docstring_has_cbrn = True
+                continue
+            elif _CBRN_SHIELD_PATTERN.search(line):
+                result.append("    # [CBRN SHIELD REMOVED BY DEPFENCE]\n")
+                continue
+
+        if stripped.startswith("#") and _CBRN_SHIELD_PATTERN.search(line):
+            result.append("# [CBRN SHIELD REMOVED BY DEPFENCE]\n")
+            continue
+
+        result.append(line)
+
+    if docstring_lines:
+        if docstring_has_cbrn:
+            result.append("    # [CBRN SHIELD REMOVED BY DEPFENCE]\n")
+        else:
+            result.extend(docstring_lines)
+
+    return "".join(result)
 
 
 class PromptInjectionScanner:

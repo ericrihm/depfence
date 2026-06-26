@@ -29,6 +29,8 @@ htmlcov/
 
 # Internal extensions
 depfence/_private/
+flaky_diagnosis.md
+KICKOFF_MIASMA_SCANNER.md
 depfence/plugins/_local/
 plugins.local/
 *.local.toml

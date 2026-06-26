@@ -16,7 +16,7 @@ Warn-first and reversible by design:
 - ``DEPFENCE_PRETOOLUSE=0`` (or false/no/off) disables the hook entirely.
 
 Self-contained: resolution goes through the ``gh`` CLI (already authenticated in the
-fleet) so the hook does not need depfence importable in the hook's Python. Network /
+environment) so the hook does not need depfence importable in the hook's Python. Network /
 auth failures degrade to an informational note and never block (fail-open). The hook
 always exits 0; it influences the tool only via its JSON stdout.
 """
@@ -41,7 +41,9 @@ _WORKFLOW_RE = re.compile(r"(^|/)\.github/workflows/[^/]+\.ya?ml$")
 _DISABLE = {"0", "false", "no", "off"}
 _FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
-_SIGNAL_BUS_PENDING = os.path.expanduser("~/.dynamo/signal_bus/pending.jsonl")
+_SIGNAL_BUS_PENDING = os.environ.get(
+    "DEPFENCE_SIGNAL_BUS", os.path.expanduser("~/.depfence/signals/pending.jsonl")
+)
 
 
 def _gh_api(path: str) -> tuple[int, str | None]:
@@ -99,8 +101,8 @@ def _new_content(tool_name: str, tool_input: dict) -> str:
     return ""
 
 
-def _emit_dynamo_signal(fabricated: list[str], file_path: str) -> None:
-    """Best-effort write a depfence_sha_fabrication signal to the Dynamo signal bus."""
+def _emit_signal(fabricated: list[str], file_path: str) -> None:
+    """Best-effort write a depfence_sha_fabrication signal to the signal bus."""
     import time as _time
     try:
         sig = json.dumps({
@@ -164,8 +166,7 @@ def main(data: dict) -> dict:
         + "\nNever hand-write a SHA — emit a tag (e.g. @v4) and let `ratchet pin` resolve it."
     )
 
-    # Emit a Dynamo signal so Elara records SHA fabrication events.
-    _emit_dynamo_signal(fabricated, file_path)
+    _emit_signal(fabricated, file_path)
 
     if os.environ.get("DEPFENCE_PRETOOLUSE_BLOCK", "").lower() in ("1", "true", "yes", "on"):
         return {"hookSpecificOutput": {

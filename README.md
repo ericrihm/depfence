@@ -11,7 +11,7 @@ depfence scan .
 ```
 
 ```
- depfence v0.6.0  scanning 142 packages across 3 lockfiles + 4 workflows
+ depfence v0.7.0  scanning 142 packages across 3 lockfiles + 4 workflows
 
  CRITICAL  .github/workflows/ci   resolve_existence  SHA abc123def... resolves to no real commit (fabricated pin)
  CRITICAL  node_modules/jqwik     prompt_injection   ANSI-hidden instruction override in source
@@ -41,6 +41,7 @@ depfence scan .
 | AI model file threats | `model_format`, `model_integrity` | TFLite custom ops, GGUF chat template SSTI, pickle RCE |
 | Editor config injection | `editor_config` | Claude Code hook injection, Cursor `alwaysApply` |
 | Phantom Gyp attacks | `binding_gyp` | `binding.gyp` without native code — stealth install hook |
+| Anti-analysis evasion | `prompt_injection` | [Gaslight](https://thehackernews.com/2026/06/new-gaslight-macos-malware-uses-prompt.html)-style fake system messages, CBRN refusal triggers, classification markings, legal threats designed to make AI security agents abort analysis |
 
 ---
 
@@ -84,7 +85,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 | Scanner | What it detects |
 |---|---|
-| `prompt_injection` | 34 regex patterns against source strings/comments/docstrings (AST-extracted). Multi-pass normalization strips hex/unicode/URL encoding and zero-width characters. |
+| `prompt_injection` | 55+ regex patterns against source strings/comments/docstrings (AST-extracted). Multi-pass normalization strips hex/unicode/URL encoding and zero-width characters. Includes anti-analysis evasion detection (Gaslight-style fake system messages, resource exhaustion claims, classification/legal threats, emotional coercion), CBRN refusal-trigger shield detection, and a `strip_cbrn_shield()` preprocessor for safe AI-agent analysis of weaponized content. |
 | `git_message` | Instruction-override payloads in commit messages, PR templates, and issue templates targeting AI code review bots |
 | `ci_ai_bot` | `${{ github.event.* }}` flowing into AI tool invocations in workflows — the [Clinejection](https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/) pattern |
 | `mcp_scanner` | MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed): tool shadowing, credential leakage, missing TLS, domain spoofing, prompt injection in tool descriptions |

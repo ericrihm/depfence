@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "depfence"
-version = "0.6.0"
+version = "0.7.0"
 description = "AI-aware dependency security scanner. 45 scanners: prompt injection detection, slopsquatting defense, MCP auditing, agent skill attack detection, fabricated-pin resolution, AI model security (pickle/GGUF SSTI/ONNX/TFLite), AI-BOM generation, supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, Docker, HuggingFace, and MCP ecosystems."
 readme = "README.md"
 license = "Apache-2.0"
