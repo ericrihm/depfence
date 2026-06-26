@@ -103,9 +103,11 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.agent_skill_scanner import AgentSkillScanner
     from depfence.scanners.android_manifest_scanner import AndroidManifestScanner
     from depfence.scanners.binding_gyp_scanner import BindingGypScanner
+    from depfence.scanners.cocoapods_hook_scanner import CocoaPodsHookScanner
     from depfence.scanners.dockerfile_scanner import DockerfileScanner
     from depfence.scanners.editor_config_scanner import EditorConfigScanner
     from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
+    from depfence.scanners.flutter_pubspec_scanner import FlutterPubspecScanner
     from depfence.scanners.git_message_scanner import GitMessageScanner
     from depfence.scanners.gradle_plugin_scanner import GradlePluginScanner
     from depfence.scanners.model_format_scanner import ModelFormatScanner
@@ -132,6 +134,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         GitMessageScanner(), PayloadBehaviorScanner(), ProtestwareScanner(),
         RubyLifecycleScanner(),
         GradlePluginScanner(), AndroidManifestScanner(),
+        CocoaPodsHookScanner(), FlutterPubspecScanner(),
         ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
         PromptInjectionScanner(), AgentSkillScanner(), McpScanner(),
         AiBomGenerator(),
