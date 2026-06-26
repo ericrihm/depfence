@@ -42,7 +42,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -e .
       - name: Self-scan
-        run: depfence scan . --format json --fail-on critical --no-fetch
+        # Scan source only — tests/ contains intentional malicious payloads
+        run: depfence scan depfence/ --format json --fail-on critical --no-fetch
 
   # Prove every pinned action SHA is a real commit (catches fabricated/typo pins
   # that a person or an LLM might write from memory). Resolves over the API —

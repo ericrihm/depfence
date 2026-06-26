@@ -69,6 +69,13 @@ _OFFICIAL_PREFIX_MAP: dict[str, str] = {
 # These are packages that are canonically published under a scope; an
 # unscoped package with the same bare name is confusing.
 # ---------------------------------------------------------------------------
+_WELL_KNOWN_UNSCOPED: set[str] = {
+    "chai", "cors", "express", "lodash", "minimatch", "mocha",
+    "yargs", "yargs-parser", "debug", "commander", "chalk",
+    "moment", "qs", "send", "serve-static", "http-errors",
+    "range-parser", "router", "diff", "node", "react",
+}
+
 _KNOWN_SCOPED_BARE_NAMES: set[str] = {
     # @angular
     "core", "common", "forms", "router", "compiler", "animations",
@@ -246,6 +253,8 @@ class ScopeScanner:
     ) -> Finding | None:
         """Rule 3 — unscoped package shares a bare name with a scoped package."""
         name = meta.pkg.name.lower()
+        if name in _WELL_KNOWN_UNSCOPED:
+            return None
         if name in all_scoped_bare:
             return Finding(
                 finding_type=FindingType.TYPOSQUAT,

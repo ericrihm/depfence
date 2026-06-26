@@ -207,12 +207,22 @@ async def test_scope_confusion_with_input_scoped_package(scanner):
 
 @pytest.mark.asyncio
 async def test_scope_confusion_with_known_static_name(scanner):
-    """'node' is in the static known-scoped-names set (@types/node) → flag."""
-    meta = _npm("node")
+    """'preset-env' is in the static known-scoped-names set (@babel/preset-env) → flag."""
+    meta = _npm("preset-env")
     findings = await scanner.scan([meta])
     confusion = [f for f in findings if f.metadata.get("check") == "scope_confusion"]
     assert len(confusion) == 1
     assert confusion[0].severity == Severity.LOW
+
+
+@pytest.mark.asyncio
+async def test_well_known_unscoped_not_flagged(scanner):
+    """Well-known unscoped packages like express, cors, chai should not trigger scope confusion."""
+    for name in ("express", "cors", "chai", "lodash", "minimatch", "yargs"):
+        meta = _npm(name)
+        findings = await scanner.scan([meta])
+        confusion = [f for f in findings if f.metadata.get("check") == "scope_confusion"]
+        assert len(confusion) == 0, f"{name} should not be flagged as scope confusion"
 
 
 @pytest.mark.asyncio
