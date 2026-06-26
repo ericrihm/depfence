@@ -1,34 +1,21 @@
 # depfence
 
-Static analysis for dependency and CI/CD supply chain security. Scans lockfiles, workflow files, Dockerfiles, Terraform configs, AI model files, and MCP server configurations — including attack classes that CVE-based scanners miss: prompt injection payloads, typosquatting variants LLMs hallucinate, fabricated version/SHA pins, Cordyceps-class CI/CD workflow attacks, and agent skill manipulation.
+Static analysis for dependency and CI/CD supply chain security. Catches attack classes that CVE-based scanners miss: prompt injection payloads, typosquatting variants LLMs hallucinate, fabricated SHA pins, Cordyceps-class CI/CD workflow attacks, MCP tool manipulation, and agent skill exploitation.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ericrihm/depfence/depfence.yml?branch=main&label=CI)](https://github.com/ericrihm/depfence/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Scanners: 78](https://img.shields.io/badge/scanners-78-orange)](docs/site/docs.html)
-[![Tests: 3331](https://img.shields.io/badge/tests-3331-brightgreen)](tests/)
+[![Scanners: 64](https://img.shields.io/badge/scanners-64-orange)](docs/site/docs.html)
+[![Tests: 3358](https://img.shields.io/badge/tests-3358-brightgreen)](tests/)
+
+<p align="center">
+  <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
+</p>
 
 ```bash
-pip install depfence
+git clone https://github.com/ericrihm/depfence && cd depfence
+pip install -e .
 depfence scan .
-```
-
-```
- depfence v0.7.0  scanning 6 packages across 1 lockfile + 1 workflow
-
- CRITICAL  .github/workflows/ci       fabricated_ref     SHA abc123def... resolves to no real commit (fabricated pin)
- CRITICAL  node_modules/jqwik-react   ansi_hiding        ANSI invisible text — content hidden from terminal but readable by AI
- CRITICAL  node_modules/jqwik-react   prompt_injection   Prompt injection hidden via ANSI escape: Instruction override
- CRITICAL  src/analytics.py           prompt_injection   Fake token/session exhaustion (anti-analysis evasion)
- CRITICAL  src/analytics.py           prompt_injection   Analysis abort instruction
- CRITICAL  jqwik-react                prompt_injection   Prompt injection in package.json description
- HIGH      @angulr/core 16.0.0        dependency_conf    Scoped package absent from public registry
- HIGH      @angulr/core 16.0.0        typosquat          Scope typosquat — '@angulr' resembles '@angular'
- HIGH      expresss 4.18.0            slopsquat          Possible slopsquat/typosquat of 'express'
- HIGH      src/analytics.py           prompt_injection   Base64 decode of embedded payload
- LOW       lodash 4.17.20             known_vuln         CVE-2021-23337  Command Injection
-
- 73 findings  (11 critical, 17 high, 15 medium, 30 low)
 ```
 
 ---
@@ -46,6 +33,7 @@ depfence scan .
 | AI model file threats | `model_format`, `model_integrity` | TFLite custom ops, GGUF chat template SSTI, pickle RCE |
 | Editor config injection | `editor_config` | Claude Code hook injection, Cursor `alwaysApply` |
 | Phantom Gyp attacks | `binding_gyp` | `binding.gyp` without native code — stealth install hook |
+| Protestware | `protestware` | Geofenced payloads, date-bombs, political messages in install hooks |
 | Anti-analysis evasion | `prompt_injection` | [Gaslight](https://thehackernews.com/2026/06/new-gaslight-macos-malware-uses-prompt.html)-style fake system messages, CBRN refusal triggers, classification markings, legal threats designed to make AI security agents abort analysis |
 
 ---
@@ -53,26 +41,21 @@ depfence scan .
 ## Architecture
 
 ```
-lockfile detection → metadata fetch → scanner execution → enrichment
-                                          │
-                              ┌───────────┴───────────┐
+lockfile detection -> metadata fetch -> scanner execution -> enrichment
+                                            |
+                              +-------------+-------------+
                      entry-point scanners      project scanners
-                     (42, via pip registry)    (36, filesystem-based)
-                              │                       │
+                     (42, via pip registry)    (22, filesystem-based)
+                              |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
                                                 Dockerfiles, .tf, etc.)
 ```
 
 1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`.
-
-2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc. Populates maintainers, download counts, repository URLs, license, install scripts.
-
-3. **Scanner execution** — two scanner types run concurrently:
-   - **Entry-point scanners** (42): loaded via pip entry points. Each implements `async def scan(self, packages: list[PackageMeta]) -> list[Finding]`.
-   - **Project scanners** (36): scan files directly — workflow YAML, Dockerfiles, Terraform, secrets, model files, MCP configs, editor configs, and SHA resolution.
-
-4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis augment findings for triage.
+2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
+3. **Scanner execution** — 42 entry-point scanners + 22 project scanners run concurrently.
+4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
 
@@ -84,9 +67,10 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-42 entry-point scanners + 36 project scanners. Some serve both roles.
+42 entry-point scanners + 22 project scanners. Some serve both roles.
 
-### Prompt injection and AI safety
+<details>
+<summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -97,7 +81,10 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `mcp_fingerprint` | Schema fingerprinting for MCP rug-pull attacks (servers that change tool definitions after initial approval) |
 | `agent_skill` | External instruction fetch directives (NLP + URL analysis), domain spoofing via Levenshtein similarity against 50+ services, deferred payload bait-and-switch via content hash fingerprinting, suspicious hosting. Covers the [brand-landingpage](https://thehackernews.com/2026/06/fake-ai-agent-skill-passed-security.html) attack. |
 
-### AI/ML model security
+</details>
+
+<details>
+<summary><strong>AI/ML model security</strong> (7 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -107,23 +94,29 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `ai_vulns` | LangChain RCE vectors, `trust_remote_code=True`, `eval(response)`, unsafe deserialization |
 | `ai_bom` | Inventory: model files (.safetensors, .bin, .pkl, .pt, .onnx, .gguf), MCP configs, AI framework packages |
 | `docker_layer` | Prompt injection payloads and metadata exfiltration in Dockerfile labels, ENV, ARG, entrypoint |
-| `slopsquat` | Composite similarity scoring: Levenshtein (≤2), character confusion (l/1, O/0, rn/m), QWERTY adjacency, prefix/suffix manipulation against curated popular-package lists |
+| `slopsquat` | Composite similarity scoring: Levenshtein (<=2), character confusion (l/1, O/0, rn/m), QWERTY adjacency, prefix/suffix manipulation against curated popular-package lists |
 
-### Editor config injection and build hooks
+</details>
+
+<details>
+<summary><strong>Editor config injection and build hooks</strong> (2 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
 | `editor_config` | Claude Code `SessionStart` hook injection, Gemini CLI hooks, Cursor `alwaysApply` prompt injection, VS Code `runOn: folderOpen` auto-run tasks, suspicious `.github/setup.*` scripts, backdated config-only commits with `[skip ci]` |
 | `binding_gyp` | Phantom Gyp: `binding.gyp` without native C/C++ source — stealth `npm install` code execution that bypasses standard hook detection |
 
-### Supply chain
+</details>
+
+<details>
+<summary><strong>Supply chain</strong> (13 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
 | `preinstall` | AST-level install script analysis: pipe-to-shell, credential theft, exfiltration patterns. Phantom Gyp cross-reference. |
 | `payload_behavior` | Credential harvesting (`.aws/credentials`, `.kube/config`, `.npmrc`), destructive sinks, decode-then-execute, exfil co-location, env-token scraping, identity-forge patterns |
 | `dep_confusion` | Private registry misconfiguration enabling namespace hijacking |
-| `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`) |
+| `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`). Well-known unscoped packages (express, lodash, react, etc.) are allowlisted to prevent false positives. |
 | `ownership` | Maintainer takeovers and version-order anomalies |
 | `provenance` | High-value packages missing SLSA build attestations |
 | `provenance_checker` | SLSA/Sigstore attestation signature verification for npm and PyPI |
@@ -131,9 +124,13 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `obfuscation` | Base64-exec, hex/charcode encoding, high-entropy strings, ANSI content hiding, large (>4MB) staged decryption (ROT/charcode + AES-128-GCM) |
 | `network` | Hardcoded IPs, mining pool domains, webhook exfiltration URLs, DNS tunneling indicators |
 | `reputation` | Low-trust heuristics: age < 30 days, no source repo, single maintainer |
+| `protestware` | Geofencing by locale/timezone, date-bomb conditions, political/protest messages in install hooks, conditional payload delivery based on geography |
 | `ruby_lifecycle` | Malicious Ruby build/install files: `extconf.rb`, `Rakefile`, `*.gemspec` exec/exfil patterns (backticks, `%x{}`, `system`, `eval`, dangerous requires, download-piped-to-sh, ENV token+net combos) |
 
-### Vulnerabilities
+</details>
+
+<details>
+<summary><strong>Vulnerabilities</strong> (3 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -141,7 +138,10 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `npm_advisory` | npm-specific advisories from GitHub Advisory Database |
 | `pypi_advisory` | PyPI-specific advisories from GitHub Advisory Database |
 
-### CI/CD and infrastructure
+</details>
+
+<details>
+<summary><strong>CI/CD and infrastructure</strong> (7 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -154,7 +154,10 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `secrets` | Regex patterns for AWS keys, GitHub PATs, private keys, Stripe tokens, DB connection strings |
 | `ci_secrets` | CI secret exposure correlated with suspicious package behavior |
 
-### Compliance and hygiene
+</details>
+
+<details>
+<summary><strong>Compliance and hygiene</strong> (5 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -164,12 +167,17 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `freshness` | Packages with no release in 2+ years |
 | `pinning` | Unpinned versions, wildcard ranges, missing lockfiles |
 
-### Enrichment (not scanners)
+</details>
+
+<details>
+<summary><strong>Enrichment</strong> (not scanners)</summary>
 
 - **EPSS** — Exploit Prediction Scoring System probability on every CVE finding
 - **CISA KEV** — Known Exploited Vulnerabilities catalog flag
 - **Risk scoring** — composite A-F grades from EPSS + KEV + CVSS + reachability + Scorecard
 - **SBOM** — CycloneDX 1.5 and SPDX 2.3
+
+</details>
 
 ---
 
@@ -205,6 +213,13 @@ Once published to PyPI: `pip install depfence` / `pipx install depfence`.
 
 Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13. No native dependencies.
 
+### Docker
+
+```bash
+docker build -t depfence .
+docker run --rm -v "$(pwd):/project" depfence scan /project
+```
+
 ---
 
 ## Usage
@@ -220,7 +235,8 @@ depfence fix . --apply           # auto-fix vulnerable dependencies
 depfence init .                  # generate CI workflow + pre-commit hook + policy config
 ```
 
-### Targeted scans
+<details>
+<summary><strong>Targeted scans</strong></summary>
 
 ```bash
 depfence ai-scan .               # prompt injection + slopsquatting + model threats
@@ -235,7 +251,10 @@ depfence secrets scan .          # secrets scanning
 depfence secrets scan . --history  # including git history
 ```
 
-### SBOM and compliance
+</details>
+
+<details>
+<summary><strong>SBOM and compliance</strong></summary>
 
 ```bash
 depfence sbom . -o sbom.json                       # CycloneDX 1.5
@@ -245,7 +264,10 @@ depfence license-scan .                             # license compliance
 depfence compliance . -o compliance.html            # full compliance report
 ```
 
-### Analysis and triage
+</details>
+
+<details>
+<summary><strong>Analysis and triage</strong></summary>
 
 ```bash
 depfence risk-score .            # composite A-F risk grades
@@ -262,7 +284,10 @@ depfence summary .               # findings summary
 depfence info lodash npm         # package metadata
 ```
 
-### Operations
+</details>
+
+<details>
+<summary><strong>Operations</strong></summary>
 
 ```bash
 depfence watch . --interval 30   # auto-scan on lockfile change
@@ -279,6 +304,8 @@ depfence cache clear             # clear metadata cache
 depfence doctor                  # diagnostics
 depfence plugins                 # list loaded scanners
 ```
+
+</details>
 
 ---
 
@@ -361,7 +388,8 @@ jobs:
 
 </details>
 
-### Pre-commit hook
+<details>
+<summary>Pre-commit hook</summary>
 
 ```yaml
 # .pre-commit-config.yaml
@@ -372,7 +400,10 @@ repos:
       - id: depfence
 ```
 
-### GitLab CI
+</details>
+
+<details>
+<summary>GitLab CI</summary>
 
 ```yaml
 depfence:
@@ -386,6 +417,8 @@ depfence:
       dependency_scanning: depfence.json
     when: always
 ```
+
+</details>
 
 ---
 
@@ -421,19 +454,20 @@ ignore:
 
 Generate a starter config with `depfence init .`.
 
-### Inline suppression
+<details>
+<summary>Inline suppression and baselines</summary>
 
 ```python
 import lodash  # depfence:ignore[CVE-2021-23337] -- not reachable via our import path
 ```
-
-### Baseline management
 
 ```bash
 depfence baseline . --create     # snapshot current findings
 depfence baseline . --show       # list baselined findings
 depfence scan .                  # automatically filters baselined findings
 ```
+
+</details>
 
 ### Exit codes
 
@@ -514,10 +548,6 @@ my_scanner = "my_package.scanner:MyScanner"
 
 Project-level scanners use `async def scan_project(self, project_dir: Path) -> list[Finding]` instead.
 
-```bash
-depfence plugins   # verify loaded scanners
-```
-
 ---
 
 ## Limitations
@@ -532,7 +562,8 @@ depfence plugins   # verify loaded scanners
 - Not yet published on PyPI. Install from source until the first release is published.
 - The GitHub Action (`action.yml`) will be available as `uses: ericrihm/depfence@v1` after the first release tag.
 
-### False positive expectations
+<details>
+<summary>False positive expectations</summary>
 
 Authoritative-source scanners (`resolve_existence`, `version_existence`, `osv`, `npm_advisory`, `pypi_advisory`) have zero expected false positives.
 
@@ -546,6 +577,8 @@ Authoritative-source scanners (`resolve_existence`, `version_existence`, `osv`, 
 | `agent_skill` | Legitimate tools referencing external documentation or lesser-known domains | `depfence:ignore` |
 | `payload_behavior` | Build scripts with legitimate credential-store access patterns | `depfence:ignore` |
 
+</details>
+
 ---
 
 ## When to use something else
@@ -553,9 +586,9 @@ Authoritative-source scanners (`resolve_existence`, `version_existence`, `osv`, 
 - **CVE/advisory scanning only**: Dependabot, Snyk, or Grype have larger advisory databases.
 - **Runtime behavioral analysis** (sandboxed execution): depfence is purely static.
 - **Container image scanning** (not just Dockerfile linting): Trivy or Grype.
-- **SAST** (vulnerabilities in your own code): semgrep or CodeQL.
+- **SAST** (vulnerabilities in your own code): Semgrep or CodeQL.
 
-depfence covers the gap: AI-specific supply chain threats, fabricated pins, prompt injection in dependencies, agent skill manipulation, and CI/CD workflow security.
+depfence covers the gap between these tools: AI-specific supply chain threats, fabricated pins, prompt injection in dependencies, agent skill manipulation, and CI/CD workflow security that no other scanner detects.
 
 ---
 
@@ -569,7 +602,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3,331 tests across 121 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+3,358 tests across 122 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
@@ -577,7 +610,7 @@ pytest
 depfence/          ~44K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        45 scanner modules (42 entry-point, 36 project)
+  scanners/        46 scanner modules (42 entry-point, 22 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
@@ -591,7 +624,7 @@ depfence/          ~44K LOC
 - [Contributing guide](CONTRIBUTING.md) — how to add scanners, run tests, submit PRs
 - [Security policy](SECURITY.md) — report vulnerabilities via [GitHub security advisory](https://github.com/ericrihm/depfence/security/advisories/new)
 - [Issue templates](https://github.com/ericrihm/depfence/issues/new/choose) — bug reports, false positives, feature requests
-- [Benchmark](https://ericrihm.github.io/depfence/benchmark.html) — how depfence compares to Snyk, Trivy, Grype, Semgrep, and Socket.dev
+- [Changelog](https://github.com/ericrihm/depfence/releases) — release history
 
 ---
 
