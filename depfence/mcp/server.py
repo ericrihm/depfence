@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "depfence"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.8.0"
 
 # Tool definitions — used for tools/list response
 TOOL_DEFINITIONS: list[dict[str, Any]] = [

@@ -5,7 +5,7 @@ priority — until then anyone could register the name and ship a look-alike.
 
 Current state (verified locally):
 
-- `python -m build` produces `dist/depfence-0.5.0.tar.gz` + `depfence-0.5.0-py3-none-any.whl`.
+- `python -m build` produces `dist/depfence-0.8.0.tar.gz` + `depfence-0.8.0-py3-none-any.whl`.
 - `twine check dist/*` → **PASSED** (both artifacts).
 - A clean install of the wheel exposes working `depfence`, `depfence scan`, and
   `depfence-mcp` entry points; metadata carries all four `project.urls`.
@@ -19,7 +19,7 @@ done by you. Two paths below.
 
 ## Path A — Claim the name now with an API token (fastest)
 
-Use this to grab `depfence` and ship 0.5.0 in one shot.
+Use this to grab `depfence` and ship 0.8.0 in one shot.
 
 1. Create/sign in to a PyPI account at <https://pypi.org/account/register/> and enable 2FA.
 2. Create an API token: **Account settings → API tokens → Add token**. For the very
@@ -62,7 +62,7 @@ one, or switch entirely to Path B for future releases.
      Publishing → Add a trusted publisher** with the same values.
 2. In GitHub: **Settings → Environments → New environment** named `pypi`
    (add reviewers/branch protection if you want a manual gate before release).
-3. Cut a release: tag and publish a GitHub Release (e.g. `v0.5.0`). The `publish`
+3. Cut a release: tag and publish a GitHub Release (e.g. `v0.8.0`). The `publish`
    job builds, then `pypa/gh-action-pypi-publish` uploads via OIDC — no token.
 
 ---

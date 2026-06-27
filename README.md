@@ -45,7 +45,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
                                             |
                               +-------------+-------------+
                      entry-point scanners      project scanners
-                     (44, via pip registry)    (44, filesystem-based)
+                     (53, via pip registry)    (32, filesystem-based)
                               |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -54,7 +54,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
 
 1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, `libs.versions.toml`.
 2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
-3. **Scanner execution** — 44 entry-point scanners + 44 project scanners run concurrently.
+3. **Scanner execution** — 53 entry-point scanners + 32 project scanners run concurrently.
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
@@ -67,7 +67,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-44 entry-point scanners + 44 project scanners. 56 scanner files total — many serve both roles.
+53 entry-point scanners + 32 project scanners. 56 scanner files total — many serve both roles.
 
 <details>
 <summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
@@ -222,6 +222,20 @@ pip install -e ".[ml]"                # with scikit-learn behavioral scoring
 Once published to PyPI: `pip install depfence` / `pipx install depfence`.
 
 Python 3.10+. Tested on 3.10, 3.11, 3.12, 3.13. No native dependencies.
+
+### AI coding assistants
+
+**Claude Code** — add the MCP server for inline security checks:
+```bash
+claude mcp add depfence -- depfence-mcp serve
+```
+Or add to your project's `.claude/settings.json`:
+```json
+{ "mcpServers": { "depfence": { "command": "depfence-mcp", "args": ["serve"] } } }
+```
+Slash commands (`/depfence`, `/depfence-check`) are available in projects that include depfence's `.claude/commands/` directory.
+
+**Codex** — copy `docs/AGENTS.md` to `.codex/AGENTS.md` in your project for automatic pre-install checks.
 
 ### Docker
 
@@ -621,7 +635,7 @@ pytest
 depfence/          ~46K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        56 scanner modules (44 entry-point, 44 project)
+  scanners/        56 scanner modules (53 entry-point, 32 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook

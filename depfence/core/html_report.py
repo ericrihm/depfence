@@ -5,9 +5,8 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
+from depfence import __version__
 from depfence.core.models import Finding, FindingType, ScanResult, Severity
-
-__version__ = "0.3.0"
 
 # ---------------------------------------------------------------------------
 # Display configuration
