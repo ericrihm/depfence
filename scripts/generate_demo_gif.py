@@ -5,8 +5,9 @@ Design principle: each frame communicates ONE idea. Hold long enough to read.
 6 frames, ~10s total. Every frame earns its screen time.
 """
 
-from PIL import Image, ImageDraw, ImageFont
 import os
+
+from PIL import Image, ImageDraw, ImageFont
 
 # ── palette (Dracula) ──────────────────────────────────────────────────────
 BG       = (25,  26,  32)

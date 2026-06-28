@@ -103,9 +103,9 @@ class PythonBuildScanner:
                 package=PackageId("pypi", pkg_name),
                 title=f"PY-01: cmdclass override in {rel}",
                 detail=(
-                    f"setup.py uses cmdclass to override build/install commands. "
-                    f"This executes arbitrary Python code during `pip install`. "
-                    f"This is the same mechanism used in the xz-utils backdoor."
+                    "setup.py uses cmdclass to override build/install commands. "
+                    "This executes arbitrary Python code during `pip install`. "
+                    "This is the same mechanism used in the xz-utils backdoor."
                 ),
                 metadata={"file": str(rel), "rule": "PY-01"},
             ))

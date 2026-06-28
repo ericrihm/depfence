@@ -2,6 +2,22 @@
 
 All notable changes to depfence are documented here.
 
+## [0.8.0] - 2026-06-28
+
+### Added
+
+- `CITATION.cff` for standardized software citation (GitHub "Cite this repository" support).
+- `.zenodo.json` metadata for Zenodo DOI archival.
+
+### Changed
+
+- Author attribution updated to Eric Rihm (was "depfence contributors").
+- Scanner count updated to 56 across project metadata.
+
+### Removed
+
+- `.mcp.json` removed from version control (internal MCP configuration).
+
 ## [0.7.0] - 2026-06-26
 
 ### Added

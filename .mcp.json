@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "depfence": {
-      "command": "depfence-mcp",
-      "args": ["serve"]
-    }
-  }
-}

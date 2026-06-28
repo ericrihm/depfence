@@ -38,6 +38,23 @@ depfence scan .
 
 ---
 
+## Research contribution
+
+Existing dependency scanners (Snyk, Dependabot, OSV-Scanner, Grype) focus on known CVEs in package version databases. depfence addresses a different threat model: attacks that exploit the AI-assisted development pipeline itself.
+
+**Novel attack classes covered by depfence that no CVE scanner detects:**
+
+- **Slopsquatting** — packages named after hallucinated recommendations from large language models. depfence maintains a detection heuristic that flags typosquats matching patterns LLMs are known to fabricate.
+- **Anti-analysis evasion** — malware that uses fabricated system messages, CBRN refusal triggers, and legal threats to trick AI security agents into aborting analysis ([Gaslight technique](https://thehackernews.com/2026/06/new-gaslight-macos-malware-uses-prompt.html), DPRK attribution).
+- **MCP tool manipulation** — tool shadowing, rug-pull attacks, and credential leakage in Model Context Protocol configurations across Claude Desktop, Cursor, VS Code, Windsurf, and Zed.
+- **Agent skill attacks** — external instruction fetch, domain spoofing, and deferred payload delivery targeting autonomous AI agents.
+- **Fabricated pin verification** — SHA pins and version numbers that don't exist in any registry, often hallucinated by coding assistants into CI workflows.
+- **Cordyceps-class CI/CD attacks** — `workflow_run` privilege escalation and `issue_comment` TOCTOU races in GitHub Actions.
+
+depfence operates entirely via static analysis — no package code is executed, no source code leaves the local machine. All 56 scanners run concurrently with async metadata fetching across 14 package ecosystems.
+
+---
+
 ## Architecture
 
 ```

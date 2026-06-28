@@ -69,9 +69,9 @@ class FlutterPubspecScanner:
             package=PackageId("dart", str(rel)),
             title=f"FL-01: dependency_overrides in {rel}",
             detail=(
-                f"dependency_overrides bypass pub's version resolution. "
-                f"The actual version used may differ from what the lockfile shows. "
-                f"This can hide vulnerable or malicious versions."
+                "dependency_overrides bypass pub's version resolution. "
+                "The actual version used may differ from what the lockfile shows. "
+                "This can hide vulnerable or malicious versions."
             ),
             metadata={"file": str(rel), "rule": "FL-01"},
         )]

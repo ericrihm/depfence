@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
-    {name = "depfence contributors"}
+    {name = "Eric Rihm"}
 ]
 keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom", "prompt-injection", "mcp", "ai-safety", "slopsquatting"]
 classifiers = [

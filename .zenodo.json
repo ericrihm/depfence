@@ -1,0 +1,35 @@
+{
+  "title": "depfence: AI-aware dependency security scanner",
+  "description": "AI-aware dependency security scanner with 56 scanners covering prompt injection detection, slopsquatting defense, MCP auditing, agent skill attack detection, AI model security (pickle, GGUF SSTI, ONNX, TFLite), supply chain attack detection, and SBOM generation (CycloneDX, SPDX, SARIF) for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift, Dart, Docker, HuggingFace, and MCP ecosystems.",
+  "creators": [
+    {
+      "name": "Rihm, Eric",
+      "affiliation": "Independent Security Researcher"
+    }
+  ],
+  "license": {
+    "id": "Apache-2.0"
+  },
+  "version": "0.8.0",
+  "publication_date": "2026-06-28",
+  "upload_type": "software",
+  "access_right": "open",
+  "keywords": [
+    "cybersecurity",
+    "supply-chain-security",
+    "ai-safety",
+    "prompt-injection",
+    "dependency-scanner",
+    "mcp-auditing",
+    "slopsquatting",
+    "sbom",
+    "software-composition-analysis"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/ericrihm/depfence",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

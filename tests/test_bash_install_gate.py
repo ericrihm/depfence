@@ -10,17 +10,12 @@ Typosquat ground truth (verified against the detector's popular lists):
 
 from __future__ import annotations
 
-import os
-
-import pytest
-
 from depfence.integrations.bash_install_gate import (
     _extract_packages,
     _scan_command,
     _strip_version,
     main,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

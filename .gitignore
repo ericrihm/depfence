@@ -27,6 +27,9 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# MCP config
+.mcp.json
+
 # Internal extensions
 depfence/_private/
 flaky_diagnosis.md

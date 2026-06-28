@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from depfence.integrations import secrets_leak_detector as hook
 
 # ---------------------------------------------------------------------------

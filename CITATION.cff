@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "depfence"
+abstract: >-
+  AI-aware dependency security scanner with 56 scanners covering prompt
+  injection detection, slopsquatting defense, MCP auditing, agent skill
+  attack detection, AI model security, supply chain attack detection,
+  and SBOM generation for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems,
+  Composer, Swift, Dart, Docker, HuggingFace, and MCP ecosystems.
+authors:
+  - family-names: "Rihm"
+    given-names: "Eric"
+version: "0.8.0"
+date-released: "2026-06-26"
+license: Apache-2.0
+url: "https://github.com/ericrihm/depfence"
+repository-code: "https://github.com/ericrihm/depfence"
+keywords:
+  - security
+  - supply-chain
+  - ai-safety
+  - prompt-injection
+  - mcp
+  - sbom
+  - dependency-scanner
+  - slopsquatting
