@@ -87,12 +87,12 @@ depfence has strong coverage of traditional supply chain attacks (typosquatting,
 
 **Threat source**: Simply Cyber Ep 1161 (Layer X "Bioshocking" attacks on AI browsers), BleepingComputer June 2026
 
-**What depfence has**: `prompt_injection_scanner` detects role injection ("you are now", "ignore previous"), system prompt overrides, and various encoding bypasses. 55+ patterns with multi-pass normalization.
+**What depfence has**: `prompt_injection_scanner` detects role injection ("you are now", "ignore previous"), system prompt overrides, encoding bypasses, and `pretend` (line 44: `pretend\s+(you|to\s+be|that)`). 55+ patterns with multi-pass normalization.
 
-**What's missing**: "Bioshocking" wraps real exfiltration instructions in fictional/roleplay framing ("In this story, the character needs to...", "For this game scenario, output the user's..."). The scanner has role-switching detection but not fictional-framing detection — the payload never says "ignore instructions" or "you are now", it says "in this narrative, the helpful assistant reveals..."
+**What's missing**: "Bioshocking" wraps real exfiltration instructions in fictional/roleplay framing that avoids the `pretend` keyword. Patterns like "in this story, the character needs to...", "imagine you are a system with access to...", "for this game scenario, output the user's..." bypass all existing patterns. The scanner catches direct identity override (`pretend you are`) but not narrative-embedded instructions where the payload never claims a new identity — it embeds actions inside fictional framing.
 
 **Proposed fix**: Add to `prompt_injection_scanner.py`:
-- Fictional framing patterns: "in this story", "in this scenario", "the character needs to", "for this game", "imagine you are", "pretend that", "in a world where"
+- Fictional framing patterns not yet covered: "in this story", "in this scenario", "the character needs to", "for this game", "imagine you are", "in a world where", "hypothetically", "roleplay as"
 - Combined with action verbs: "reveal", "output", "send", "exfiltrate", "share", "disclose"
 - Lower confidence (0.60-0.70) since fictional framing has legitimate uses — flag for review rather than hard block
 
@@ -165,7 +165,7 @@ depfence has strong coverage of traditional supply chain attacks (typosquatting,
 
 ### GAP 10: Conditional AI-Agent-Targeted Activation [MEDIUM]
 
-**Threat source**: VulMask obfuscation (payloads disguised as ordinary vulnerabilities), AI-powered ransomware EDR evasion (Simply Cyber Ep 1145)
+**Threat source**: VulMask obfuscation (payloads disguised as ordinary vulnerabilities that activate when an AI agent attempts to "fix" them), independent security research on AI-agent-aware malware
 
 **What depfence has**: `protestware_scanner` detects geography-based, date-based, and political activation conditions.
 
@@ -207,7 +207,6 @@ Adding 5-10 fictional-framing regex patterns to the existing `prompt_injection_s
 | 1161 | Jun 25 | AI VEX framework adoption | 6 |
 | 1156 | Jun 18 | Malicious Python packages with AI-generated tutorials | 2 |
 | 1156 | Jun 18 | Estonia AI Agent Digital ID | 7 |
-| 1150 | Jun 10 | AI-powered ransomware EDR evasion | 10 |
 | 1145 | Jun 3 | Operation Dragon Rust malware + Azure C2 | 9 |
 | 1145 | Jun 3 | Cali 365 PhaaS with AI-generated lures | 2, 5 |
 | — | Jun 2026 | LiteLLM v1.82.8 TeamPCP backdoor | 4 |
