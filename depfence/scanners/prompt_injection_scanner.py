@@ -317,6 +317,74 @@ class PromptInjectionScanner:
     name = "prompt_injection_scanner"
     ecosystems = ["pypi", "npm", "cargo", "go"]
 
+    def scan_text(self, text: str, source: str = "unknown") -> list[Finding]:
+        """Scan arbitrary text for prompt injection patterns.
+
+        Reuses _INJECTION_PATTERNS and _normalize_for_matching() — same
+        detection logic as file/package scanning, adapted for raw text
+        (email bodies, subject lines, chat messages, etc.).
+
+        Args:
+            text: Raw text to scan.
+            source: Identifier for the text origin (e.g. "email:sender@example.com").
+
+        Returns:
+            List of Finding objects for each detected pattern.
+        """
+        if not text or len(text) < 5:
+            return []
+
+        findings: list[Finding] = []
+        pkg = PackageId(ecosystem="email", name=source)
+        normalized = _normalize_for_matching(text)
+        seen: set[str] = set()
+
+        for pattern, label, severity in _INJECTION_PATTERNS:
+            if label in seen:
+                continue
+            match = pattern.search(normalized)
+            if match:
+                seen.add(label)
+                findings.append(Finding(
+                    finding_type=FindingType.PROMPT_INJECTION,
+                    severity=severity,
+                    package=pkg,
+                    title=f"Prompt injection in text: {label}",
+                    detail=f"Source '{source}': matched '{match.group()[:200]}'",
+                    cwe="CWE-77",
+                    references=[
+                        "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+                    ],
+                    confidence=0.80,
+                    metadata={
+                        "source": source,
+                        "matched_pattern": label,
+                        "matched_text": match.group()[:200],
+                    },
+                ))
+
+        # Check hiding patterns on raw bytes
+        try:
+            raw = text.encode("utf-8")
+            for pattern, label, severity in _HIDING_PATTERNS:
+                if label in seen:
+                    continue
+                if pattern.search(raw):
+                    seen.add(label)
+                    findings.append(Finding(
+                        finding_type=FindingType.ANSI_HIDING,
+                        severity=severity,
+                        package=pkg,
+                        title=f"Hidden content in text: {label}",
+                        detail=f"Source '{source}' contains {label}",
+                        cwe="CWE-116",
+                        metadata={"source": source, "technique": label},
+                    ))
+        except UnicodeEncodeError:
+            pass
+
+        return findings
+
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
         """Scan package metadata descriptions for injection language."""
         findings: list[Finding] = []
