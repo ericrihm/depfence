@@ -48,7 +48,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install depfence
-        run: pip install depfence
+        run: pip install .
 
       - name: Run dependency security scan
         run: depfence scan . --format sarif -o results.sarif
