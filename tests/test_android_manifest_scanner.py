@@ -84,7 +84,7 @@ class TestManifestPermissions:
         libs = _make_android_project(tmp_path)
         make_aar(libs / "shady-analytics.aar", manifest=MANIFEST_SMS)
         findings = run(scanner.scan_project(tmp_path))
-        am01 = [f for f in am01 if "AM-01" in f.title] if False else [f for f in findings if "AM-01" in f.title]
+        am01 = [f for f in findings if "AM-01" in f.title]
         sms = [f for f in am01 if "SMS" in f.detail]
         assert len(sms) == 2
         assert all(f.severity.value == "high" for f in sms)
