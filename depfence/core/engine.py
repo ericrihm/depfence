@@ -65,6 +65,8 @@ async def _run_scanners(
             continue
         if skip.get(name, False):
             continue
+        if not hasattr(scanner, 'scan') or not hasattr(scanner, 'ecosystems'):
+            continue
         relevant = [m for m in metas if m.pkg.ecosystem in scanner.ecosystems]
         if relevant:
             tasks.append(scanner.scan(relevant))

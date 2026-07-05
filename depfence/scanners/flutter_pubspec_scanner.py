@@ -38,6 +38,7 @@ _HOSTED_DEP = re.compile(
 
 
 class FlutterPubspecScanner:
+    ecosystems = ["dart"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for pubspec in self._find_pubspecs(project_dir):

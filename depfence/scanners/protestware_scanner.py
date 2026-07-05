@@ -158,6 +158,7 @@ _ALL_PATTERNS = (
 
 
 class ProtestwareScanner:
+    ecosystems = ["npm", "pypi"]
     name = "protestware"
 
     async def scan_project(self, root: Path) -> list[Finding]:

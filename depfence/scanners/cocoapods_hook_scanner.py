@@ -56,6 +56,7 @@ _PODFILE_DANGEROUS = [
 
 
 class CocoaPodsHookScanner:
+    ecosystems = ["cocoapods"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         findings.extend(self._scan_podspecs(project_dir))

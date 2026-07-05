@@ -42,7 +42,7 @@ class TestAntiAnalysisEvasion:
         f = self.tmp / f"malware{ext}"
         f.write_text(content)
         import asyncio
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             self.scanner.scan_project(self.tmp)
         )
 

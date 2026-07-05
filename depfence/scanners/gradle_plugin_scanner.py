@@ -79,6 +79,7 @@ _PKG = PackageId(ecosystem="gradle", name="build-config", version=None)
 
 
 class GradlePluginScanner:
+    ecosystems = ["maven"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         findings.extend(self._scan_settings_gradle(project_dir))

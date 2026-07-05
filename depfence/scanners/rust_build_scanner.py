@@ -57,6 +57,7 @@ _SUSPICIOUS_BUILD_DEPS = {"reqwest", "hyper", "ureq", "curl", "attohttpc", "minr
 
 
 class RustBuildScanner:
+    ecosystems = ["cargo"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for build_rs in project_dir.rglob("build.rs"):

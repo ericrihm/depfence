@@ -72,6 +72,7 @@ _STANDARD_BACKENDS = {
 
 
 class PythonBuildScanner:
+    ecosystems = ["pypi"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for setup_py in project_dir.rglob("setup.py"):

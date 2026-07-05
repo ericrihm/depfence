@@ -46,6 +46,7 @@ _SHELL_COMMAND_PATTERN = re.compile(r'^(?:@?php\s|rm\s|cp\s|mv\s|chmod\s|curl\s|
 
 
 class ComposerScriptScanner:
+    ecosystems = ["composer"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for composer_json in project_dir.rglob("composer.json"):

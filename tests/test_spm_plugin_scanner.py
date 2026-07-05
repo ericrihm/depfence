@@ -15,7 +15,7 @@ def scanner():
 
 
 def run(scanner, project_dir):
-    return asyncio.get_event_loop().run_until_complete(scanner.scan_project(project_dir))
+    return asyncio.run(scanner.scan_project(project_dir))
 
 
 class TestBuildToolPlugin:

@@ -46,6 +46,7 @@ _KNOWN_SAFE_GENERATORS = {
 
 
 class GoGenerateScanner:
+    ecosystems = ["go"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for go_file in project_dir.rglob("*.go"):

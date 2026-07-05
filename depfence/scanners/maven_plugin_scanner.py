@@ -78,6 +78,7 @@ _TRUSTED_REPO_PREFIXES = {
 
 
 class MavenPluginScanner:
+    ecosystems = ["maven"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for pom in project_dir.rglob("pom.xml"):

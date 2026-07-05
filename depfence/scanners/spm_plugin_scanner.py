@@ -72,6 +72,7 @@ _NETWORK_CALLS = re.compile(
 
 
 class SpmPluginScanner:
+    ecosystems = ["spm"]
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
         for pkg_swift in project_dir.rglob("Package.swift"):

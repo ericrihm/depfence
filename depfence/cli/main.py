@@ -910,6 +910,8 @@ def diff_scan(path: str, fmt: str, fail_on: str, mode_git: bool, mode_ci: bool, 
     async def _run_scanners() -> list[Finding]:
         tasks = []
         for scanner in registry.scanners.values():
+            if not hasattr(scanner, 'scan') or not hasattr(scanner, 'ecosystems'):
+                continue
             relevant = [m for m in metas if m.pkg.ecosystem in scanner.ecosystems]
             if relevant:
                 tasks.append(scanner.scan(relevant))

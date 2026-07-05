@@ -89,6 +89,8 @@ _SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__", "build", "
 
 
 class AndroidManifestScanner:
+    ecosystems = ["android"]
+
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         findings: list[Finding] = []
 
