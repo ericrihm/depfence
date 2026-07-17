@@ -8,10 +8,10 @@ Static analysis for dependency and CI/CD supply chain security. Catches attack c
 [![Scanners: 56](https://img.shields.io/badge/scanners-56-orange)](docs/site/docs.html)
 [![Tests: 3631](https://img.shields.io/badge/tests-3631-brightgreen)](tests/)
 
-<p align="center">
+<!-- <p align="center">
   <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
 </p>
-
+--> 
 ```bash
 git clone https://github.com/ericrihm/depfence && cd depfence
 pip install -e .
