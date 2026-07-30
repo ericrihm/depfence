@@ -157,6 +157,17 @@ claim_path() {
     [ -f "$file" ] || continue
     _paragraphs "$file" | while IFS= read -r rec; do
       _exempt_line "$rec" && continue
+      # A GUARDED PROBE IS NOT A CITATION. A record containing a POSIX existence test is
+      # checking whether a path is there, which is the CORRECT portable idiom — e.g.
+      # `for b in /home/linuxbrew/.linuxbrew/bin /opt/homebrew/bin; do [ -d "$b" ] && ...`.
+      # Flagging it would penalise the very pattern that fixes the foreign-host defect and
+      # push authors back to hardcoding one machine's layout.
+      # THE COST, stated because it is real: this exempts every path in that record, so a
+      # genuine bad citation sharing a paragraph with an existence test is missed. That is
+      # the deliberate trade — a checker that fires on its own remedy gets routed around.
+      case "$rec" in
+        *'[ -d '*|*'[ -e '*|*'[ -f '*|*'[ -x '*|*'[ -L '*) continue ;;
+      esac
       line=${rec%%:*}
       for p in $(printf '%s' "$rec" | grep -oE '(/Users|/var/home|/home|/opt)/[A-Za-z0-9._/-]+' | sort -u); do
         case "$p" in */) p=${p%/} ;; esac
@@ -292,6 +303,13 @@ _selftest() {
 
   printf '<!-- x:begin -->\nsee /var/home/nobody/nowhere\n<!-- x:end -->\n' > "$dir/D.md"
   _case "a generated block is skipped" 0 "documents agree"
+
+  # A guarded probe is the correct portable idiom, not a bad citation.
+  printf 'for b in /var/home/nobody/nowhere /opt/x; do [ -d "$b" ] && use "$b"; done\n' > "$dir/D.md"
+  _case "a path guarded by an existence test is a probe" 0 "documents agree"
+
+  printf 'the tool lives at /var/home/nobody/nowhere and is required\n' > "$dir/D.md"
+  _case "an unguarded path is still a citation" 1 "does not exist on this host"
 
   printf 'a repo hook blocks it\n' > "$dir/D.md"
   printf "claim_absent D.md 'a repo hook blocks'\n" > "$dir/tools/docs-claims.sh"
