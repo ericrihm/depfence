@@ -644,7 +644,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3,456 tests across 133 test files. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+3537 test functions across 136 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
