@@ -190,10 +190,25 @@ claim_absent() {
 claim_enforced() {
   local file="$1" pat="$2" proof="$3"
   [ -f "$file" ] || { note_unchk "$file: in scope but missing — not clean"; return; }
-  if ! grep -qiE "$pat" "$file" 2>/dev/null; then
+  # Paragraph-joined, like every other primitive. Grepping line-by-line here was a real
+  # inconsistency: regulus's "wired as a `PreToolUse`/`Bash` hook" wraps mid-phrase, so a
+  # line-scoped grep declared the claim absent and reported a correctly-wired guard as a
+  # vacuous claim. Measured 2026-07-30. The blindness _paragraphs exists to fix was left
+  # in the one primitive whose whole job is detecting a false claim about a guard.
+  # NOT `_paragraphs "$file" | grep -qiE`. Under `set -o pipefail`, grep -q exits on the
+  # first match, awk takes SIGPIPE, and the PIPELINE reports failure — so a claim that IS
+  # present reads as absent, and only in files big enough for awk to still be writing.
+  # The selftest fixture below is 5000 lines precisely because a small one cannot
+  # reproduce it. Measured 2026-07-30 in atlas: this made a correctly wired guard report
+  # as a vacuous claim, and it would have gone unnoticed in every small repo.
+  local joined; joined="$(_mktemp)"
+  _paragraphs "$file" > "$joined"
+  if ! grep -qiE "$pat" "$joined"; then
+    rm -f "$joined"
     note_unchk "$file: declares a claim matching /$pat/ in $CLAIMS, but the document no longer says it. Vacuous claims are not clean — update the claim or restore the sentence."
     return
   fi
+  rm -f "$joined"
   # Run the proof in the REAL repo, never in the exported index tree. The document is
   # content and is read from staged bytes; the guard is a property of the environment.
   # Under --staged the cwd is a bare export with no .git, so `git config` found no repo
@@ -285,6 +300,18 @@ _selftest() {
   printf 'the guard is wired\n' > "$dir/D.md"
   printf "claim_enforced D.md 'the guard is wired' 'false'\n" > "$dir/tools/docs-claims.sh"
   _case "claim_enforced catches an unwired guard" 1 "NOT active"
+
+  # claim_enforced must be paragraph-joined too. Line-scoped, it declared a correctly
+  # wired guard's claim absent because the phrase wrapped. Measured in regulus 2026-07-30.
+  printf 'the guard\nis wired\n' > "$dir/D.md"
+  _case "claim_enforced sees across a hard wrap" 1 "NOT active"
+
+  # A LARGE file with the claim near the top. This is the SIGPIPE case: `_paragraphs |
+  # grep -q` returns failure under pipefail once the file is big enough that awk is still
+  # writing when grep exits, so the claim reads as absent. A small fixture cannot
+  # reproduce it, which is why this one is 5000 lines.
+  { printf 'the guard is wired\n\n'; awk 'BEGIN{for(i=0;i<5000;i++) print "filler line", i}'; } > "$dir/D.md"
+  _case "claim_enforced survives a large file (pipefail/SIGPIPE)" 1 "NOT active"
 
   printf 'nothing here\n' > "$dir/D.md"
   _case "claim_enforced on a deleted sentence is UNCHECKABLE" 1 "no longer says it"
