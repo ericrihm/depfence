@@ -1,0 +1,8 @@
+{
+  "_comment": "Synthetic finding-records for the kg_out emitter gate. NOT real scan data - covers every node kind (finding/package/rule/cve/cwe/ecosystem) and the SCA (with package) vs SAST (no package) shapes. Edit here, then `python -m depfence.reporters.kg_out --write`.",
+  "records": [
+    {"rule": "known_vulnerability", "severity": "high", "title": "Prototype pollution in lodash", "detail": "vulnerable version", "confidence": 1.0, "package": {"ecosystem": "npm", "name": "lodash", "version": "4.17.20"}, "cve": "CVE-2021-23337", "cwe": "CWE-1321", "location": null},
+    {"rule": "slopsquat_candidate", "severity": "medium", "title": "Possible hallucinated package name", "detail": "no upstream match", "confidence": 0.6, "package": {"ecosystem": "pypi", "name": "reqeusts", "version": "1.0.0"}, "cve": null, "cwe": null, "location": null},
+    {"rule": "python.lang.security.audit.exec-detected", "severity": "high", "title": "Use of exec()", "detail": "arbitrary code execution", "confidence": 0.9, "package": null, "cve": null, "cwe": "CWE-95", "location": "app/handlers.py:42"}
+  ]
+}

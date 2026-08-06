@@ -1,0 +1,165 @@
+{
+  "@context": {
+    "@vocab": "https://kg.local/depfence/vocab#",
+    "affects": {
+      "@type": "@id"
+    },
+    "classified_as": {
+      "@type": "@id"
+    },
+    "detected_by": {
+      "@type": "@id"
+    },
+    "id": "@id",
+    "in_ecosystem": {
+      "@type": "@id"
+    },
+    "references_cve": {
+      "@type": "@id"
+    },
+    "type": "@type"
+  },
+  "@graph": [
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/cve/CVE-2021-23337",
+      "name": "CVE-2021-23337",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "cve"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/cwe/CWE-1321",
+      "name": "CWE-1321",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "cwe"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/cwe/CWE-95",
+      "name": "CWE-95",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "cwe"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/ecosystem/npm",
+      "name": "npm",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "ecosystem"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/ecosystem/pypi",
+      "name": "pypi",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "ecosystem"
+    },
+    {
+      "affects": [
+        "https://kg.local/depfence/package/npm%3Alodash%404.17.20"
+      ],
+      "classified_as": [
+        "https://kg.local/depfence/cwe/CWE-1321"
+      ],
+      "confidence": 1.0,
+      "derivedBy": "kg_out.py",
+      "detected_by": [
+        "https://kg.local/depfence/rule/known_vulnerability"
+      ],
+      "id": "https://kg.local/depfence/finding/known_vulnerability-914d466d0749a77e",
+      "origin": "derived",
+      "references_cve": [
+        "https://kg.local/depfence/cve/CVE-2021-23337"
+      ],
+      "repo": "depfence",
+      "severity": "high",
+      "title": "Prototype pollution in lodash",
+      "type": "finding"
+    },
+    {
+      "classified_as": [
+        "https://kg.local/depfence/cwe/CWE-95"
+      ],
+      "confidence": 0.9,
+      "derivedBy": "kg_out.py",
+      "detected_by": [
+        "https://kg.local/depfence/rule/python.lang.security.audit.exec-detected"
+      ],
+      "id": "https://kg.local/depfence/finding/python.lang.security.audit.exec-detected-ee5a0ab879108aec",
+      "location": "app/handlers.py:42",
+      "origin": "derived",
+      "repo": "depfence",
+      "severity": "high",
+      "title": "Use of exec()",
+      "type": "finding"
+    },
+    {
+      "affects": [
+        "https://kg.local/depfence/package/pypi%3Areqeusts%401.0.0"
+      ],
+      "confidence": 0.6,
+      "derivedBy": "kg_out.py",
+      "detected_by": [
+        "https://kg.local/depfence/rule/slopsquat_candidate"
+      ],
+      "id": "https://kg.local/depfence/finding/slopsquat_candidate-7d3ecca9eaf58437",
+      "origin": "derived",
+      "repo": "depfence",
+      "severity": "medium",
+      "title": "Possible hallucinated package name",
+      "type": "finding"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/package/npm%3Alodash%404.17.20",
+      "in_ecosystem": [
+        "https://kg.local/depfence/ecosystem/npm"
+      ],
+      "name": "npm:lodash@4.17.20",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "package"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/package/pypi%3Areqeusts%401.0.0",
+      "in_ecosystem": [
+        "https://kg.local/depfence/ecosystem/pypi"
+      ],
+      "name": "pypi:reqeusts@1.0.0",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "package"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/rule/known_vulnerability",
+      "name": "known_vulnerability",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "rule"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/rule/python.lang.security.audit.exec-detected",
+      "name": "python.lang.security.audit.exec-detected",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "rule"
+    },
+    {
+      "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/rule/slopsquat_candidate",
+      "name": "slopsquat_candidate",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "rule"
+    }
+  ]
+}

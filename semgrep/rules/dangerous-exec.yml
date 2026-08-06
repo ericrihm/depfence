@@ -1,0 +1,9 @@
+rules:
+  - id: python-exec-detected
+    languages: [python]
+    severity: ERROR
+    message: Use of exec() on possibly-untrusted input — arbitrary code execution
+    metadata:
+      cwe: "CWE-95"
+      category: security
+    pattern: exec(...)
