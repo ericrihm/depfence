@@ -65,3 +65,4 @@ tokens.*
 .secrets/
 test_stress.py
 graphify-out/
+depfence/flywheel/findings_ledger.jsonl
