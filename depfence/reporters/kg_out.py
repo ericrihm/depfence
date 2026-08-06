@@ -265,6 +265,16 @@ def main(argv=None):
                 fh.write(out)
             print("wrote %s (%d nodes)" % (FIXTURE_GRAPH, len(nodes)))
             return 0
+        if mode == "--emit-graph":
+            import os as _os
+            dst = _os.path.join(_os.path.dirname(_os.path.dirname(HERE)), "docs", "graph",
+                                "depfence.jsonld")
+            _os.makedirs(_os.path.dirname(dst), exist_ok=True)
+            with open(dst, "w") as fh:
+                fh.write(out)
+            print("wrote %s (%d nodes) [synthetic fixture graph, for federation discovery]"
+                  % (dst, len(nodes)))
+            return 0
         if mode == "--check":
             if not os.path.exists(FIXTURE_GRAPH):
                 sys.stderr.write("missing %s (run --write)\n" % FIXTURE_GRAPH)
