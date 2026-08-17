@@ -129,6 +129,7 @@ class TestEPSSTracker:
             trend = tracker.get_trend("CVE-2024-1234")
             assert trend is not None
             assert trend.current_score == 0.85
+            tracker.close()
 
     def test_record_multiple(self):
         with tempfile.TemporaryDirectory() as td:
@@ -138,6 +139,7 @@ class TestEPSSTracker:
             tracker.record("CVE-2024-1234", 0.85, 0.97)
             trend = tracker.get_trend("CVE-2024-1234")
             assert trend.current_score == 0.85
+            tracker.close()
 
     def test_get_rising(self):
         with tempfile.TemporaryDirectory() as td:
@@ -146,12 +148,14 @@ class TestEPSSTracker:
             tracker.record("CVE-2024-1111", 0.9, 0.99)
             rising = tracker.get_rising(threshold=0.1)
             assert isinstance(rising, list)
+            tracker.close()
 
     def test_nonexistent_cve(self):
         with tempfile.TemporaryDirectory() as td:
             tracker = EPSSTracker(db_path=Path(td) / "test.db")
             trend = tracker.get_trend("CVE-9999-0000")
             assert trend is None or trend.current_score == 0.0
+            tracker.close()
 
 
 class TestFileWatcher:

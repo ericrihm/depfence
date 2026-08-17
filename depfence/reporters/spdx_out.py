@@ -2,32 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote
 
+from depfence import __version__
 from depfence.core.models import PackageId, ScanResult
+from depfence.reporters.package_id import coerce_package_id, package_key, package_purl
 
-_ECOSYSTEM_TO_PURL_TYPE: dict[str, str] = {
-    "npm": "npm",
-    "pypi": "pypi",
-    "cargo": "cargo",
-    "go": "golang",
-    "maven": "maven",
-    "nuget": "nuget",
-}
-
-_TOOL_VERSION = "depfence-0.4.0"
+_TOOL_VERSION = f"depfence-{__version__}"
 _NAMESPACE_BASE = "https://github.com/ericrihm/depfence/spdx"
 
 
-def _purl_type(ecosystem: str) -> str:
-    return _ECOSYSTEM_TO_PURL_TYPE.get(ecosystem.lower(), ecosystem.lower())
-
-
 def _purl(pkg: PackageId) -> str:
-    ptype = _purl_type(pkg.ecosystem)
-    version = pkg.version or ""
-    return f"pkg:{ptype}/{pkg.name}@{version}"
+    return package_purl(pkg)
 
 
 def _spdx_id(pkg: PackageId) -> str:
@@ -35,7 +24,8 @@ def _spdx_id(pkg: PackageId) -> str:
     safe = f"{pkg.ecosystem}-{pkg.name}-{pkg.version or 'unversioned'}"
     # Replace chars that are not alphanumeric, hyphen, or dot
     safe = "".join(c if c.isalnum() or c in "-." else "-" for c in safe)
-    return f"SPDXRef-{safe}"
+    digest = hashlib.sha256(package_purl(pkg).encode("utf-8")).hexdigest()[:12]
+    return f"SPDXRef-{safe}-{digest}"
 
 
 def _build_package(pkg: PackageId) -> dict:
@@ -56,11 +46,13 @@ def _build_package(pkg: PackageId) -> dict:
     }
 
 
-def _assemble_doc(pkg_list: list[PackageId], project_name: str) -> dict:
+def _assemble_doc(pkg_list: list[PackageId], project_name: str, spec_version: str = "2.3") -> dict:
     """Build the SPDX 2.3 document dict from a resolved package list."""
+    if spec_version != "2.3":
+        raise ValueError("DepFence supports SPDX 2.3 JSON only")
     name = project_name or "depfence-scan"
     doc_uuid = uuid.uuid4()
-    namespace = f"{_NAMESPACE_BASE}/{name}/{doc_uuid}"
+    namespace = f"{_NAMESPACE_BASE}/{quote(name, safe='')}/{doc_uuid}"
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     spdx_packages = [_build_package(pkg) for pkg in pkg_list]
@@ -89,7 +81,7 @@ def _assemble_doc(pkg_list: list[PackageId], project_name: str) -> dict:
     }
 
 
-def generate_spdx(result: ScanResult, project_name: str = "") -> dict:
+def generate_spdx(result: ScanResult, project_name: str = "", spec_version: str = "2.3") -> dict:
     """Generate a valid SPDX 2.3 JSON document from a scan result.
 
     Package list is derived from the findings on *result*. For full package
@@ -105,18 +97,19 @@ def generate_spdx(result: ScanResult, project_name: str = "") -> dict:
     """
     packages_seen: dict[str, PackageId] = {}
     for finding in result.findings:
-        pkg = finding.package
+        pkg = coerce_package_id(finding.package)
         key = str(pkg)
         if key not in packages_seen:
             packages_seen[key] = pkg
 
-    return _assemble_doc(list(packages_seen.values()), project_name)
+    return _assemble_doc(list(packages_seen.values()), project_name, spec_version)
 
 
 def generate_spdx_with_packages(
     result: ScanResult,
     packages: list[PackageId],
     project_name: str = "",
+    spec_version: str = "2.3",
 ) -> dict:
     """Generate a valid SPDX 2.3 JSON document from an explicit package list.
 
@@ -131,10 +124,10 @@ def generate_spdx_with_packages(
     Returns:
         SPDX 2.3 document as a Python dict ready for JSON serialisation.
     """
-    seen: dict[str, PackageId] = {}
+    seen: dict[tuple[str, str, str], PackageId] = {}
     for pkg in packages:
-        key = str(pkg)
+        key = package_key(pkg)
         if key not in seen:
             seen[key] = pkg
 
-    return _assemble_doc(list(seen.values()), project_name)
+    return _assemble_doc(list(seen.values()), project_name, spec_version)

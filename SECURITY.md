@@ -11,6 +11,7 @@ security release is published.
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.8.x   | :white_check_mark: |
 | 0.7.x   | :white_check_mark: |
 | 0.6.x   | :white_check_mark: |
 | < 0.6   | :x:                |
@@ -66,6 +67,37 @@ Out of scope:
   **30 days**, coordinating a disclosure timeline with you.
 - We will credit reporters in the release notes and any advisory unless you prefer
   to remain anonymous.
+
+## Untrusted Fonts and Documents
+
+Treat fonts, HTML, DOCX, and PDF files as hostile parser inputs. Normal
+`depfence scan` analysis is structural and never renders a document, registers a
+font, launches an office suite, performs OCR, or fetches linked resources.
+
+Use `depfence artifact inspect PATH` to process one bounded regular file in
+private state without previewing it. Raw bytes are removed after analysis by
+default; retained records are redacted and logical deletion is not represented
+as secure erasure. Sandboxed comparison is explicit and requires a
+digest-pinned, Sigstore-verified OCI image. Run `depfence artifact doctor`
+first. On native Linux,
+depfence also requires gVisor or Kata rather than an ordinary shared-kernel
+runtime.
+
+For a remote repository that may contain parser-hostile artifacts, use
+`depfence intake inspect-sealed` with an exact commit. It performs offline
+static analysis of supported Git blobs and retains only a redacted manifest; it
+does not materialize repository files on the host. Acquisition must traverse a
+dedicated internal network and allowlisting proxy. The older `intake inspect`
+command is suitable only when host-side private quarantine is acceptable.
+
+For AI/RAG pipelines:
+
+- Treat extracted text and OCR text as separate untrusted channels.
+- Preserve and block on meaningful discrepancies; never silently prefer one.
+- Do not turn document text into agent instructions or executable commands.
+- OCR is evidence, not content sanitization or CDR.
+- Do not use desktop previews, host font APIs, Word, LibreOffice, or browsers to
+  inspect an untrusted artifact outside an appropriate isolation boundary.
 
 ## Safe Harbor
 

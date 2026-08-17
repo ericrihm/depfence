@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from depfence.core.fetcher import fetch_enabled, set_fetch_enabled
 from depfence.core.models import FindingType, PackageId, PackageMeta, Severity
 from depfence.scanners.depconfusion import (
     DepConfusionScanner,
@@ -19,6 +20,17 @@ from depfence.scanners.depconfusion import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _disable_unmocked_registry_fetches():
+    """Keep unit tests offline; live cross-check tests call the method with a mock."""
+    previous = fetch_enabled()
+    set_fetch_enabled(False)
+    try:
+        yield
+    finally:
+        set_fetch_enabled(previous)
 
 def _meta(ecosystem: str, name: str, version: str | None = None) -> PackageMeta:
     return PackageMeta(pkg=PackageId(ecosystem=ecosystem, name=name, version=version))

@@ -4,11 +4,33 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import click
 
 from depfence import __version__
+from depfence.reporters.package_id import coerce_package_id
+
+
+def _metadata_float(metadata: Mapping[str, object], key: str, default: float = 0.0) -> float:
+    """Read a numeric finding metadata value without leaking ``object`` downstream."""
+    value = metadata.get(key, default)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _metadata_text(metadata: Mapping[str, object], key: str, default: str = "") -> str:
+    """Read a textual finding metadata value with a stable display fallback."""
+    value = metadata.get(key, default)
+    return value if isinstance(value, str) else default
 
 
 @click.group()
@@ -19,15 +41,34 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
-@click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif", "html", "cyclonedx"]))
+@click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "json-legacy", "sarif", "html", "cyclonedx", "kg"]))
 @click.option("--ecosystem", "-e", multiple=True, help="Filter by ecosystem (npm, pypi, cargo, go)")
+@click.option(
+    "--profile",
+    default="full",
+    show_default=True,
+    type=click.Choice(["full", "advisory", "ai", "mcp", "ci", "model"]),
+    help="Run a named capability profile from the canonical scanner catalog.",
+)
 @click.option("--no-fetch", is_flag=True, help="Skip fetching metadata from registries")
 @click.option("--no-advisory", is_flag=True, help="Skip advisory/CVE checks")
 @click.option("--no-behavioral", is_flag=True, help="Skip behavioral analysis")
 @click.option("--no-reputation", is_flag=True, help="Skip reputation scoring")
 @click.option("--no-enrich", is_flag=True, help="Skip enrichment (EPSS, KEV, threat intel) for faster scans")
+@click.option(
+    "--fail-on-error/--allow-incomplete",
+    default=True,
+    help="Fail when required scanner coverage is incomplete (default: fail closed).",
+)
 @click.option("--fail-on", default="critical", type=click.Choice(["critical", "high", "medium", "low", "any", "none"]))
 @click.option("--output", "-o", type=click.Path(), help="Write output to file")
+@click.option(
+    "--cyclonedx-version",
+    default="1.7",
+    show_default=True,
+    type=click.Choice(["1.7", "1.5"]),
+    help="CycloneDX specification version when --format cyclonedx is selected.",
+)
 @click.option(
     "--parallel/--no-parallel",
     default=False,
@@ -48,13 +89,16 @@ def scan(
     path: str,
     fmt: str,
     ecosystem: tuple[str, ...],
+    profile: str,
     no_fetch: bool,
     no_advisory: bool,
     no_behavioral: bool,
     no_reputation: bool,
     no_enrich: bool,
+    fail_on_error: bool,
     fail_on: str,
     output: str | None,
+    cyclonedx_version: str,
     parallel: bool,
     workers: int,
     no_cache: bool,
@@ -66,6 +110,7 @@ def scan(
     Use --parallel (or -j N) to scan all lockfiles in a monorepo concurrently.
     """
     from depfence.core.engine import render_result, scan_directory
+    from depfence.core.models import ScanState
 
     project_dir = Path(path).resolve()
 
@@ -99,6 +144,7 @@ def scan(
                 project_scanners=True,
                 enrich=not no_enrich,
                 progress_callback=_progress,
+                profile=profile,
             )
         )
         result = para_result.merged
@@ -121,6 +167,7 @@ def scan(
             enrich=not no_enrich,
             use_cache=not no_cache,
             progress_callback=_verbose_progress,
+            profile=profile,
         ))
 
     # Evaluate policy rules if a policy file exists
@@ -138,13 +185,47 @@ def scan(
                 click.echo(f"  [WARN] {v.rule.name}: {v.finding.package} — {v.finding.title}", err=True)
 
     # Filter out baselined findings
-    from depfence.core.baseline import Baseline
-    bl = Baseline.from_project(project_dir)
-    if bl.count > 0:
+    from depfence.core.baseline import (
+        Baseline,
+        BaselineEvidenceError,
+        ci_suppressions_trusted,
+    )
+    suppressions_trusted, suppression_reason = ci_suppressions_trusted(project_dir)
+    if not suppressions_trusted:
+        # Inline suppressions are applied by the engine. Restore their findings
+        # when the PR itself can edit the suppression mechanism.
+        result.findings.extend(result.suppressed_findings)
+        result.suppressed_findings = []
+        suppression_error = f"Untrusted suppression controls: {suppression_reason}"
+        result.errors.append(suppression_error)
+        result.scanner_coverage["suppression_controls"] = ScanState.INDETERMINATE
+        result.scanner_errors["suppression_controls"] = suppression_error
+    try:
+        bl = Baseline.from_project(project_dir) if suppressions_trusted else None
+    except BaselineEvidenceError as exc:
+        suppression_error = f"Suppression baseline incomplete: {exc}"
+        result.errors.append(suppression_error)
+        result.scanner_coverage["suppression_controls"] = ScanState.INDETERMINATE
+        result.scanner_errors["suppression_controls"] = suppression_error
+        bl = None
+    if bl is not None and bl.count > 0:
         active, suppressed = bl.filter_findings(result.findings)
         if suppressed:
             click.echo(f"({len(suppressed)} baselined finding(s) suppressed)", err=True)
         result.findings = active
+        result.suppressed_findings.extend(suppressed)
+    if "suppression_controls" not in result.scanner_coverage:
+        result.scanner_coverage["suppression_controls"] = ScanState.PASS
+
+    if result.errors:
+        click.echo(
+            f"\nINDETERMINATE: {len(result.errors)} scanner or enrichment error(s):",
+            err=True,
+        )
+        for error in result.errors[:10]:
+            click.echo(f"  - {error}", err=True)
+        if len(result.errors) > 10:
+            click.echo(f"  - ... and {len(result.errors) - 10} more", err=True)
 
     if fmt == "html":
         from depfence.core.html_report import generate_html_report
@@ -160,10 +241,21 @@ def scan(
             out_path.write_text(rendered, encoding="utf-8")
             click.echo(f"HTML report written to {out_path}")
     elif fmt == "cyclonedx":
+        from depfence.core.lockfile import detect_ecosystem, parse_lockfile
         from depfence.reporters.cyclonedx import generate_sbom
-        rendered = generate_sbom(result)
+        packages = [
+            package
+            for ecosystem_name, lockfile_path in detect_ecosystem(project_dir)
+            for package in parse_lockfile(ecosystem_name, lockfile_path)
+        ]
+        sbom_document = generate_sbom(
+            packages=packages,
+            findings=result.findings,
+            project_name=project_dir.name,
+            spec_version=cyclonedx_version,
+        )
         import json as _json
-        formatted = _json.dumps(rendered, indent=2) if isinstance(rendered, dict) else str(rendered)
+        formatted = _json.dumps(sbom_document, indent=2)
         if output:
             Path(output).write_text(formatted, encoding="utf-8")
             click.echo(f"CycloneDX SBOM written to {output}")
@@ -181,6 +273,19 @@ def scan(
             out_path = project_dir / "results.sarif"
             out_path.write_text(formatted, encoding="utf-8")
             click.echo(f"SARIF report written to {out_path}")
+    elif fmt == "kg":
+        from depfence.reporters.kg_out import KGError, emit
+
+        try:
+            formatted = emit(result)
+        except KGError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise click.exceptions.Exit(2) from exc
+        if output:
+            Path(output).write_text(formatted, encoding="utf-8")
+            click.echo(f"Knowledge graph written to {output}")
+        else:
+            click.echo(formatted, nl=False)
     else:
         rendered = render_result(result, fmt, max_rows=top_n)
 
@@ -193,6 +298,8 @@ def scan(
     # Policy block overrides --fail-on
     if policy.has_rules and policy_result.should_fail:
         sys.exit(1)
+    if result.errors and fail_on_error:
+        sys.exit(2)
     if _should_fail(result, fail_on):
         sys.exit(1)
 
@@ -239,20 +346,57 @@ def lockinfo(path: str) -> None:
 @click.option("--ecosystem", "-e", default="npm", type=click.Choice(["npm", "pypi"]))
 @click.option("--version", "-v", "pkg_version", default=None)
 def check(package_name: str, ecosystem: str, pkg_version: str | None) -> None:
-    """Check a single package by name."""
+    """Check a single package by name with an evidence-aware verdict."""
     from depfence.core.fetcher import fetch_meta
     from depfence.core.models import PackageId
+    from depfence.core.osv_client import OsvClient
     from depfence.scanners.reputation import ReputationScanner
 
     pkg = PackageId(ecosystem, package_name, pkg_version)
     try:
         meta = asyncio.run(fetch_meta(pkg))
     except Exception as e:
-        click.echo(f"Error fetching {pkg}: {e}", err=True)
-        sys.exit(1)
+        click.echo(f"package: {pkg}")
+        click.echo("status: INDETERMINATE")
+        click.echo("safe: false")
+        click.echo("risk_score: unknown")
+        click.echo("is_typosquat: unknown")
+        click.echo("recommendation: Do not install until package metadata can be verified.")
+        click.echo(f"error: {e}", err=True)
+        raise click.exceptions.Exit(2) from e
 
     rep = ReputationScanner()
-    score = rep.compute_score(meta)
+    reputation_score = rep.compute_score(meta)
+    risk_score = 100 - reputation_score
+    findings = rep.analyze(meta)
+    is_typosquat = any(f.finding_type.value == "typosquat" for f in findings)
+
+    async def query_advisories() -> tuple[list[object], str | None]:
+        async with OsvClient() as client:
+            advisories = await client.query_package(ecosystem, package_name, pkg_version)
+            return list(advisories), client.last_error
+
+    advisories, advisory_error = asyncio.run(query_advisories())
+    severity_risk = {"critical": 90, "high": 70, "medium": 40, "low": 15}
+    if advisories:
+        risk_score = max(
+            risk_score,
+            max(severity_risk.get(str(getattr(item, "severity", "")).lower(), 40) for item in advisories),
+        )
+    safe = not findings and not advisories and risk_score < 30 and advisory_error is None
+    status = "INDETERMINATE" if advisory_error else ("PASS" if safe else "FAIL")
+    if advisory_error:
+        recommendation = "Do not install until vulnerability intelligence can be evaluated."
+    elif advisories:
+        recommendation = "Known vulnerabilities found; review advisories and upgrade before installing."
+    elif is_typosquat:
+        recommendation = "Verify the package name and publisher; do not install this possible typosquat."
+    elif findings:
+        recommendation = "Review the reported reputation findings before installing."
+    elif risk_score >= 30:
+        recommendation = "Pause installation and verify package provenance and maintainers."
+    else:
+        recommendation = "No reputation warnings found in the evaluated metadata."
 
     click.echo(f"Package: {meta.pkg}")
     click.echo(f"Description: {meta.description}")
@@ -262,7 +406,18 @@ def check(package_name: str, ecosystem: str, pkg_version: str | None) -> None:
     click.echo(f"Dependencies: {meta.dependency_count}")
     click.echo(f"Install scripts: {meta.has_install_scripts}")
     click.echo(f"Provenance: {meta.has_provenance}")
-    click.echo(f"Reputation: {score}/100")
+    click.echo(f"Reputation: {reputation_score}/100")
+    click.echo(f"status: {status}")
+    click.echo(f"safe: {str(safe).lower()}")
+    click.echo(f"risk_score: {risk_score}")
+    click.echo(f"is_typosquat: {str(is_typosquat).lower()}")
+    click.echo(f"advisories: {len(advisories)}")
+    click.echo(f"recommendation: {recommendation}")
+    if advisory_error:
+        click.echo(f"error: osv: {advisory_error}", err=True)
+        raise click.exceptions.Exit(2)
+    if not safe:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command()
@@ -274,8 +429,14 @@ def check(package_name: str, ecosystem: str, pkg_version: str | None) -> None:
     help="SBOM format: cyclonedx (default) or spdx",
 )
 @click.option("--output", "-o", type=click.Path())
-def sbom(path: str, fmt: str, output: str | None) -> None:
-    """Generate an SBOM in CycloneDX 1.5 or SPDX 2.3 format."""
+@click.option(
+    "--cyclonedx-version",
+    default="1.7",
+    show_default=True,
+    type=click.Choice(["1.7", "1.5"]),
+)
+def sbom(path: str, fmt: str, output: str | None, cyclonedx_version: str) -> None:
+    """Generate an SBOM in CycloneDX 1.7/1.5 or SPDX 2.3 format."""
     import json
 
     from depfence.core.engine import scan_directory
@@ -301,6 +462,7 @@ def sbom(path: str, fmt: str, output: str | None) -> None:
             findings=result.findings,
             project_name=project_dir.name,
             project_version="",
+            spec_version=cyclonedx_version,
         )
         label = "CycloneDX SBOM"
 
@@ -337,12 +499,12 @@ def ci_audit(path: str, fmt: str) -> None:
 @cli.command("mcp-scan")
 @click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif"]))
-@click.option("--global/--no-global", "scan_global", default=True, help="Include global MCP configs")
+@click.option("--global/--no-global", "scan_global", default=False, help="Include user-global MCP configs (off by default)")
 def mcp_scan(path: str, fmt: str, scan_global: bool) -> None:
     """Scan MCP server configurations for security issues."""
     from depfence.scanners.mcp_scanner import McpScanner
 
-    scanner = McpScanner()
+    scanner = McpScanner(include_global=scan_global)
     project_dir = Path(path).resolve()
     findings = asyncio.run(scanner.scan_project(project_dir))
 
@@ -362,21 +524,94 @@ def mcp_scan(path: str, fmt: str, scan_global: bool) -> None:
 @cli.command("mcp-fingerprint")
 @click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif"]))
-def mcp_fingerprint(path: str, fmt: str) -> None:
+@click.option("--global/--no-global", "scan_global", default=False, help="Include user-global MCP configs (off by default)")
+@click.option("--show", is_flag=True, help="Show observed and approved fingerprint identities")
+@click.option("--approve", "approve_subject", help="Approve one exact observed subject identity")
+@click.option("--digest", help="Exact observed SHA-256 required with --approve")
+def mcp_fingerprint(
+    path: str,
+    fmt: str,
+    scan_global: bool,
+    show: bool,
+    approve_subject: str | None,
+    digest: str | None,
+) -> None:
     """Detect MCP server rug-pull attacks via schema fingerprinting."""
+    import json as json_mod
+
+    from depfence.core.fingerprint_store import FingerprintStoreError
+    from depfence.core.models import Finding, ScanResult, ScanState
+    from depfence.core.scan_scope import PartialScanError
     from depfence.scanners.mcp_fingerprint import McpFingerprintScanner
 
-    scanner = McpFingerprintScanner()
-    project_dir = Path(path).resolve()
-    findings = asyncio.run(scanner.scan_project(project_dir))
+    if bool(approve_subject) != bool(digest):
+        raise click.UsageError("--approve and --digest must be supplied together")
+    if show and approve_subject:
+        raise click.UsageError("--show cannot be combined with --approve")
 
-    from depfence.core.models import ScanResult
+    scanner = McpFingerprintScanner(include_global=scan_global)
+    project_dir = Path(path).resolve()
+
+    if approve_subject and digest:
+        try:
+            status = scanner.approve(
+                project_dir, subject_id=approve_subject, digest=digest
+            )
+        except FingerprintStoreError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Approved {status.subject_id} at SHA-256 {status.approved_digest}"
+        )
+        return
+
+    if show:
+        try:
+            statuses = scanner.statuses(project_dir)
+        except FingerprintStoreError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if fmt == "json":
+            click.echo(json_mod.dumps([
+                {
+                    "subject_id": status.subject_id,
+                    "state": status.state,
+                    "observed_digest": status.observed_digest,
+                    "approved_digest": status.approved_digest,
+                }
+                for status in statuses
+            ], sort_keys=True))
+        elif not statuses:
+            click.echo("No MCP fingerprint observations.")
+        else:
+            for status in statuses:
+                click.echo(
+                    f"{status.state:10} {status.subject_id} "
+                    f"observed={status.observed_digest} "
+                    f"approved={status.approved_digest or '-'}"
+                )
+        return
+
+    incomplete_error: str | None = None
+    findings: list[Finding]
+    try:
+        findings = asyncio.run(scanner.scan_project(project_dir))
+    except PartialScanError as exc:
+        findings = cast(list[Finding], list(exc.findings))
+        incomplete_error = str(exc)
+
     result = ScanResult(target=str(project_dir), ecosystem="mcp")
     result.findings = findings
     result.packages_scanned = len(set(f.package for f in findings)) or 0
+    if incomplete_error:
+        result.errors.append(incomplete_error)
+        result.scanner_coverage["mcp_fingerprint"] = ScanState.UNPROVEN
+        result.scanner_errors["mcp_fingerprint"] = incomplete_error
+    else:
+        result.scanner_coverage["mcp_fingerprint"] = ScanState.PASS
 
     from depfence.core.engine import render_result
     click.echo(render_result(result, fmt))
+    if incomplete_error:
+        sys.exit(2)
     if result.has_blockers:
         sys.exit(1)
 
@@ -465,46 +700,25 @@ def reachability_scan(path: str, fmt: str) -> None:
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
-@click.option("--format", "-f", "fmt", default="json", type=click.Choice(["json", "html"]))
+@click.option("--format", "-f", "fmt", default="json", type=click.Choice(["json", "html", "kg"]))
 @click.option("--output", "-o", type=click.Path(), help="Write report to file")
 def report(path: str, fmt: str, output: str | None) -> None:
-    """Generate a comprehensive security report (all scanners)."""
-    import json as json_mod
-
+    """Render one canonical full-scan result as JSON or HTML."""
     from depfence.core.engine import scan_directory
-    from depfence.core.lockfile import detect_ecosystem
-    from depfence.scanners.gha_scanner import GhaScanner
-    from depfence.scanners.reachability import ReachabilityScanner
 
     project_dir = Path(path).resolve()
-    click.echo(f"Generating security report for {project_dir.name}...")
+    click.echo(f"Generating security report for {project_dir.name}...", err=True)
 
-    # Run all scanners
+    # ``scan_directory`` already runs every applicable package and project
+    # scanner.  Reports must render this single result so findings, coverage,
+    # suppressions, timestamps, and errors cannot diverge between formats.
     result = asyncio.run(scan_directory(project_dir))
-    gha_findings = asyncio.run(GhaScanner().scan_project(project_dir))
-    reach_findings = asyncio.run(ReachabilityScanner().scan_project(project_dir))
-
-    # Run project-level scanners
-    from depfence.scanners.dockerfile_scanner import DockerfileScanner
-    from depfence.scanners.secrets_scanner import SecretsScanner
-    from depfence.scanners.terraform_scanner import TerraformScanner
-    docker_findings = asyncio.run(DockerfileScanner().scan_project(project_dir))
-    tf_findings = asyncio.run(TerraformScanner().scan_project(project_dir))
-    secrets_findings = asyncio.run(SecretsScanner().scan_project(project_dir))
-
-    all_findings = result.findings + gha_findings + reach_findings + docker_findings + tf_findings + secrets_findings
-
-    critical = sum(1 for f in all_findings if f.severity.name == "CRITICAL")
-    high = sum(1 for f in all_findings if f.severity.name == "HIGH")
-    medium = sum(1 for f in all_findings if f.severity.name == "MEDIUM")
-    low = sum(1 for f in all_findings if f.severity.name == "LOW")
 
     if fmt == "html":
         from depfence.core.html_report import generate_html_report
         rendered = generate_html_report(
             result,
             project_name=project_dir.name,
-            extra_findings=gha_findings + reach_findings,
         )
         if output:
             Path(output).write_text(rendered, encoding="utf-8")
@@ -515,47 +729,24 @@ def report(path: str, fmt: str, output: str | None) -> None:
             click.echo(f"HTML report written to {out_path}")
         return
 
-    lockfiles = detect_ecosystem(project_dir)
+    if fmt == "kg":
+        from depfence.reporters.kg_out import KGError, emit
 
-    report_data = {
-        "project": project_dir.name,
-        "path": str(project_dir),
-        "ecosystems": list(set(eco for eco, _ in lockfiles)),
-        "packages_scanned": result.packages_scanned,
-        "total_findings": len(all_findings),
-        "severity_breakdown": {"critical": critical, "high": high, "medium": medium, "low": low},
-        "status": "CRITICAL" if critical > 0 else "WARN" if high > 0 else "PASS",
-        "scanners_run": [
-            "advisory", "behavioral", "reputation", "slopsquat",
-            "gha_workflow", "reachability",
-        ],
-        "findings": [
-            {
-                "severity": f.severity.name,
-                "type": f.finding_type.value,
-                "package": f.package,
-                "title": f.title,
-                "detail": f.detail,
-            }
-            for f in sorted(all_findings, key=lambda x: ["CRITICAL", "HIGH", "MEDIUM", "LOW"].index(x.severity.name))
-        ],
-    }
+        try:
+            rendered = emit(result)
+        except KGError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise click.exceptions.Exit(2) from exc
+    else:
+        from depfence.reporters.json_out import JsonReporter
 
-    rendered = json_mod.dumps(report_data, indent=2)
+        rendered = JsonReporter().render(result)
 
     if output:
-        Path(output).write_text(rendered)
+        Path(output).write_text(rendered, encoding="utf-8")
         click.echo(f"Report written to {output}")
     else:
-        click.echo(f"\nProject: {project_dir.name}")
-        click.echo(f"Status: {report_data['status']}")
-        click.echo(f"Packages: {result.packages_scanned}")
-        click.echo(f"Findings: {len(all_findings)} (C:{critical} H:{high} M:{medium} L:{low})")
-        if critical + high > 0:
-            click.echo("\nTop issues:")
-            for f in all_findings[:10]:
-                if f.severity.name in ("CRITICAL", "HIGH"):
-                    click.echo(f"  [{f.severity.name}] {f.package}: {f.title}")
+        click.echo(rendered)
 
 
 @cli.command()
@@ -706,6 +897,54 @@ def watch(path: str, interval: int, fail_on: str) -> None:
         click.echo("\nStopped watching.")
 
 
+@cli.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--once", is_flag=True, help="Render one scan and exit instead of refreshing.")
+@click.option("--json", "json_output", is_flag=True, help="Emit the versioned snapshot JSON and exit.")
+@click.option("--offline", is_flag=True, help="Disable registry metadata and enrichment requests.")
+@click.option("--interval", default=30.0, show_default=True, type=click.FloatRange(min=1.0), help="Seconds between live refreshes.")
+@click.option("--snapshot", "snapshot_path", type=click.Path(dir_okay=False), help="Local snapshot path (default: PATH/.depfence/snapshot.json).")
+def dashboard(
+    path: str,
+    once: bool,
+    json_output: bool,
+    offline: bool,
+    interval: float,
+    snapshot_path: str | None,
+) -> None:
+    """Show the embedded DepFence project security dashboard."""
+    from rich.console import Console
+
+    from depfence.core.project_dashboard import (
+        RichSnapshotRenderer,
+        ScanSnapshotSource,
+        build_dashboard_runtime,
+    )
+    from depfence.core.snapshot import JsonSnapshotStore
+
+    project_dir = Path(path).resolve()
+    store_path = Path(snapshot_path).resolve() if snapshot_path else project_dir / ".depfence" / "snapshot.json"
+    console = Console()
+    runtime = build_dashboard_runtime(
+        source=ScanSnapshotSource(project_dir, offline=offline),
+        store=JsonSnapshotStore(store_path),
+        renderer=RichSnapshotRenderer(),
+        console=console,
+        interval=interval,
+    )
+
+    if json_output:
+        runtime.render_json()
+        return
+    if once:
+        runtime.render_once()
+        return
+    try:
+        runtime.run(interval=interval)
+    except KeyboardInterrupt:
+        click.echo("\nStopped dashboard.")
+
+
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
@@ -713,6 +952,7 @@ def summary(path: str) -> None:
     """Quick security posture summary for a project."""
     from depfence.core.engine import scan_directory
     from depfence.core.lockfile import detect_ecosystem
+    from depfence.core.snapshot import SnapshotVerdict, snapshot_from_result
 
     project_dir = Path(path).resolve()
     lockfiles = detect_ecosystem(project_dir)
@@ -727,11 +967,8 @@ def summary(path: str) -> None:
         total_pkgs += len(pkgs)
         click.echo(f"  {eco}: {lf.name} ({len(pkgs)} packages)")
 
-    if total_pkgs == 0:
-        click.echo("No dependencies found.")
-        return
-
     result = asyncio.run(scan_directory(project_dir, fetch_metadata=False))
+    snapshot = snapshot_from_result(result)
 
     critical = sum(1 for f in result.findings if f.severity.name == "CRITICAL")
     high = sum(1 for f in result.findings if f.severity.name == "HIGH")
@@ -744,12 +981,12 @@ def summary(path: str) -> None:
     click.echo(f"  Medium:   {medium}")
     click.echo(f"  Low:      {low}")
 
-    if critical == 0 and high == 0:
-        click.echo("\nStatus: PASS")
-    elif critical > 0:
-        click.echo("\nStatus: CRITICAL")
-    else:
-        click.echo("\nStatus: WARN")
+    click.echo(f"\nStatus: {snapshot.status.value}")
+    click.echo(f"Reason: {snapshot.reason}")
+    if snapshot.status in {SnapshotVerdict.INDETERMINATE, SnapshotVerdict.UNPROVEN}:
+        raise click.exceptions.Exit(2)
+    if snapshot.status is SnapshotVerdict.FAIL:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command("diff")
@@ -1159,42 +1396,31 @@ def firewall_check_pip(package_name: str) -> None:
 @click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif"]))
 @click.option("--fail-on", default="high", type=click.Choice(["critical", "high", "medium", "low", "any", "none"]))
 def ai_scan(path: str, fmt: str, fail_on: str) -> None:
-    """Comprehensive AI/ML supply chain security scan."""
-    from depfence.core.engine import render_result
-    from depfence.core.models import ScanResult
-    from depfence.scanners.ai_vulns import AiVulnScanner
-    from depfence.scanners.model_scanner import ModelScanner
+    """Run the canonical AI capability profile, including document deception."""
+    from depfence.core.engine import render_result, scan_directory
+    from depfence.core.models import ScanState
 
     project_dir = Path(path).resolve()
-    all_findings = []
-
-    # Model supply chain scan
-    model_scanner = ModelScanner()
-    model_findings = asyncio.run(model_scanner.scan_project(project_dir))
-    all_findings.extend(model_findings)
-
-    # AI framework vulnerability patterns
-    ai_vuln_scanner = AiVulnScanner()
-    ai_findings = asyncio.run(ai_vuln_scanner.scan_project(project_dir))
-    all_findings.extend(ai_findings)
-
-    # Check known AI package versions
-    from depfence.core.lockfile import detect_ecosystem, parse_lockfile
-    lockfiles = detect_ecosystem(project_dir)
-    ai_packages = {"langchain", "transformers", "torch", "tensorflow", "llama-index",
-                   "gradio", "mlflow", "ray", "onnx", "openai", "anthropic", "litellm"}
-    for eco, lf in lockfiles:
-        if eco == "pypi":
-            pkgs = parse_lockfile(eco, lf)
-            for pkg in pkgs:
-                if pkg.name.lower() in ai_packages and pkg.version:
-                    all_findings.extend(ai_vuln_scanner.check_package_version(pkg.name, pkg.version))
-
-    result = ScanResult(target=str(project_dir), ecosystem="ai")
-    result.findings = all_findings
-    result.packages_scanned = len(set(f.package for f in all_findings)) or 0
+    result = asyncio.run(
+        scan_directory(
+            project_dir,
+            profile="ai",
+            fetch_metadata=False,
+            enrich=False,
+        )
+    )
+    # The AI profile is project-capability based and remains meaningful for a
+    # repository with no dependency lockfile. All selected scanner outcomes
+    # still participate in the fail-closed coverage check below.
+    no_lockfiles = f"No lockfiles found in {project_dir}"
+    result.errors = [error for error in result.errors if error != no_lockfiles]
 
     click.echo(render_result(result, fmt))
+    if result.errors or any(
+        state in {ScanState.INDETERMINATE, ScanState.UNPROVEN}
+        for state in result.scanner_coverage.values()
+    ):
+        sys.exit(2)
     if _should_fail(result, fail_on):
         sys.exit(1)
 
@@ -1269,7 +1495,7 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
         return
 
     # Wrap in PackageMeta (license field blank — scanner will report unknown)
-    metas = [PackageMeta(pkg=p) for p in all_pkg_ids]
+    metas: list[PackageMeta | PackageId] = [PackageMeta(pkg=p) for p in all_pkg_ids]
 
     # Override policy if --policy strict
     scanner = LicenseScanner()
@@ -1299,7 +1525,7 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
     unknowns = [r for r in policy_results if r.status == "unknown"]
 
     if fmt == "json":
-        output = {
+        report_data = {
             "project": str(project_dir),
             "packages_scanned": len(policy_results),
             "violations": len(violations),
@@ -1318,8 +1544,8 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
             "findings": [
                 {
                     "severity": f.severity.name,
-                    "package": f.package.name,
-                    "version": f.package.version,
+                    "package": coerce_package_id(f.package).name,
+                    "version": coerce_package_id(f.package).version,
                     "license": f.metadata.get("license", ""),
                     "category": f.metadata.get("category", ""),
                     "title": f.title,
@@ -1327,7 +1553,7 @@ def licenses(path: str, fmt: str, policy: str, fail_on_violation: bool) -> None:
                 for f in findings
             ],
         }
-        click.echo(_json.dumps(output, indent=2))
+        click.echo(_json.dumps(report_data, indent=2))
     else:
         # Rich table output
         from rich.console import Console
@@ -1491,7 +1717,7 @@ def scan_docker(path: str, fmt: str) -> None:
         sev_colors = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
         for f in sorted(findings, key=lambda x: x.severity.value):
             sev_style = sev_colors.get(f.severity.name, "white")
-            table.add_row(f"[{sev_style}]{f.severity.name}[/{sev_style}]", f.package.replace("docker:", ""), f.title)
+            table.add_row(f"[{sev_style}]{f.severity.name}[/{sev_style}]", str(f.package).replace("docker:", ""), f.title)
         console.print(table)
 
 
@@ -1526,7 +1752,7 @@ def scan_workflows(path: str, fmt: str) -> None:
         sev_colors = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
         for f in sorted(findings, key=lambda x: x.severity.value):
             sev_style = sev_colors.get(f.severity.name, "white")
-            table.add_row(f"[{sev_style}]{f.severity.name}[/{sev_style}]", f.package.replace("github:", ""), f.title)
+            table.add_row(f"[{sev_style}]{f.severity.name}[/{sev_style}]", str(f.package).replace("github:", ""), f.title)
         console.print(table)
 
 
@@ -1642,9 +1868,7 @@ def graph(path: str, fmt: str, output: str | None, max_depth: int) -> None:
         return
 
     dep_graph = build_graph_from_package_lock(lock_path)
-    adj = {}
-    for node in dep_graph._graph:
-        adj[node] = dep_graph._graph[node]
+    adj = {node: set(dependencies) for node, dependencies in dep_graph._edges.items()}
 
     if fmt == "mermaid":
         text = generate_mermaid(adj, findings=result.findings)
@@ -1753,7 +1977,7 @@ def epss(path: str, top: int) -> None:
 
     enriched = asyncio.run(enrich_findings(vuln_findings))
     scored = [f for f in enriched if f.metadata.get("epss_score") is not None]
-    scored.sort(key=lambda f: f.metadata.get("epss_score", 0), reverse=True)
+    scored.sort(key=lambda f: _metadata_float(f.metadata, "epss_score"), reverse=True)
     scored = scored[:top]
 
     if not scored:
@@ -1774,9 +1998,9 @@ def epss(path: str, top: int) -> None:
 
     priority_colors = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "green"}
     for f in scored:
-        score = f.metadata.get("epss_score", 0)
-        pct = f.metadata.get("epss_percentile", 0)
-        priority = f.metadata.get("epss_priority", "low")
+        score = _metadata_float(f.metadata, "epss_score")
+        pct = _metadata_float(f.metadata, "epss_percentile")
+        priority = _metadata_text(f.metadata, "epss_priority", "low")
         p_style = priority_colors.get(priority, "white")
         table.add_row(
             f.cve or "",
@@ -1874,9 +2098,9 @@ def kev(path: str, top: int) -> None:
         table.add_row(
             f.cve or "",
             str(f.package),
-            f.metadata.get("kev_due_date", ""),
+            _metadata_text(f.metadata, "kev_due_date"),
             ransomware,
-            (f.metadata.get("kev_required_action", ""))[:60],
+            _metadata_text(f.metadata, "kev_required_action")[:60],
         )
     console.print(table)
     console.print("[bold red]Action required:[/bold red] These vulnerabilities are being actively exploited.")
@@ -1911,7 +2135,7 @@ def scorecard(path: str, top: int) -> None:
         try:
             meta = asyncio.run(client.get_npm_metadata(pkg.name) if pkg.ecosystem == "npm" else client.get_pypi_metadata(pkg.name))
             if meta:
-                pm = PackageMeta(pkg=pkg, repository=meta.repo_url or "")
+                pm = PackageMeta(pkg=pkg, repository=meta.repository or "")
                 metas.append(pm)
         except Exception:
             continue
@@ -1980,7 +2204,7 @@ def trust(package_name: str, ecosystem: str) -> None:
     signals = TrustSignals(
         weekly_downloads=meta.weekly_downloads,
         maintainer_count=len(meta.maintainers) if meta.maintainers else None,
-        has_repository=bool(meta.repo_url),
+        has_repository=bool(meta.repository),
         has_license=bool(meta.license),
         version_count=meta.versions_count,
     )
@@ -2137,7 +2361,7 @@ def policy_check(path: str) -> None:
     if blocked:
         click.echo("\nBlocked findings:")
         for f in blocked[:10]:
-            click.echo(f"  [{f.severity.name}] {f.package.name}: {f.title}")
+            click.echo(f"  [{f.severity.name}] {coerce_package_id(f.package).name}: {f.title}")
         if len(blocked) > 10:
             click.echo(f"  ... and {len(blocked) - 10} more")
         sys.exit(1)
@@ -2177,8 +2401,8 @@ def doctor() -> None:
     # Check optional deps
     for pkg_name, import_name in [("httpx", "httpx"), ("pydantic", "pydantic"), ("rich", "rich")]:
         try:
-            mod = importlib.import_module(import_name)
-            ver = getattr(mod, "__version__", "?")
+            imported_module = importlib.import_module(import_name)
+            ver = getattr(imported_module, "__version__", "?")
             checks.append((f"Package {pkg_name}", ver, True))
         except ImportError:
             checks.append((f"Package {pkg_name}", "MISSING", False))
@@ -2407,6 +2631,69 @@ def cache_prune(max_age_days: int) -> None:
     click.echo(f"Pruned {adv_pruned} advisory entries and {dl_pruned} metadata entries older than {max_age_days} days.")
 
 
+@cli.group()
+@click.option(
+    "--state-root",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="DepFence state root (defaults to ~/.depfence).",
+)
+@click.pass_context
+def privacy(ctx: click.Context, state_root: Path | None) -> None:
+    """Inspect and manage machine-local private state."""
+    ctx.ensure_object(dict)
+    ctx.obj["privacy_state_root"] = state_root
+
+
+def _run_privacy_command(
+    ctx: click.Context,
+    operation: str,
+    *,
+    apply: bool,
+    output_format: str,
+) -> None:
+    from depfence.core.privacy import PrivacyLayout, PrivacyManager
+
+    raw_root = ctx.ensure_object(dict).get("privacy_state_root")
+    state_root = cast(Path | None, raw_root)
+    manager = PrivacyManager(PrivacyLayout.default(state_root=state_root))
+    if operation == "status":
+        report = manager.status()
+    elif operation == "migrate":
+        report = manager.migrate(apply=apply)
+    else:
+        report = manager.prune(apply=apply)
+    click.echo(report.render(output_format))
+    if report.exit_code:
+        ctx.exit(report.exit_code)
+
+
+@privacy.command("status")
+@click.option("--format", "output_format", default="text", type=click.Choice(["text", "json"]))
+@click.pass_context
+def privacy_status(ctx: click.Context, output_format: str) -> None:
+    """Report legacy data, permissions, and incomplete private coverage."""
+    _run_privacy_command(ctx, "status", apply=False, output_format=output_format)
+
+
+@privacy.command("migrate")
+@click.option("--apply", is_flag=True, help="Apply the planned migration (default: dry-run).")
+@click.option("--format", "output_format", default="text", type=click.Choice(["text", "json"]))
+@click.pass_context
+def privacy_migrate(ctx: click.Context, apply: bool, output_format: str) -> None:
+    """Move validated legacy state into protected storage or quarantine."""
+    _run_privacy_command(ctx, "migrate", apply=apply, output_format=output_format)
+
+
+@privacy.command("prune")
+@click.option("--apply", is_flag=True, help="Apply retention changes (default: dry-run).")
+@click.option("--format", "output_format", default="text", type=click.Choice(["text", "json"]))
+@click.pass_context
+def privacy_prune(ctx: click.Context, apply: bool, output_format: str) -> None:
+    """Keep 30-day detail and one-year redacted summaries."""
+    _run_privacy_command(ctx, "prune", apply=apply, output_format=output_format)
+
+
 
 
 @cli.group()
@@ -2605,37 +2892,24 @@ def secrets_hook(action: str, path: str) -> None:
     hook_snippet = (
         "\n# BEGIN depfence-secrets\n"
         "# depfence pre-commit secrets scanner\n"
-        "if command -v python3 >/dev/null 2>&1; then\n"
-        "    STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)\n"
-        "    if [ -n \"$STAGED\" ]; then\n"
-        "        echo '[depfence] Scanning staged files for secrets...'\n"
-        "        BLOCKED=0\n"
-        "        for f in $STAGED; do\n"
-        "            [ -f \"$f\" ] || continue\n"
-        "            python3 -c \"\n"
-        "import sys\n"
-        "from pathlib import Path\n"
-        "try:\n"
-        "    from depfence.scanners.secrets import SecretsScanner\n"
-        "    scanner = SecretsScanner()\n"
-        "    matches = scanner.scan_file(Path('$f'))\n"
-        "    bad = [m for m in matches if m.severity.value in ('critical', 'high')]\n"
-        "    if bad:\n"
-        "        for m in bad:\n"
-        "            print(f'  BLOCKED [{m.severity.value.upper()}] {m.path}:L{m.line_num}: {m.secret_type}')\n"
-        "        sys.exit(1)\n"
-        "except Exception:\n"
-        "    pass\n"
-        "\" 2>/dev/null || BLOCKED=1\n"
-        "        done\n"
-        "        if [ \"$BLOCKED\" = \"1\" ]; then\n"
-        "            echo '[depfence] Commit blocked: secrets detected in staged files.'\n"
-        "            echo \"[depfence] Run 'depfence secrets scan' for details.\"\n"
-        "            echo '[depfence] Use --no-verify to skip (not recommended).'\n"
-        "            exit 1\n"
-        "        fi\n"
-        "        echo '[depfence] No secrets detected in staged files.'\n"
+        "if ! command -v python3 >/dev/null 2>&1; then\n"
+        "    echo '[depfence] INDETERMINATE: python3 is unavailable; refusing to skip secrets scan.' >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "DEPFENCE_STAGED=$(mktemp \"${TMPDIR:-/tmp}/depfence-staged.XXXXXX\") || exit 1\n"
+        "trap 'rm -f \"$DEPFENCE_STAGED\"' EXIT HUP INT TERM\n"
+        "if ! git diff --cached --name-only --diff-filter=ACM -z >\"$DEPFENCE_STAGED\"; then\n"
+        "    echo '[depfence] INDETERMINATE: could not enumerate staged files.' >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "if [ -s \"$DEPFENCE_STAGED\" ]; then\n"
+        "    echo '[depfence] Scanning staged files for secrets...'\n"
+        "    if ! xargs -0 python3 -m depfence.integrations.secrets_hook -- <\"$DEPFENCE_STAGED\"; then\n"
+        "        echo '[depfence] Commit blocked: secrets found or scan incomplete.' >&2\n"
+        "        echo \"[depfence] Run 'depfence secrets scan' for details.\" >&2\n"
+        "        exit 1\n"
         "    fi\n"
+        "    echo '[depfence] No secrets detected in staged files.'\n"
         "fi\n"
         "# END depfence-secrets\n"
     )
@@ -2774,10 +3048,18 @@ def red_team(path: str, fmt: str, fail_below: int) -> None:
 
 @cli.command("remediate")
 @click.argument("path", default=".")
-@click.option("--dry-run/--no-dry-run", default=True, help="Show what would change without modifying files")
+@click.option(
+    "--dry-run/--no-dry-run",
+    default=True,
+    help="Preview only; applying changes is not supported in this release",
+)
 @click.option("--format", "fmt", default="table", type=click.Choice(["table", "json"]))
 def remediate(path: str, dry_run: bool, fmt: str) -> None:
-    """Generate remediation PRs for vulnerable dependencies."""
+    """Generate a read-only remediation plan for vulnerable dependencies."""
+    if not dry_run:
+        raise click.UsageError(
+            "--no-dry-run is not implemented; depfence will not claim files or PRs were changed"
+        )
     from depfence.core.engine import scan_directory
     from depfence.remediate.pr_generator import RemediationPR
 
@@ -2799,8 +3081,7 @@ def remediate(path: str, dry_run: bool, fmt: str) -> None:
 
     click.echo(f"\nFound {len(fixable)} fixable vulnerabilities -> {len(drafts)} remediation PR(s):\n")
     for d in drafts:
-        status = "[DRY RUN]" if dry_run else "[READY]"
-        click.echo(f"  {status} {d.title}")
+        click.echo(f"  [DRY RUN] {d.title}")
         click.echo(f"         Branch: {d.branch}")
         click.echo(f"         Files:  {', '.join(d.files_changed)}")
         click.echo()
@@ -2813,8 +3094,8 @@ def trends(days: int, fmt: str) -> None:
     """Show EPSS score trends for your vulnerabilities."""
     from depfence.intel.epss_tracker import EPSSTracker
 
-    tracker = EPSSTracker()
-    rising = tracker.get_rising(threshold=0.05, days=days)
+    with EPSSTracker() as tracker:
+        rising = tracker.get_rising(threshold=0.05, days=days)
 
     if fmt == "json":
         import json
@@ -2835,9 +3116,21 @@ def trends(days: int, fmt: str) -> None:
 @cli.command("alerts")
 @click.option("--format", "fmt", default="table", type=click.Choice(["table", "json"]))
 def alerts(fmt: str) -> None:
-    """Show KEV additions affecting your dependencies."""
-    click.echo("KEV alert monitoring — no new additions affecting your stack.")
-    click.echo("Configure monitored CVEs via: depfence scan --enrich")
+    """Report that persistent KEV monitoring is not implemented."""
+    message = {
+        "status": "UNPROVEN",
+        "available": False,
+        "reason": "persistent KEV monitoring is not implemented",
+        "next": "run `depfence scan . --enrich` for a point-in-time assessment",
+    }
+    if fmt == "json":
+        import json
+
+        click.echo(json.dumps(message, indent=2))
+    else:
+        click.echo("KEV alert monitoring: UNPROVEN (persistent monitoring is not implemented).")
+        click.echo("Run `depfence scan . --enrich` for a point-in-time assessment.")
+    raise click.exceptions.Exit(2)
 
 
 @cli.command("threat-brief")
@@ -2876,17 +3169,14 @@ def threat_brief(path: str, fmt: str, no_scan: bool, top: int) -> None:
         )
 
     # ---- KEV cross-reference --------------------------------------------
-    kev = KEVMonitor()
-    catalog = kev.fetch_kev_catalog()
-    kev.store_kev_entries(catalog)
-    kev.escalate_severity(result.findings)
+    with KEVMonitor() as kev:
+        catalog = kev.fetch_kev_catalog()
+        kev.store_kev_entries(catalog)
+        kev.escalate_severity(result.findings)
 
-    # ---- EPSS tracker ---------------------------------------------------
-    tracker = EPSSTracker()
-
-    # ---- Aggregate + brief ----------------------------------------------
-    feed = ThreatFeed()
-    snapshot = feed.aggregate(result.findings, epss_tracker=tracker)
+    # ---- EPSS tracker + aggregate ---------------------------------------
+    with EPSSTracker() as tracker, ThreatFeed() as feed:
+        snapshot = feed.aggregate(result.findings, epss_tracker=tracker)
 
     if fmt == "json":
         import json as _json
@@ -2954,47 +3244,15 @@ def mcp_test(package: str, ecosystem: str) -> None:
     Verifies tool registration, check_package, typosquat detection,
     and alternative suggestions all work end-to-end.
     """
-    import json as _json
-
-    from depfence.mcp.server import PROTOCOL_VERSION, DepfenceMcpServer
-
-    server = DepfenceMcpServer()
+    from depfence.mcp.server import SERVER_NAME, SERVER_VERSION, Ecosystem, _self_test
 
     async def _run() -> None:
-        # Initialize
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "clientInfo": {"name": "depfence-cli-test"},
-            },
-        })
-        info = resp["result"]["serverInfo"]
-        click.echo(f"Server: {info['name']} v{info['version']}")
-
-        # List tools
-        resp = await server.handle_request({
-            "jsonrpc": "2.0", "id": 2, "method": "tools/list",
-        })
-        tools = resp["result"]["tools"]
-        click.echo(f"Tools registered: {len(tools)}")
-        for t in tools:
-            click.echo(f"  - {t['name']}")
-
-        # check_package
+        click.echo(f"Server: {SERVER_NAME} v{SERVER_VERSION}")
         click.echo(f"\nChecking {ecosystem}/{package} ...")
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "check_package",
-                "arguments": {"name": package, "ecosystem": ecosystem},
-            },
-        })
-        result = _json.loads(resp["result"]["content"][0]["text"])
+        tools, result = await _self_test(package, cast(Ecosystem, ecosystem))
+        click.echo(f"Tools registered: {len(tools)}")
+        for tool_name in tools:
+            click.echo(f"  - {tool_name}")
         safe_label = "SAFE" if result["safe"] else "UNSAFE"
         click.echo(f"  safe={result['safe']} ({safe_label})  risk_score={result['risk_score']}")
         click.echo(f"  recommendation: {result['recommendation']}")
@@ -3009,6 +3267,12 @@ def mcp_test(package: str, ecosystem: str) -> None:
 
 
 # BEGIN depfence-secrets-cli (marker — do not remove)
+
+from depfence.cli.artifact_commands import register_artifact_commands
+from depfence.cli.fleet_commands import register_fleet_commands
+
+register_fleet_commands(cli)
+register_artifact_commands(cli)
 
 if __name__ == "__main__":
     cli()

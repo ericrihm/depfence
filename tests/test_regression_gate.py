@@ -14,8 +14,12 @@ from depfence.flywheel import regression_gate as rg
 
 
 def _rec(rule, name):
-    return {"rule": rule, "severity": "high", "title": name,
-            "package": {"ecosystem": "npm", "name": name, "version": "1.0"}}
+    return {
+        "rule": rule,
+        "severity": "high",
+        "title": name,
+        "package": {"ecosystem": "npm", "name": name, "version": "1.0"},
+    }
 
 
 def _tmp():
@@ -65,9 +69,9 @@ def test_accepted_finding_stays_accepted_across_scans():
         f = _rec("license_risk", "gpl-thing")
         fid = rg.finding_id(f)
         entries, _ = rg.update([f], path)
-        entries[fid]["status"] = "accepted"      # operator risk-acceptance
+        entries[fid]["status"] = "accepted"  # operator risk-acceptance
         rg.save_ledger(entries, path)
-        entries2, _ = rg.update([f], path)        # a later scan must not silently reopen it
+        entries2, _ = rg.update([f], path)  # a later scan must not silently reopen it
         assert entries2[fid]["status"] == "accepted"
     finally:
         os.path.exists(path) and os.unlink(path)
@@ -75,6 +79,7 @@ def test_accepted_finding_stays_accepted_across_scans():
 
 def test_ledger_and_graph_share_finding_identity():
     from depfence.reporters import kg_out
+
     f = _rec("known_vulnerability", "lodash")
     assert rg.finding_id(f) == kg_out._finding_name(f)
 
@@ -87,17 +92,18 @@ def _standalone():
             fn()
             checks.append((name, True, ""))
         except Exception as e:  # noqa: BLE001
-            checks.append((name, False, "%s: %s" % (type(e).__name__, e)))
+            checks.append((name, False, f"{type(e).__name__}: {e}"))
 
     run("resolved-then-recurs is a regression", test_resolved_finding_that_recurs_is_a_regression)
     run("persisting finding is not a regression", test_persisting_finding_is_not_a_regression)
     run("accepted stays accepted", test_accepted_finding_stays_accepted_across_scans)
     run("ledger & graph share identity", test_ledger_and_graph_share_finding_identity)
     for name, ok, detail in checks:
-        print("  %-4s %-38s %s" % ("ok" if ok else "FAIL", name, detail))
+        print(f"  {'ok' if ok else 'FAIL':<4} {name:<38} {detail}")
     return all(ok for _, ok, _ in checks)
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(0 if _standalone() else 1)

@@ -111,9 +111,9 @@ class GoGenerateScanner:
 
         if _CGO_IMPORT.search(content):
             for pat, label in [(_CGO_LDFLAGS, "LDFLAGS"), (_CGO_CFLAGS, "CFLAGS")]:
-                m = pat.search(content)
-                if m:
-                    flags = m.group(1).strip()
+                flag_match = pat.search(content)
+                if flag_match:
+                    flags = flag_match.group(1).strip()
                     if any(s in flags for s in ["-L/", "-I/", "..", "http://", "https://"]):
                         findings.append(Finding(
                             finding_type=FindingType.INSTALL_SCRIPT,

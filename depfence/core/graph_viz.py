@@ -6,7 +6,7 @@ color-coded by risk level.
 
 from __future__ import annotations
 
-from depfence.core.models import Finding, Severity
+from depfence.core.models import Finding, PackageId, Severity
 
 
 def generate_mermaid(
@@ -166,7 +166,7 @@ def _build_vuln_map(findings: list[Finding]) -> dict[str, Severity]:
     """Map package names to their highest severity finding."""
     vuln_map: dict[str, Severity] = {}
     for f in findings:
-        pkg = f.package
+        pkg = f.package.name if isinstance(f.package, PackageId) else f.package
         if pkg not in vuln_map or f.severity.value < vuln_map[pkg].value:
             vuln_map[pkg] = f.severity
     return vuln_map

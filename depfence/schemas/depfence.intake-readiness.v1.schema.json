@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.intake-readiness/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "intake_image", "analyzer_image", "signer_identity", "runtime", "acquisition_network", "test_host", "doctor", "host_materialization"],
+  "properties": {
+    "schema_version": {"const": "depfence.intake-readiness/v1"},
+    "status": {"const": "READY_FOR_URL"},
+    "intake_image": {"type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-f]{64}$"},
+    "analyzer_image": {"type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-f]{64}$"},
+    "signer_identity": {"type": "string", "minLength": 1, "maxLength": 512},
+    "runtime": {"const": "runsc"},
+    "acquisition_network": {"const": "depfence-acquisition"},
+    "test_host": {"type": "string", "minLength": 1, "maxLength": 253},
+    "doctor": {
+      "type": "object",
+      "required": ["schema_version", "status"],
+      "properties": {
+        "schema_version": {"const": "depfence.intake-doctor/v1"},
+        "status": {"const": "PASS"}
+      }
+    },
+    "host_materialization": {"const": false}
+  },
+  "additionalProperties": false
+}

@@ -21,11 +21,21 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sqlite3
+import stat
 from pathlib import Path
+from typing import Any, cast
+from urllib.parse import urlsplit
 
 from depfence.analyzers.typosquat_detector import levenshtein_distance
+from depfence.core.fingerprint_store import FingerprintStatus, FingerprintStore
 from depfence.core.models import Finding, FindingType, PackageId, Severity
+from depfence.core.scan_scope import (
+    InputLimitError,
+    MalformedInputError,
+    PartialScanError,
+    ScanIncompleteError,
+    ScanScope,
+)
 
 # ---------------------------------------------------------------------------
 # Well-known service domains for similarity comparison
@@ -137,77 +147,18 @@ _INSTRUCTION_FETCH_PATTERNS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Fingerprint DB for deferred payload detection
-# ---------------------------------------------------------------------------
-
-_SKILL_DB_PATH = Path.home() / ".depfence" / "skill_url_fingerprints.db"
-
-
-def _open_skill_db(db_path: Path = _SKILL_DB_PATH) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS url_fingerprints (
-            url TEXT PRIMARY KEY,
-            content_hash TEXT NOT NULL,
-            server_name TEXT,
-            first_seen TEXT NOT NULL,
-            last_seen TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    return conn
-
-
-def _check_url_fingerprint(
-    url: str, current_hash: str, db_path: Path = _SKILL_DB_PATH
-) -> tuple[bool, str | None]:
-    """Return (changed, previous_hash_or_None)."""
-    conn = _open_skill_db(db_path)
-    try:
-        row = conn.execute(
-            "SELECT content_hash FROM url_fingerprints WHERE url = ?", (url,)
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None:
-        return False, None
-    if row[0] == current_hash:
-        return False, row[0]
-    return True, row[0]
-
-
-def _store_url_fingerprint(
-    url: str, content_hash: str, server_name: str,
-    db_path: Path = _SKILL_DB_PATH,
-) -> None:
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    conn = _open_skill_db(db_path)
-    try:
-        conn.execute(
-            """
-            INSERT INTO url_fingerprints (url, content_hash, server_name, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(url) DO UPDATE SET
-                content_hash = excluded.content_hash,
-                last_seen = excluded.last_seen
-            """,
-            (url, content_hash, server_name, now, now),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# ---------------------------------------------------------------------------
 # Domain analysis
 # ---------------------------------------------------------------------------
 
 def _extract_domain(url: str) -> str | None:
     """Extract the domain from a URL string."""
-    match = re.match(r"https?://([^/:]+)", url)
-    return match.group(1).lower() if match else None
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        return None
+    return parsed.hostname.lower()
 
 
 def _is_safe_domain(domain: str) -> bool:
@@ -313,15 +264,49 @@ _PROJECT_CONFIG_LOCATIONS = [
     Path(".continue/config.json"),
 ]
 
+_GLOBAL_CONFIG_LIMIT = 4 * 1024 * 1024
 
-def _extract_mcp_servers(data: dict) -> dict:
+
+def _extract_mcp_servers(data: dict[Any, Any]) -> dict[Any, Any]:
     if "mcpServers" in data:
-        return data["mcpServers"]
+        return cast(dict[Any, Any], data["mcpServers"])
     if "mcp" in data and isinstance(data["mcp"], dict):
-        return data["mcp"].get("servers", {})
+        return cast(dict[Any, Any], data["mcp"].get("servers", {}))
     if "servers" in data:
-        return data["servers"]
+        return cast(dict[Any, Any], data["servers"])
     return {}
+
+
+def _validate_server_config(name: str, config: dict[Any, Any]) -> None:
+    args = config.get("args", [])
+    tools = config.get("tools", [])
+    env = config.get("env", {})
+    url = config.get("url", "")
+    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+        raise MalformedInputError(f"MCP server {name!r} args must be an array of strings")
+    if not isinstance(url, str) or not isinstance(env, dict):
+        raise MalformedInputError(f"MCP server {name!r} URL/environment has invalid shape")
+    if not isinstance(tools, list):
+        raise MalformedInputError(f"MCP server {name!r} tools must be an array")
+    for tool in tools:
+        if not isinstance(tool, dict):
+            raise MalformedInputError(f"MCP server {name!r} tool must be an object")
+        if not isinstance(tool.get("name", ""), str) or not isinstance(
+            tool.get("description", ""), str
+        ):
+            raise MalformedInputError(
+                f"MCP server {name!r} tool name/description must be strings"
+            )
+        schema = tool.get("inputSchema") or tool.get("input_schema") or {}
+        if not isinstance(schema, dict) or not isinstance(schema.get("properties", {}), dict):
+            raise MalformedInputError(f"MCP server {name!r} input schema is invalid")
+        for parameter in schema.get("properties", {}).values():
+            if not isinstance(parameter, dict) or not isinstance(
+                parameter.get("description", ""), str
+            ):
+                raise MalformedInputError(
+                    f"MCP server {name!r} parameter description is invalid"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -335,40 +320,134 @@ class AgentSkillScanner:
     name = "agent_skill"
     ecosystems = ["mcp"]
 
-    def __init__(self, db_path: Path = _SKILL_DB_PATH) -> None:
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        include_global: bool = False,
+        private_root: Path | None = None,
+    ) -> None:
         self._db_path = db_path
+        self._include_global = include_global
+        self._private_root = private_root
+
+    def _fingerprint_store(self, project_root: Path) -> FingerprintStore:
+        return FingerprintStore.open(
+            project_root=project_root,
+            private_root=self._private_root,
+            database_path=self._db_path,
+        )
+
+    def approve_url(
+        self,
+        *,
+        project_root: Path,
+        url: str,
+        server_name: str,
+        digest: str,
+    ) -> FingerprintStatus:
+        project = project_root.resolve()
+        store = self._fingerprint_store(project)
+        return store.approve(
+            kind="external_content",
+            project_id=store.project_id(project),
+            subject_id=store.subject_id(
+                kind="external_content", source=url, name=server_name
+            ),
+            digest=digest,
+        )
 
     async def scan(self, packages: list) -> list[Finding]:
         return []
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
+        scope = project_dir if isinstance(project_dir, ScanScope) else ScanScope(project_dir)
         findings: list[Finding] = []
+        errors: list[str] = []
         seen: set[Path] = set()
 
         for config_path in _PROJECT_CONFIG_LOCATIONS:
-            resolved = project_dir / config_path
-            if resolved.exists() and resolved not in seen:
-                seen.add(resolved)
-                findings.extend(self._scan_config(resolved))
+            candidate = scope.root / config_path
+            try:
+                candidate.lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                errors.append(f"{config_path.as_posix()}: cannot inspect input: {exc}")
+                continue
+            try:
+                resolved = scope.resolve(candidate)
+                if resolved not in seen:
+                    seen.add(resolved)
+                    findings.extend(
+                        self._scan_config(
+                            resolved, source=config_path.as_posix(), scope=scope
+                        )
+                    )
+            except ScanIncompleteError as exc:
+                errors.append(f"{config_path.as_posix()}: {exc}")
 
-        for path in _MCP_CONFIG_LOCATIONS:
-            if path.exists() and path not in seen:
-                seen.add(path)
-                findings.extend(self._scan_config(path))
+        if self._include_global:
+            for path in _MCP_CONFIG_LOCATIONS:
+                source = f"global:{path.name}"
+                try:
+                    path.lstat()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    errors.append(f"{source}: cannot inspect opted-in global input")
+                    continue
+                try:
+                    if path.is_symlink():
+                        raise MalformedInputError(
+                            "opted-in global MCP config must not be a symlink"
+                        )
+                    resolved = path.resolve(strict=True)
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        findings.extend(
+                            self._scan_config(resolved, source=source, scope=None)
+                        )
+                except (OSError, ScanIncompleteError):
+                    errors.append(f"{source}: opted-in global input is unavailable or malformed")
 
+        if errors:
+            raise PartialScanError("; ".join(errors), findings)
         return findings
 
-    def _scan_config(self, config_path: Path) -> list[Finding]:
+    def _scan_config(
+        self,
+        config_path: Path,
+        *,
+        source: str,
+        scope: ScanScope | None,
+    ) -> list[Finding]:
         findings: list[Finding] = []
-        try:
-            data = json.loads(config_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            return findings
+        if scope is not None:
+            data = scope.parse_json(config_path)
+        else:
+            try:
+                info = config_path.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                    raise MalformedInputError("global MCP config must be a regular file")
+                if info.st_size > _GLOBAL_CONFIG_LIMIT:
+                    raise InputLimitError(
+                        f"global MCP config exceeds {_GLOBAL_CONFIG_LIMIT} byte limit"
+                    )
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+                raise MalformedInputError("opted-in global MCP config is malformed") from exc
+        if not isinstance(data, dict):
+            raise MalformedInputError("MCP config root must be an object")
 
         servers = _extract_mcp_servers(data)
-        source = str(config_path)
+        if not isinstance(servers, dict):
+            raise MalformedInputError("MCP server collection must be an object")
 
         for server_name, server_config in servers.items():
+            if not isinstance(server_name, str) or not isinstance(server_config, dict):
+                raise MalformedInputError("MCP server entry must map a name to an object")
+            _validate_server_config(server_name, server_config)
             pkg = PackageId("mcp", server_name)
             findings.extend(self._check_external_instructions(server_name, server_config, pkg, source))
             findings.extend(self._check_domain_spoofing(server_name, server_config, pkg, source))
@@ -428,6 +507,10 @@ class AgentSkillScanner:
                             external_urls.append(url)
 
                     if external_urls:
+                        external_domains = sorted({
+                            domain for url in external_urls
+                            if (domain := _extract_domain(url)) is not None
+                        })
                         findings.append(Finding(
                             finding_type=FindingType.EXTERNAL_INSTRUCTION_FETCH,
                             severity=Severity.HIGH,
@@ -435,7 +518,7 @@ class AgentSkillScanner:
                             title=f"MCP server '{name}': external instruction fetch in {location}",
                             detail=(
                                 f"{label}. The {location} directs the agent to fetch instructions "
-                                f"from external URL(s): {', '.join(external_urls[:3])}. "
+                                f"from external domain(s): {', '.join(external_domains[:3])}. "
                                 f"A real attacker can swap the content at this URL after the skill "
                                 f"passes initial vetting (deferred payload attack)."
                             ),
@@ -444,7 +527,7 @@ class AgentSkillScanner:
                                 "config_path": source,
                                 "location": location,
                                 "pattern": label,
-                                "urls": external_urls[:5],
+                                "domains": external_domains[:5],
                             },
                         ))
                     break
@@ -464,8 +547,8 @@ class AgentSkillScanner:
                             package=pkg,
                             title=f"MCP server '{name}': external URL in {location}",
                             detail=(
-                                f"Tool {location} references external URL: {url}. "
-                                f"Domain '{domain}' is not in the known-safe list. "
+                                f"Tool {location} references external domain '{domain}'. "
+                                "The domain is not in the known-safe list. "
                                 f"External URLs in tool descriptions can be used for "
                                 f"deferred payload delivery."
                             ),
@@ -473,7 +556,6 @@ class AgentSkillScanner:
                             metadata={
                                 "config_path": source,
                                 "location": location,
-                                "url": url,
                                 "domain": domain,
                             },
                         ))
@@ -578,7 +660,12 @@ class AgentSkillScanner:
         return findings
 
     def check_url_content(
-        self, url: str, content: bytes, server_name: str = "",
+        self,
+        url: str,
+        content: bytes,
+        server_name: str = "",
+        *,
+        project_root: Path | None = None,
     ) -> Finding | None:
         """Check if content at a URL has changed since last scan (deferred payload).
 
@@ -586,30 +673,67 @@ class AgentSkillScanner:
         Returns a CRITICAL finding if content changed, None otherwise.
         Stores the fingerprint for future comparison.
         """
+        project = (project_root or Path.cwd()).resolve()
+        store = self._fingerprint_store(project)
         content_hash = hashlib.sha256(content).hexdigest()
-        changed, prev_hash = _check_url_fingerprint(url, content_hash, self._db_path)
+        subject_id = store.subject_id(
+            kind="external_content", source=url, name=server_name
+        )
+        status = store.observe(
+            kind="external_content",
+            project_id=store.project_id(project),
+            subject_id=subject_id,
+            digest=content_hash,
+            snapshot={"server_name": server_name, "domain": _extract_domain(url) or "unknown"},
+        )
 
-        _store_url_fingerprint(url, content_hash, server_name, self._db_path)
-
-        if changed:
-            domain = _extract_domain(url) or url
+        changed_before_approval = (
+            status.approved_digest is None
+            and status.previous_observed_digest is not None
+            and status.previous_observed_digest != content_hash
+        )
+        if status.state == "DRIFT" or changed_before_approval:
+            previous = status.approved_digest or status.previous_observed_digest
+            assert previous is not None
+            domain = _extract_domain(url) or "external resource"
             return Finding(
                 finding_type=FindingType.DEFERRED_PAYLOAD,
                 severity=Severity.CRITICAL,
                 package=PackageId("mcp", server_name or domain),
                 title=f"Deferred payload: content changed at {domain}",
                 detail=(
-                    f"The content at '{url}' has changed since the last scan. "
-                    f"Previous hash: {prev_hash[:16]}…  Current: {content_hash[:16]}…  "
+                    f"Content at domain '{domain}' changed relative to the "
+                    f"{'approved' if status.approved_digest else 'previous observed'} digest. "
+                    f"Previous hash: {previous[:16]}…  Current: {content_hash[:16]}…  "
                     f"This is the bait-and-switch pattern: legitimate content at scan time, "
                     f"malicious payload delivered later."
                 ),
                 confidence=0.9,
                 metadata={
-                    "url": url,
-                    "previous_hash": prev_hash,
+                    "subject_id": subject_id,
+                    "previous_hash": previous,
                     "current_hash": content_hash,
                     "server_name": server_name,
+                },
+            )
+        if status.state == "UNAPPROVED":
+            return Finding(
+                finding_type=FindingType.UNVERIFIED_REF,
+                severity=Severity.INFO,
+                package=PackageId(
+                    "mcp", server_name or (_extract_domain(url) or "external")
+                ),
+                title="External content fingerprint is not approved",
+                detail=(
+                    "Observed external content is evidence, not trust. Approve the exact "
+                    "subject identity and SHA-256 before treating unchanged content as verified."
+                ),
+                confidence=1.0,
+                metadata={
+                    "subject_id": subject_id,
+                    "current_hash": content_hash,
+                    "server_name": server_name,
+                    "assurance": "unproven",
                 },
             )
         return None

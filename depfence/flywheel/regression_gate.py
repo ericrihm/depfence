@@ -7,8 +7,8 @@ imported): once a finding has been seen and then RESOLVED, its reappearance is a
 must fail the gate. "The same failure class cannot ship twice, and the acceptance bar rises with
 each incident."
 
-The ledger keys every finding on the SAME stable id the knowledge graph uses
-(``kg_out._finding_name`` — a content digest, no timestamp/scan-counter), so the flywheel and the
+The ledger keys every finding on the SAME canonical stable id every reporter uses
+(``core.finding_identity.finding_id`` — a content digest, no timestamp/scan-counter), so the flywheel and the
 graph agree on identity and a re-scan never re-opens a finding under a new id. Statuses:
 
     open      seen in the latest scan, not yet resolved
@@ -26,7 +26,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from depfence.reporters import kg_out
+from depfence.core.finding_identity import finding_id as canonical_finding_id
 
 DEFAULT_LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "findings_ledger.jsonl")
 
@@ -37,7 +37,7 @@ def _now(clock=None):
 
 def finding_id(record):
     """The stable finding id — the SAME digest the KG mints, so ledger and graph share identity."""
-    return kg_out._finding_name(record)
+    return canonical_finding_id(record)
 
 
 def load_ledger(path=DEFAULT_LEDGER):
@@ -55,7 +55,7 @@ def load_ledger(path=DEFAULT_LEDGER):
                 e = json.loads(line)
                 entries[e["finding_id"]] = e
             except (ValueError, KeyError):
-                notes.append("ledger line %d unreadable" % i)
+                notes.append(f"ledger line {i} unreadable")
     return entries, notes
 
 
@@ -81,9 +81,14 @@ def update(records, path=DEFAULT_LEDGER, clock=None):
     for fid, rec in current.items():
         e = entries.get(fid)
         if e is None:
-            entries[fid] = {"finding_id": fid, "rule": rec.get("rule", ""),
-                            "severity": rec.get("severity", "info"), "status": "open",
-                            "first_seen": now, "last_seen": now}
+            entries[fid] = {
+                "finding_id": fid,
+                "rule": rec.get("rule", ""),
+                "severity": rec.get("severity", "info"),
+                "status": "open",
+                "first_seen": now,
+                "last_seen": now,
+            }
         else:
             if e.get("status") != "accepted":
                 e["status"] = "open"
@@ -100,8 +105,9 @@ def regressions(records, path=DEFAULT_LEDGER):
     finding that came back. This is the gate's whole job."""
     entries, _notes = load_ledger(path)
     current = {finding_id(r) for r in records}
-    return sorted(fid for fid, e in entries.items()
-                  if e.get("status") == "fixed" and fid in current)
+    return sorted(
+        fid for fid, e in entries.items() if e.get("status") == "fixed" and fid in current
+    )
 
 
 def gate(records, path=DEFAULT_LEDGER):
@@ -116,6 +122,7 @@ def main(argv=None):
     fails (exit 4) if any resolved finding regressed. records.json is a list of finding records
     (as depfence.reporters.kg_out consumes, e.g. from normalize_depfence / sarif_in)."""
     import sys
+
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) < 2 or argv[0] not in ("--update", "--check"):
         sys.stderr.write("usage: regression_gate.py [--update|--check] <records.json>\n")
@@ -126,27 +133,28 @@ def main(argv=None):
             data = json.load(fh)
         records = data.get("records", data) if isinstance(data, dict) else data
     except (OSError, ValueError) as e:
-        sys.stderr.write("could not read records: %s\n" % e)
+        sys.stderr.write(f"could not read records: {e}\n")
         return 2
     if mode == "--update":
         entries, notes = update(records)
         save_ledger(entries)
         for n in notes:
-            sys.stderr.write("note: %s\n" % n)
-        print("ledger updated (%d finding(s) tracked)" % len(entries))
+            sys.stderr.write(f"note: {n}\n")
+        print(f"ledger updated ({len(entries)} finding(s) tracked)")
         return 0
     regressed, notes = gate(records)
     for n in notes:
-        sys.stderr.write("note: %s\n" % n)
+        sys.stderr.write(f"note: {n}\n")
     if regressed:
-        sys.stderr.write("REGRESSION: %d resolved finding(s) came back:\n" % len(regressed))
+        sys.stderr.write(f"REGRESSION: {len(regressed)} resolved finding(s) came back:\n")
         for fid in regressed:
-            sys.stderr.write("  %s\n" % fid)
+            sys.stderr.write(f"  {fid}\n")
         return 4
-    print("no regressions (%d finding(s) checked against the ledger)" % len(records))
+    print(f"no regressions ({len(records)} finding(s) checked against the ledger)")
     return 0
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

@@ -21,8 +21,10 @@ import json
 import platform
 import re
 from pathlib import Path
+from typing import Any, cast
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.scan_scope import MalformedInputError, ScanScope
 
 # ---------------------------------------------------------------------------
 # Config locations — covers all major MCP-enabled editors/tools
@@ -79,7 +81,7 @@ def _load_threat_data() -> dict:
         return _THREAT_DATA
     data_file = Path(__file__).parent.parent / "data" / "mcp_threat_intel.json"
     if data_file.exists():
-        _THREAT_DATA = json.loads(data_file.read_text())
+        _THREAT_DATA = cast(dict[Any, Any], json.loads(data_file.read_text()))
     else:
         _THREAT_DATA = {"malicious_packages": {"npm": [], "pypi": []}, "well_known_tools": {}, "sensitive_env_vars": []}
     return _THREAT_DATA
@@ -104,7 +106,7 @@ def _well_known_tools() -> set[str]:
 
 def _sensitive_env_patterns() -> list[str]:
     data = _load_threat_data()
-    return data.get("sensitive_env_vars", [])
+    return cast(list[str], data.get("sensitive_env_vars", []))
 
 
 # ---------------------------------------------------------------------------
@@ -181,13 +183,13 @@ def _normalize_text(text: str) -> str:
 # Core scanner
 # ---------------------------------------------------------------------------
 
-def _extract_mcp_servers(data: dict) -> dict:
+def _extract_mcp_servers(data: dict[Any, Any]) -> dict[Any, Any]:
     if "mcpServers" in data:
-        return data["mcpServers"]
+        return cast(dict[Any, Any], data["mcpServers"])
     if "mcp" in data and isinstance(data["mcp"], dict):
-        return data["mcp"].get("servers", {})
+        return cast(dict[Any, Any], data["mcp"].get("servers", {}))
     if "servers" in data:
-        return data["servers"]
+        return cast(dict[Any, Any], data["servers"])
     return {}
 
 
@@ -209,43 +211,77 @@ class McpScanner:
     name = "mcp_scanner"
     ecosystems = ["mcp"]
 
+    def __init__(self, *, include_global: bool = False) -> None:
+        self.include_global = include_global
+
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
         return []
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
+        scope = ScanScope(project_dir)
         findings: list[Finding] = []
         seen: set[Path] = set()
 
         # Project-level configs
         for config_path in _PROJECT_CONFIG_LOCATIONS:
-            resolved = project_dir / config_path
+            candidate = scope.root / config_path
+            if candidate.is_symlink():
+                # Resolve existing symlinks even when they point outside the
+                # project; ScanScope turns the escape into incomplete coverage.
+                scope.resolve(candidate)
+            resolved = candidate
             if resolved.exists() and resolved not in seen:
                 seen.add(resolved)
-                findings.extend(self._scan_config(resolved, project_dir=project_dir))
+                findings.extend(self._scan_config(resolved, scope=scope))
 
         # Global configs
-        for path in _mcp_config_locations():
-            if path.exists() and path not in seen:
-                seen.add(path)
-                findings.extend(self._scan_config(path))
+        if self.include_global:
+            for path in _mcp_config_locations():
+                if path.exists() and path not in seen:
+                    seen.add(path)
+                    findings.extend(self._scan_config(path))
 
         return findings
 
-    def _scan_config(self, config_path: Path, project_dir: Path | None = None) -> list[Finding]:
+    def _scan_config(
+        self,
+        config_path: Path,
+        project_dir: Path | None = None,
+        *,
+        scope: ScanScope | None = None,
+    ) -> list[Finding]:
         findings: list[Finding] = []
-        try:
-            raw = config_path.read_text()
-            if config_path.suffix in (".yaml", ".yml"):
-                import yaml  # pyyaml — declared dependency
-                data = yaml.safe_load(raw) or {}
-            else:
-                data = json.loads(raw)
-        except (json.JSONDecodeError, OSError, Exception):
-            return findings
+        if scope is not None:
+            data = (
+                scope.parse_yaml(config_path)
+                if config_path.suffix in (".yaml", ".yml")
+                else scope.parse_json(config_path)
+            )
+            project_dir = scope.root
+        else:
+            try:
+                raw = config_path.read_text()
+                if config_path.suffix in (".yaml", ".yml"):
+                    import yaml
+
+                    data = yaml.safe_load(raw) or {}
+                else:
+                    data = json.loads(raw)
+            except Exception as exc:
+                raise MalformedInputError(f"malformed MCP config {config_path}: {exc}") from exc
+
+        if not isinstance(data, dict):
+            raise MalformedInputError(f"expected an object in MCP config {config_path}")
 
         servers = _extract_mcp_servers(data)
+        if not isinstance(servers, dict):
+            raise MalformedInputError(f"expected MCP server mapping in {config_path}")
 
         for server_name, server_config in servers.items():
+            if not isinstance(server_config, dict):
+                raise MalformedInputError(
+                    f"expected object for MCP server {server_name!r} in {config_path}"
+                )
             pkg = PackageId("mcp", server_name)
             source = str(config_path)
 
@@ -256,11 +292,101 @@ class McpScanner:
             findings.extend(self._check_package_launcher(server_name, server_config, pkg, source))
             findings.extend(self._check_tool_shadowing(server_name, server_config, pkg, source))
             findings.extend(self._check_tool_descriptions(server_name, server_config, pkg, source))
+            findings.extend(self._check_authority(server_name, server_config, pkg, source))
             if project_dir is not None:
                 findings.extend(
                     self._check_local_launch(server_name, server_config, pkg, source, project_dir)
                 )
 
+        return findings
+
+    def _check_authority(
+        self, name: str, config: dict, pkg: PackageId, source: str
+    ) -> list[Finding]:
+        """Assess declared effective authority without trusting tool annotations."""
+        findings: list[Finding] = []
+        tools = config.get("tools")
+        roots = (
+            config.get("roots")
+            or config.get("allowedDirectories")
+            or (config.get("filesystem") or {}).get("roots", [])
+        )
+        network = config.get("network")
+        domains = config.get("allowedDomains") or (
+            network.get("domains", []) if isinstance(network, dict) else []
+        )
+        env = config.get("env") if isinstance(config.get("env"), dict) else {}
+        requires_confirmation = bool(
+            config.get("requireConfirmation") or config.get("humanConfirmation")
+        )
+
+        tool_names = [
+            str(tool.get("name", "")) for tool in tools or [] if isinstance(tool, dict)
+        ] if isinstance(tools, list) else []
+        dangerous_tools = [
+            tool for tool in tool_names
+            if re.search(r"(?:write|delete|remove|exec|shell|publish|deploy)", tool, re.I)
+        ]
+        has_credentials = bool(env)
+        broad_roots = not isinstance(roots, list) or any(
+            str(root).strip() in {"/", "*", "~", "."} for root in (roots or [])
+        )
+        broad_network = network is True or any(str(domain).strip() == "*" for domain in domains)
+
+        if dangerous_tools and has_credentials and not requires_confirmation:
+            findings.append(Finding(
+                finding_type=FindingType.BEHAVIORAL,
+                severity=Severity.CRITICAL,
+                package=pkg,
+                title=f"MCP server '{name}': destructive tools combine with credentials",
+                detail=(
+                    "Runtime inventory exposes destructive/write-capable tools while receiving "
+                    "credentials and declares no human confirmation boundary."
+                ),
+                confidence=0.9,
+                metadata={
+                    "config_path": source,
+                    "dangerous_tools": dangerous_tools,
+                    "assurance": "fail",
+                },
+            ))
+        elif dangerous_tools and (broad_roots or broad_network):
+            findings.append(Finding(
+                finding_type=FindingType.BEHAVIORAL,
+                severity=Severity.HIGH,
+                package=pkg,
+                title=f"MCP server '{name}': dangerous tools have broad authority",
+                detail="Write/destructive tools are combined with broad filesystem or network reach.",
+                confidence=0.8,
+                metadata={
+                    "config_path": source,
+                    "dangerous_tools": dangerous_tools,
+                    "assurance": "fail",
+                },
+            ))
+
+        declared_network = network is False or bool(domains)
+        if not isinstance(tools, list) or not tools or not roots or not declared_network:
+            missing = []
+            if not isinstance(tools, list) or not tools:
+                missing.append("runtime tool inventory")
+            if not roots:
+                missing.append("filesystem roots")
+            if not declared_network:
+                missing.append("network policy")
+            findings.append(Finding(
+                finding_type=FindingType.BEHAVIORAL,
+                severity=Severity.INFO,
+                package=pkg,
+                title=f"MCP server '{name}': authority boundary is unproven",
+                detail=f"Configuration does not establish: {', '.join(missing)}.",
+                confidence=1.0,
+                metadata={
+                    "config_path": source,
+                    "missing_authority": missing,
+                    "assurance": "unproven",
+                },
+            ))
         return findings
 
     # ------------------------------------------------------------------

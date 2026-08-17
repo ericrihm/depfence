@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
+
 log = logging.getLogger(__name__)
 
 _BATCH_SIZE = 30  # Maximum CVEs per EPSS API request
@@ -54,7 +56,8 @@ class EpssClient:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> EpssClient:
-        self._client = httpx.AsyncClient(timeout=self._timeout)
+        if fetch_enabled():
+            self._client = httpx.AsyncClient(timeout=self._timeout)
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -87,7 +90,7 @@ class EpssClient:
             Mapping from CVE ID to its EPSS score.  CVEs not found in the EPSS
             dataset are omitted.  Returns an empty dict on hard failure.
         """
-        if not cve_ids:
+        if not cve_ids or not fetch_enabled():
             return {}
 
         unique_ids = list(dict.fromkeys(cve_ids))  # deduplicate, preserve order

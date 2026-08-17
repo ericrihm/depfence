@@ -22,7 +22,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from depfence.core.models import Finding, ScanResult
+from depfence.core.models import (
+    Finding,
+    ScannerErrorCode,
+    ScannerOutcome,
+    ScannerReasonCode,
+    ScanResult,
+    ScanState,
+    merge_scan_state,
+)
+from depfence.core.scanner_outcome import materialize, merge_outcome
 
 log = logging.getLogger(__name__)
 
@@ -80,12 +89,10 @@ class ParallelScanResult:
 
     @property
     def errors(self) -> list[str]:
-        errs: list[str] = []
-        for _, r in self.sub_results:
-            errs.extend(r.errors)
+        errors = [error for _, result in self.sub_results for error in result.errors]
         if self.merged:
-            errs.extend(self.merged.errors)
-        return errs
+            errors.extend(self.merged.errors)
+        return list(dict.fromkeys(errors))
 
     @property
     def packages_scanned(self) -> int:
@@ -153,6 +160,7 @@ async def parallel_scan(
     project_scanners: bool = True,
     enrich: bool = True,
     progress_callback: Callable[[LockfileEntry, int, int], None] | None = None,
+    profile: str = "full",
 ) -> ParallelScanResult:
     """Scan a monorepo directory tree concurrently.
 
@@ -191,7 +199,16 @@ async def parallel_scan(
     if not entries:
         log.warning("parallel_scan: no lockfiles found under %s", root)
         merged = _SR(target=str(root), ecosystem="multi")
-        merged.errors.append(f"No lockfiles found under {root}")
+        message = f"No lockfiles found under {root}"
+        merged.errors.append(message)
+        merged.scanner_coverage["parallel_discovery"] = ScanState.UNPROVEN
+        merged.scanner_errors["parallel_discovery"] = message
+        merged.scanner_outcomes["parallel_discovery"] = ScannerOutcome(
+            state=ScanState.UNPROVEN,
+            reason_code=ScannerReasonCode.NO_EVIDENCE,
+            evaluated=False,
+            skipped=False,
+        )
         merged.completed_at = datetime.now(tz=timezone.utc)
         result.merged = merged
         result.completed_at = datetime.now(tz=timezone.utc)
@@ -230,11 +247,26 @@ async def parallel_scan(
                     fetch_metadata=fetch_metadata,
                     project_scanners=project_scanners,
                     enrich=enrich,
+                    profile=profile,
+                    # The directory-level semaphore already consumes the CLI
+                    # budget. One child per active directory keeps total
+                    # project-scanner processes bounded by ``workers``.
+                    project_workers=1,
                 )
             except Exception as exc:  # noqa: BLE001
                 log.exception("Error scanning %s: %s", entry.directory, exc)
                 sub = _SR(target=str(entry.directory), ecosystem=entry.ecosystem)
-                sub.errors.append(str(exc))
+                message = str(exc)
+                sub.errors.append(message)
+                sub.scanner_coverage["parallel_worker"] = ScanState.INDETERMINATE
+                sub.scanner_errors["parallel_worker"] = message
+                sub.scanner_outcomes["parallel_worker"] = ScannerOutcome(
+                    state=ScanState.INDETERMINATE,
+                    reason_code=ScannerReasonCode.WORKER_CRASH,
+                    error_code=ScannerErrorCode.WORKER_FAILURE,
+                    evaluated=False,
+                    skipped=False,
+                )
                 sub.completed_at = datetime.now(tz=timezone.utc)
             done_count += 1
             if progress_callback is not None:
@@ -266,22 +298,54 @@ def _merge_results(
 
     merged = _SR(target=target, ecosystem="multi")
     seen_findings: set[tuple] = set()
+    seen_suppressed: set[tuple] = set()
+
+    def finding_key(finding: Finding) -> tuple[object, ...]:
+        package = finding.package
+        return (
+            getattr(package, "name", str(package)),
+            getattr(package, "ecosystem", ""),
+            getattr(package, "version", None),
+            finding.finding_type.value,
+            finding.cve,
+            finding.title,
+            finding.metadata.get("file"),
+            finding.metadata.get("line"),
+        )
 
     for _entry, sub in sub_results:
         merged.packages_scanned += sub.packages_scanned
         for finding in sub.findings:
-            pkg = finding.package
-            pkg_name = pkg.name if hasattr(pkg, "name") else str(pkg)
-            pkg_eco = pkg.ecosystem if hasattr(pkg, "ecosystem") else ""
-            key = (
-                pkg_name,
-                pkg_eco,
-                finding.cve or finding.title,
-            )
+            key = finding_key(finding)
             if key not in seen_findings:
                 seen_findings.add(key)
                 merged.findings.append(finding)
+        for finding in sub.suppressed_findings:
+            key = finding_key(finding)
+            if key not in seen_suppressed:
+                seen_suppressed.add(key)
+                merged.suppressed_findings.append(finding)
         merged.errors.extend(sub.errors)
+        for name, status in sub.scanner_coverage.items():
+            merged.scanner_coverage[name] = merge_scan_state(
+                merged.scanner_coverage.get(name), status
+            )
+        for name, message in sub.scanner_errors.items():
+            existing = merged.scanner_errors.get(name)
+            merged.scanner_errors[name] = min(existing, message) if existing else message
+        for name, outcome in materialize(
+            sub.scanner_coverage,
+            sub.scanner_errors,
+            sub.scanner_outcomes,
+        ).items():
+            merged.scanner_coverage[name] = merge_scan_state(
+                merged.scanner_coverage.get(name),
+                outcome.state,
+            )
+            merged.scanner_outcomes[name] = merge_outcome(
+                merged.scanner_outcomes.get(name),
+                outcome,
+            )
 
     merged.completed_at = datetime.now(tz=timezone.utc)
     return merged

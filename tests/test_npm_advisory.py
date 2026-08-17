@@ -134,8 +134,8 @@ async def test_scan_osv_no_vulns_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_scan_osv_network_error_is_silenced():
-    """A network failure should not raise — it should be logged and skipped."""
+async def test_scan_osv_network_error_is_exposed_without_raising():
+    """A network failure should remain a named incomplete coverage state."""
     db = stub_threat_db()
     scanner = NpmAdvisoryScanner(threat_db=db)
 
@@ -150,6 +150,8 @@ async def test_scan_osv_network_error_is_silenced():
 
     # Should not raise; threat_db findings may still be present
     assert isinstance(findings, list)
+    assert scanner.last_error is not None
+    assert "some-pkg" in scanner.last_error
 
 
 @pytest.mark.asyncio

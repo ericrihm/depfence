@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, TypedDict
 
 from depfence.simulate.attacks import AttackSimulator, RiskLevel, SimulationResult
 
@@ -46,7 +47,7 @@ class RedTeamReport:
             if o.simulation.risk_level in (RiskLevel.CRITICAL, RiskLevel.HIGH)
         ]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "project_dir": self.project_dir,
             "score": self.score,
@@ -81,7 +82,12 @@ class RedTeamReport:
 # Project-level config inspection
 # ---------------------------------------------------------------------------
 
-def _detect_config_gaps(project_dir: Path) -> dict[str, list[str]]:
+class _ConfigGaps(TypedDict):
+    gaps: dict[str, list[str]]
+    improvements: list[str]
+
+
+def _detect_config_gaps(project_dir: Path) -> _ConfigGaps:
     """Inspect project files and return per-attack-type configuration gaps."""
     gaps: dict[str, list[str]] = {
         "typosquatting": [],
@@ -308,7 +314,11 @@ def _infer_primary_package(project_path: Path) -> str:
     pj = project_path / "package.json"
     if pj.exists():
         try:
-            return json.loads(pj.read_text()).get("name", project_path.name)
+            data = json.loads(pj.read_text())
+            if isinstance(data, dict):
+                package_name = data.get("name")
+                if isinstance(package_name, str):
+                    return package_name
         except Exception:
             pass
     # Python

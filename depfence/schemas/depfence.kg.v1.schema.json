@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.kg/v1.json",
+  "type": "object",
+  "required": ["schema_version", "@context", "@graph"],
+  "properties": {
+    "schema_version": {"const": "depfence.kg/v1"},
+    "@context": {"type": "object"},
+    "@graph": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "repo", "origin", "derivedBy", "lineage"],
+        "properties": {
+          "id": {"type": "string", "format": "uri"},
+          "type": {"enum": ["finding", "rule", "package", "ecosystem", "cve", "cwe", "product"]},
+          "repo": {"const": "depfence"},
+          "origin": {"const": "derived"},
+          "derivedBy": {"type": "string"},
+          "lineage": {"enum": ["observed", "synthetic"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

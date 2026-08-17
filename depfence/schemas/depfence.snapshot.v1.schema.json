@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.snapshot/v1.json",
+  "title": "DepFence project snapshot v1",
+  "type": "object",
+  "required": ["schema_version", "scan_id", "created_at", "target", "depfence_version", "status", "reason", "safe", "mode", "assurance", "summary", "coverage", "findings", "delta"],
+  "properties": {
+    "schema_version": {"const": "depfence.snapshot/v1"},
+    "scan_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "target": {"type": "string"}, "depfence_version": {"type": "string"},
+    "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+    "reason": {"type": "string"}, "safe": {"type": "boolean"},
+    "mode": {"enum": ["online", "offline"]},
+    "assurance": {
+      "type": "object", "required": ["class", "collector_runs_as", "tamper_resistant"],
+      "properties": {"class": {"const": "local-scan/unauthenticated"}, "collector_runs_as": {"const": "invoking-user"}, "tamper_resistant": {"const": false}},
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object", "required": ["packages_scanned", "findings", "severity"],
+      "properties": {"packages_scanned": {"type": "integer", "minimum": 0}, "findings": {"type": "integer", "minimum": 0}, "severity": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}},
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object", "required": ["completed", "skipped", "errors", "complete"],
+      "properties": {"completed": {"type": "array", "items": {"type": "string"}}, "skipped": {"type": "array", "items": {"type": "string"}}, "errors": {"type": "array", "items": {"type": "string"}}, "complete": {"type": "boolean"}},
+      "additionalProperties": false
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "delta": {
+      "type": "object", "required": ["new_finding_ids", "resolved_finding_ids"],
+      "properties": {"new_finding_ids": {"type": "array", "items": {"type": "string"}}, "resolved_finding_ids": {"type": "array", "items": {"type": "string"}}},
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object", "required": ["id", "finding_type", "severity", "package", "title", "cve", "fix_version"],
+      "properties": {"id": {"type": "string"}, "finding_type": {"type": "string"}, "severity": {"type": "string"}, "package": {"type": "string"}, "title": {"type": "string"}, "cve": {"type": ["string", "null"]}, "fix_version": {"type": ["string", "null"]}},
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

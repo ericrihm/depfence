@@ -32,7 +32,7 @@ def generate_fixes(findings: list[Finding], project_dir: Path) -> list[dict]:
         if not finding.fix_version:
             continue
 
-        pkg_str = finding.package
+        pkg_str = str(finding.package)
         parts = pkg_str.split(":")
         if len(parts) != 2:
             continue

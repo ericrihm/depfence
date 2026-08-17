@@ -11,10 +11,18 @@ Does NOT execute any code — purely static text analysis.
 from __future__ import annotations
 
 import ast
+import os
 import re
+import stat
 from pathlib import Path
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
+from depfence.core.scan_scope import (
+    InputLimitError,
+    PartialScanError,
+    ScanIncompleteError,
+    ScanScope,
+)
 
 # ---------------------------------------------------------------------------
 # Injection patterns — expanded from mcp_scanner._INJECTION_PATTERNS
@@ -43,6 +51,13 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, Severity]] = [
      "Identity override via act-as", Severity.MEDIUM),
     (re.compile(r"pretend\s+(you|to\s+be|that)\s+", re.I),
      "Identity override via pretend", Severity.MEDIUM),
+    (re.compile(
+        r"(?:in\s+this\s+(?:story|scenario)|for\s+this\s+game|in\s+a\s+world\s+where|"
+        r"hypothetically|roleplay\s+as|imagine\s+you\s+are).{0,240}?"
+        r"(?:reveal|output|send|upload|exfiltrate|share|disclose).{0,100}?"
+        r"(?:secrets?|api\s*keys?|tokens?|passwords?|credentials?|private\s+files?|user\s+data)",
+        re.I | re.DOTALL,
+    ), "Fictional framing with sensitive action", Severity.HIGH),
 
     # System/role injection
     (re.compile(r"system\s*:\s*", re.I), "System prompt injection", Severity.HIGH),
@@ -173,6 +188,7 @@ _METADATA_FILES = {
 }
 
 _MAX_FILES = 10_000
+_MAX_PACKAGE_JSON_FILES = 5_000
 _MAX_FILE_SIZE = 1_000_000  # 1MB
 
 
@@ -307,6 +323,10 @@ def strip_cbrn_shield(source: str) -> str:
 
 
 class PromptInjectionScanner:
+    def __init__(self, *, include_global_caches: bool = False) -> None:
+        # Host caches are outside the requested workspace and may contain
+        # private source.  They are never scanned implicitly.
+        self.include_global_caches = include_global_caches
     """Detects prompt injection payloads hidden in source code.
 
     Scans comments, docstrings, string literals, and raw text for patterns
@@ -350,7 +370,7 @@ class PromptInjectionScanner:
                     severity=severity,
                     package=pkg,
                     title=f"Prompt injection in text: {label}",
-                    detail=f"Source '{source}': matched '{match.group()[:200]}'",
+                    detail=f"Source '{source}': prompt-injection content redacted from report",
                     cwe="CWE-77",
                     references=[
                         "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
@@ -359,7 +379,7 @@ class PromptInjectionScanner:
                     metadata={
                         "source": source,
                         "matched_pattern": label,
-                        "matched_text": match.group()[:200],
+                        "content_redacted": True,
                     },
                 ))
 
@@ -406,74 +426,155 @@ class PromptInjectionScanner:
                         break
         return findings
 
-    async def scan_project(self, project_dir: Path) -> list[Finding]:
+    async def scan_project(self, project_dir: Path | ScanScope) -> list[Finding]:
         """Scan a project directory for prompt injection in source files."""
         findings: list[Finding] = []
-        files = self._find_files(project_dir)
+        scope = project_dir if isinstance(project_dir, ScanScope) else ScanScope(Path(project_dir))
+        root = scope.root
+        files, issues = self._discover_files(root, scope)
 
         for fpath in files:
-            findings.extend(self._scan_file(fpath, project_dir))
+            try:
+                findings.extend(self._scan_file(fpath, root, scope))
+            except ScanIncompleteError as exc:
+                issues.append(str(exc))
 
         # Scan package.json files for injection in non-description fields
-        findings.extend(self._scan_package_json_fields(project_dir))
+        package_findings, package_issues = self._scan_package_json_fields(root, scope)
+        findings.extend(package_findings)
+        issues.extend(package_issues)
+
+        if issues:
+            raise PartialScanError(
+                "prompt scan coverage incomplete: " + "; ".join(sorted(set(issues))[:5]),
+                findings,
+            )
 
         return findings
 
     async def scan_files(self, project_dir: Path, files: list[Path] | None = None) -> list[Finding]:
         """Scan specific files or discover files in project_dir."""
+        scope = ScanScope(project_dir)
         findings: list[Finding] = []
+        issues: list[str] = []
         if files is None:
-            files = self._find_files(project_dir)
+            files, issues = self._discover_files(scope.root, scope)
         for fpath in files:
-            findings.extend(self._scan_file(fpath, project_dir))
+            try:
+                findings.extend(self._scan_file(fpath, scope.root, scope))
+            except ScanIncompleteError as exc:
+                issues.append(str(exc))
+        if issues:
+            raise PartialScanError(
+                "prompt scan coverage incomplete: " + "; ".join(sorted(set(issues))[:5]),
+                findings,
+            )
         return findings
 
     def _find_files(self, project_dir: Path) -> list[Path]:
-        """Find source files in installed packages and project source."""
+        files, _issues = self._discover_files(project_dir, ScanScope(project_dir))
+        return files
+
+    def _discover_files(
+        self, project_dir: Path, scope: ScanScope
+    ) -> tuple[list[Path], list[str]]:
+        """Find files in trust order so vendored corpora cannot starve controls."""
         files: list[Path] = []
+        seen: set[Path] = set()
+        issues: list[str] = []
         search_dirs = [
+            project_dir / ".github",
+            project_dir / ".cursor",
+            project_dir / ".windsurf",
+            project_dir / ".roo",
+            project_dir / ".continue",
+            project_dir / ".claude",
+            project_dir / ".codex",
+            project_dir / ".agents",
+            project_dir / "docs",
+            project_dir / "src",
+            project_dir / "lib",
+            project_dir,
             project_dir / "node_modules",
             project_dir / ".venv",
             project_dir / "venv",
             project_dir / "site-packages",
-            project_dir / "src",
-            project_dir / "lib",
-            # Java/Kotlin: Maven local repository cache
-            Path.home() / ".m2" / "repository",
-            # Java/Kotlin: Gradle module cache
-            Path.home() / ".gradle" / "caches" / "modules-2",
         ]
-        # Also search project root (top-level source files)
-        search_dirs.append(project_dir)
-
+        if self.include_global_caches:
+            search_dirs.extend([
+                Path.home() / ".m2" / "repository",
+                Path.home() / ".gradle" / "caches" / "modules-2",
+            ])
+        # Instruction files may apply by directory scope. Discover them before the broad
+        # source corpus so a vendored tree cannot consume the file budget first.
+        instruction_names = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", "SKILL.md"}
+        for candidate in project_dir.rglob("*"):
+            in_agent_rule_dir = any(
+                marker in candidate.parts
+                for marker in (".cursor", ".windsurf", ".roo", ".continue")
+            ) and "rules" in candidate.parts
+            github_instruction = (
+                candidate.name.endswith(".instructions.md")
+                and ".github" in candidate.parts
+                and "instructions" in candidate.parts
+            )
+            if (
+                candidate.name not in instruction_names
+                and not in_agent_rule_dir
+                and not github_instruction
+            ):
+                continue
+            if candidate.is_symlink():
+                issues.append(f"symlinked prompt instruction is unsupported: {candidate}")
+                continue
+            if candidate.is_file() and candidate not in seen:
+                files.append(candidate)
+                seen.add(candidate)
         for d in search_dirs:
             if not d.exists():
                 continue
             iterator = d.rglob("*") if d != project_dir else d.glob("*")
             for f in iterator:
+                if f.is_symlink():
+                    if f.suffix in _SOURCE_EXTENSIONS or f.name in _METADATA_FILES:
+                        issues.append(f"symlinked prompt input is unsupported: {f}")
+                    continue
                 if not f.is_file():
+                    continue
+                if f in seen:
                     continue
                 if f.suffix in _SOURCE_EXTENSIONS or f.name in _METADATA_FILES:
                     try:
-                        if f.stat().st_size < _MAX_FILE_SIZE:
+                        if f.stat().st_size <= _MAX_FILE_SIZE:
                             files.append(f)
-                    except OSError:
+                            seen.add(f)
+                        else:
+                            files.append(f)
+                            seen.add(f)
+                            issues.append(
+                                f"prompt input exceeds {_MAX_FILE_SIZE} byte limit: {f}"
+                            )
+                    except OSError as exc:
+                        issues.append(f"cannot inspect prompt input {f}: {exc}")
                         continue
                 if len(files) >= _MAX_FILES:
+                    issues.append(
+                        f"prompt scan reached {_MAX_FILES} files; remaining corpus is unproven"
+                    )
                     break
             if len(files) >= _MAX_FILES:
                 break
-        return files
+        return files, issues
 
-    def _scan_file(self, fpath: Path, project_dir: Path) -> list[Finding]:
+    def _scan_file(
+        self, fpath: Path, project_dir: Path, scope: ScanScope | None = None
+    ) -> list[Finding]:
         findings: list[Finding] = []
         rel = str(fpath.relative_to(project_dir)) if project_dir in fpath.parents else str(fpath)
 
         # Phase 1: Binary-level hiding detection (ANSI, zero-width, bidi)
-        try:
-            raw = fpath.read_bytes()
-        except OSError:
-            return findings
+        active_scope = scope or ScanScope(project_dir)
+        raw = self._read_prompt_bytes(fpath, active_scope)
 
         for pattern, label, severity in _HIDING_PATTERNS:
             if pattern.search(raw):
@@ -500,14 +601,14 @@ class PromptInjectionScanner:
                                 severity=Severity.CRITICAL,
                                 package=PackageId(ecosystem="file", name=rel),
                                 title=f"Prompt injection hidden via ANSI escape: {inj_label}",
-                                detail=f"ANSI-invisible text contains: '{hidden[:200]}' — "
-                                       f"this is the exact jqwik attack pattern.",
+                                detail="ANSI-invisible text contains a prompt-injection pattern; "
+                                       "source content is redacted from reports.",
                                 cwe="CWE-77",
                                 references=[
                                     "https://arstechnica.com/security/2026/05/fed-up-with-vibe-coders-dev-sneaks-data-nuking-prompt-injection-into-their-code/",
                                 ],
                                 confidence=0.95,
-                                metadata={"file": rel, "hidden_text": hidden[:500], "technique": "ansi_escape"},
+                                metadata={"file": rel, "technique": "ansi_escape", "content_redacted": True},
                             ))
                             break
 
@@ -543,21 +644,55 @@ class PromptInjectionScanner:
                         severity=severity,
                         package=PackageId(ecosystem="file", name=rel),
                         title=f"Prompt injection in source: {label}",
-                        detail=f"Line {line_num}: '{content[:200].strip()}'",
+                        detail=f"Line {line_num}: prompt-injection content redacted from report",
                         cwe="CWE-77",
                         references=[
                             "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
                         ],
                         confidence=0.85,
-                        metadata={"file": rel, "line": line_num, "matched_pattern": label},
+                        metadata={
+                            "file": rel,
+                            "line": line_num,
+                            "matched_pattern": label,
+                            "content_redacted": True,
+                        },
                     ))
 
         return findings
 
-    def _scan_package_json_fields(self, project_dir: Path) -> list[Finding]:
+    @staticmethod
+    def _read_prompt_bytes(fpath: Path, scope: ScanScope) -> bytes:
+        """Read a normal file fully or bounded head+tail samples of an oversized file."""
+        resolved = scope.resolve(fpath)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(resolved, flags)
+        except OSError as exc:
+            raise ScanIncompleteError(f"cannot read prompt input {resolved}: {exc}") from exc
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise ScanIncompleteError(f"prompt input is not a regular file: {resolved}")
+            if info.st_size <= _MAX_FILE_SIZE:
+                return os.read(descriptor, _MAX_FILE_SIZE + 1)
+            half = _MAX_FILE_SIZE // 2
+            head = os.read(descriptor, half)
+            os.lseek(descriptor, max(0, info.st_size - half), os.SEEK_SET)
+            tail = os.read(descriptor, half)
+            return head + b"\n" + tail
+        except OSError as exc:
+            raise ScanIncompleteError(f"cannot read prompt input {resolved}: {exc}") from exc
+        finally:
+            os.close(descriptor)
+
+    def _scan_package_json_fields(
+        self, project_dir: Path, scope: ScanScope | None = None
+    ) -> tuple[list[Finding], list[str]]:
         """Scan package.json files for injection in all text fields."""
         import json as _json
         findings: list[Finding] = []
+        issues: list[str] = []
+        active_scope = scope or ScanScope(project_dir)
         fields_to_scan = [
             "name", "description", "homepage", "repository",
             "keywords", "license", "author",
@@ -567,15 +702,30 @@ class PromptInjectionScanner:
             "prebuild", "postbuild", "pretest", "posttest",
         ]
 
+        package_json_count = 0
         for pkg_json in project_dir.rglob("package.json"):
+            if pkg_json.is_symlink():
+                issues.append(f"symlinked package.json is unsupported: {pkg_json}")
+                continue
+            package_json_count += 1
+            if package_json_count > _MAX_PACKAGE_JSON_FILES:
+                raise InputLimitError(
+                    f"package.json scan exceeded {_MAX_PACKAGE_JSON_FILES} files"
+                )
             if any(p in {"node_modules", ".git"} for p in pkg_json.parts):
                 # Only scan installed packages, not deep node_modules nesting
                 nm_count = sum(1 for p in pkg_json.parts if p == "node_modules")
                 if nm_count > 1:
                     continue
             try:
-                data = _json.loads(pkg_json.read_text(errors="ignore"))
-            except (OSError, _json.JSONDecodeError):
+                data = _json.loads(
+                    active_scope.read_text(pkg_json, max_bytes=_MAX_FILE_SIZE)
+                )
+            except ScanIncompleteError as exc:
+                issues.append(str(exc))
+                continue
+            except _json.JSONDecodeError as exc:
+                issues.append(f"malformed package.json {pkg_json}: {exc}")
                 continue
             if not isinstance(data, dict):
                 continue
@@ -600,7 +750,7 @@ class PromptInjectionScanner:
                             severity=severity,
                             package=PackageId(ecosystem="npm", name=pkg_name),
                             title=f"Prompt injection in package.json {field}: {label}",
-                            detail=f"Package '{pkg_name}' field '{field}': {value[:200]}",
+                            detail=f"Package '{pkg_name}' field '{field}' contains redacted prompt-injection content",
                             cwe="CWE-77",
                             confidence=0.80,
                             metadata={"file": rel, "field": field, "matched_pattern": label},
@@ -621,14 +771,14 @@ class PromptInjectionScanner:
                                 severity=severity,
                                 package=PackageId(ecosystem="npm", name=pkg_name),
                                 title=f"Prompt injection in scripts.{script_name}: {label}",
-                                detail=f"Package '{pkg_name}' script '{script_name}': {script_val[:200]}",
+                                detail=f"Package '{pkg_name}' script '{script_name}' contains redacted prompt-injection content",
                                 cwe="CWE-77",
                                 confidence=0.75,
                                 metadata={"file": rel, "field": f"scripts.{script_name}", "matched_pattern": label},
                             ))
                             break
 
-        return findings
+        return findings, issues
 
     @staticmethod
     def _extract_ansi_hidden(raw: bytes) -> str:

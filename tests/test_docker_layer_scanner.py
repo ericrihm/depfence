@@ -188,6 +188,19 @@ LABEL hint="ignore previous instructions"
         findings = _run(scanner.scan_project(tmp_path))
         assert isinstance(findings, list)
 
+    def test_project_scan_does_not_inspect_host_images(self, scanner, tmp_path, monkeypatch):
+        """Repository scanning must not cross scope into the host Docker daemon."""
+        called = False
+
+        async def inspect_host_images():
+            nonlocal called
+            called = True
+            return []
+
+        monkeypatch.setattr(scanner, "_scan_local_images", inspect_host_images)
+        assert _run(scanner.scan_project(tmp_path)) == []
+        assert called is False
+
 
 # ---------------------------------------------------------------------------
 # Image inspect scanning (unit tests using internal _scan_image_inspect)

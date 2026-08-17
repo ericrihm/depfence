@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.artifact-doctor/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "engine", "image", "runtime", "checks", "limitation_codes"],
+  "properties": {
+    "schema_version": {"const": "depfence.artifact-doctor/v1"},
+    "status": {"enum": ["PASS", "UNPROVEN", "INDETERMINATE"]},
+    "engine": {"enum": ["docker", "podman"]},
+    "image": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$", "maxLength": 512},
+    "runtime": {"enum": ["runsc", "kata", "kata-runtime"]},
+    "checks": {
+      "type": "object",
+      "required": ["native_linux", "engine_available", "image_available", "image_contract", "runtime_configured", "self_test"],
+      "properties": {
+        "native_linux": {"type": "boolean"},
+        "engine_available": {"type": "boolean"},
+        "image_available": {"type": "boolean"},
+        "image_contract": {"type": "boolean"},
+        "runtime_configured": {"type": "boolean"},
+        "self_test": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "limitation_codes": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z0-9_]+$"},
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

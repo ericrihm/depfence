@@ -124,7 +124,7 @@ async def test_scan_osv_no_vulns_clean_package():
 
 
 @pytest.mark.asyncio
-async def test_scan_osv_network_error_is_silenced():
+async def test_scan_osv_network_error_is_exposed_without_raising():
     db = stub_threat_db()
     scanner = PypiAdvisoryScanner(threat_db=db)
 
@@ -139,6 +139,8 @@ async def test_scan_osv_network_error_is_silenced():
 
     # Must not raise; threat_db portion may still run
     assert isinstance(findings, list)
+    assert scanner.last_error is not None
+    assert "requests" in scanner.last_error
 
 
 @pytest.mark.asyncio

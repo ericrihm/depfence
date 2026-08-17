@@ -8,12 +8,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, ScanState, Severity
 from depfence.core.orchestrator import EnrichmentResult, ScanOrchestrator, ScanPipelineResult
+from depfence.core.registry import ProjectScannerResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,33 +48,30 @@ def _make_lockfile(tmp_path: Path, content: str | None = None) -> Path:
 
 
 # Patch targets
-_SCANNER_PATCH_TARGETS = [
-    "depfence.scanners.dockerfile_scanner.DockerfileScanner.scan_project",
-    "depfence.scanners.terraform_scanner.TerraformScanner.scan_project",
-    "depfence.scanners.gha_workflow_scanner.GhaWorkflowScanner.scan_project",
-    "depfence.scanners.secrets_scanner.SecretsScanner.scan_project",
-    "depfence.scanners.pinning_scanner.PinningScanner.scan_project",
-    "depfence.scanners.resolve_existence_scanner.ResolveExistenceScanner.scan_project",
-    "depfence.scanners.editor_config_scanner.EditorConfigScanner.scan_project",
-    "depfence.scanners.binding_gyp_scanner.BindingGypScanner.scan_project",
-    "depfence.scanners.obfuscation.ObfuscationScanner.scan_project",
-    "depfence.scanners.preinstall.PreinstallScanner.scan_project",
-    "depfence.scanners.network_scanner.NetworkScanner.scan_project",
-    "depfence.scanners.git_message_scanner.GitMessageScanner.scan_project",
-    "depfence.scanners.payload_behavior_scanner.PayloadBehaviorScanner.scan_project",
-    "depfence.scanners.ruby_lifecycle_scanner.RubyLifecycleScanner.scan_project",
-    "depfence.scanners.model_scanner.ModelScanner.scan_project",
-    "depfence.scanners.model_format_scanner.ModelFormatScanner.scan_project",
-    "depfence.scanners.model_integrity.ModelIntegrityScanner.scan_project",
-    "depfence.scanners.ai_bom_generator.AiBomGenerator.scan_project",
-    "depfence.scanners.mcp_scanner.McpScanner.scan_project",
-    "depfence.scanners.mcp_fingerprint.McpFingerprintScanner.scan_project",
-    "depfence.scanners.agent_skill_scanner.AgentSkillScanner.scan_project",
-]
 _EPSS_TARGET = "depfence.core.epss_enricher.enrich_findings"
 _KEV_TARGET = "depfence.core.kev_enricher.enrich_with_kev"
 _TI_LOAD_TARGET = "depfence.core.threat_intel.ThreatIntelDB.load"
 _TI_LOOKUP_TARGET = "depfence.core.threat_intel.ThreatIntelDB.lookup_batch"
+_PROJECT_RUNNER_TARGET = "depfence.core.orchestrator.run_shipped_project_scanners"
+_PROJECT_SCANNER_NAMES = ("dockerfile", "terraform", "gha_workflow", "secrets", "pinning")
+
+
+def _project_results(findings: list[Finding] | None = None) -> list[ProjectScannerResult]:
+    return [
+        ProjectScannerResult(
+            name,
+            ScanState.PASS,
+            list(findings or []) if name == "dockerfile" else [],
+            1.0,
+        )
+        for name in _PROJECT_SCANNER_NAMES
+    ]
+
+
+def _mock_project_runner(stack, findings: list[Finding] | None = None) -> AsyncMock:
+    runner = AsyncMock(return_value=_project_results(findings))
+    stack.enter_context(patch(_PROJECT_RUNNER_TARGET, new=runner))
+    return runner
 
 
 def _all_mocks(
@@ -93,8 +92,7 @@ def _all_mocks(
     stack.enter_context(patch(_KEV_TARGET, new=kev_mock))
     stack.enter_context(patch(_TI_LOAD_TARGET))
     stack.enter_context(patch(_TI_LOOKUP_TARGET, return_value=lookup))
-    for t in _SCANNER_PATCH_TARGETS:
-        stack.enter_context(patch(t, new=AsyncMock(return_value=rv)))
+    _mock_project_runner(stack, rv)
     return epss_mock, kev_mock
 
 
@@ -327,6 +325,36 @@ class TestSequentialEnrichment:
         assert result.enrichment_coverage.get("kev") is True
 
 
+@pytest.mark.parametrize("parallel_enrichment", [False, True])
+@pytest.mark.asyncio
+async def test_threat_intel_findings_are_preserved_in_both_modes(
+    tmp_project: Path,
+    parallel_enrichment: bool,
+) -> None:
+    entry = SimpleNamespace(
+        severity="critical",
+        threat_type="credential stealer",
+        description="Known malicious package payload.",
+        source="test-feed",
+        reported_date="2026-08-15",
+        indicators=["test-indicator"],
+    )
+    matches = {"pypi:requests@2.28.0": entry}
+    with contextlib.ExitStack() as stack:
+        _all_mocks(stack, ti_lookup_val=matches)
+        result = await ScanOrchestrator(
+            parallel_enrichment=parallel_enrichment
+        ).run_full_pipeline(tmp_project)
+
+    threat_findings = [
+        finding
+        for finding in result.scan_result.findings
+        if finding.finding_type is FindingType.MALICIOUS
+    ]
+    assert len(threat_findings) == 1
+    assert threat_findings[0].severity is Severity.CRITICAL
+
+
 # ---------------------------------------------------------------------------
 # Enrichment timing
 # ---------------------------------------------------------------------------
@@ -361,8 +389,7 @@ class TestEnrichmentCoverage:
             stack.enter_context(patch(_KEV_TARGET, new=AsyncMock(return_value=[])))
             stack.enter_context(patch(_TI_LOAD_TARGET))
             stack.enter_context(patch(_TI_LOOKUP_TARGET, return_value={}))
-            for t in _SCANNER_PATCH_TARGETS:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack)
             result = await ScanOrchestrator().run_full_pipeline(
                 tmp_project, enable_epss=False
             )
@@ -371,8 +398,7 @@ class TestEnrichmentCoverage:
     @pytest.mark.asyncio
     async def test_all_disabled_all_three_in_coverage(self, tmp_project):
         with contextlib.ExitStack() as stack:
-            for t in _SCANNER_PATCH_TARGETS:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack)
             result = await ScanOrchestrator().run_full_pipeline(
                 tmp_project,
                 enable_epss=False,
@@ -403,54 +429,23 @@ class TestEnrichmentCoverage:
 class TestProjectScanners:
     @pytest.mark.asyncio
     async def test_all_five_scanners_are_invoked(self, tmp_project):
-        call_log: list[str] = []
-
-        def _make_mock(label):
-            async def _scan(*args, **kwargs):
-                call_log.append(label)
-                return []
-            return _scan
-
         with contextlib.ExitStack() as stack:
-            stack.enter_context(patch(
-                "depfence.scanners.dockerfile_scanner.DockerfileScanner.scan_project",
-                new=_make_mock("dockerfile"),
-            ))
-            stack.enter_context(patch(
-                "depfence.scanners.terraform_scanner.TerraformScanner.scan_project",
-                new=_make_mock("terraform"),
-            ))
-            stack.enter_context(patch(
-                "depfence.scanners.gha_workflow_scanner.GhaWorkflowScanner.scan_project",
-                new=_make_mock("gha"),
-            ))
-            stack.enter_context(patch(
-                "depfence.scanners.secrets_scanner.SecretsScanner.scan_project",
-                new=_make_mock("secrets"),
-            ))
-            stack.enter_context(patch(
-                "depfence.scanners.pinning_scanner.PinningScanner.scan_project",
-                new=_make_mock("pinning"),
-            ))
+            runner = _mock_project_runner(stack)
             stack.enter_context(patch(_EPSS_TARGET, new=AsyncMock(return_value=[])))
             stack.enter_context(patch(_KEV_TARGET, new=AsyncMock(return_value=[])))
             stack.enter_context(patch(_TI_LOAD_TARGET))
             stack.enter_context(patch(_TI_LOOKUP_TARGET, return_value={}))
             await ScanOrchestrator().run_full_pipeline(tmp_project)
 
-        assert set(call_log) == {"dockerfile", "terraform", "gha", "secrets", "pinning"}
+        runner.assert_awaited_once()
+        assert {result.name for result in runner.return_value} == set(_PROJECT_SCANNER_NAMES)
 
     @pytest.mark.asyncio
     async def test_scanner_findings_appear_in_scan_result(self, tmp_project):
         dockerfile_finding = _finding("nginx", cve=None)
 
         with contextlib.ExitStack() as stack:
-            stack.enter_context(patch(
-                "depfence.scanners.dockerfile_scanner.DockerfileScanner.scan_project",
-                new=AsyncMock(return_value=[dockerfile_finding]),
-            ))
-            for t in _SCANNER_PATCH_TARGETS[1:]:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack, [dockerfile_finding])
             stack.enter_context(patch(_EPSS_TARGET, new=AsyncMock(return_value=[])))
             stack.enter_context(patch(_KEV_TARGET, new=AsyncMock(return_value=[])))
             stack.enter_context(patch(_TI_LOAD_TARGET))
@@ -518,8 +513,7 @@ class TestAllEnrichmentsDisabled:
     @pytest.mark.asyncio
     async def test_all_disabled_still_returns_pipeline_result(self, tmp_project):
         with contextlib.ExitStack() as stack:
-            for t in _SCANNER_PATCH_TARGETS:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack)
             result = await ScanOrchestrator().run_full_pipeline(
                 tmp_project,
                 enable_epss=False,
@@ -537,8 +531,7 @@ class TestAllEnrichmentsDisabled:
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch(_EPSS_TARGET, new=epss_mock))
             stack.enter_context(patch(_KEV_TARGET, new=kev_mock))
-            for t in _SCANNER_PATCH_TARGETS:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack)
             await ScanOrchestrator().run_full_pipeline(
                 tmp_project,
                 enable_epss=False,
@@ -552,8 +545,7 @@ class TestAllEnrichmentsDisabled:
     @pytest.mark.asyncio
     async def test_all_disabled_enrichments_have_disabled_error(self, tmp_project):
         with contextlib.ExitStack() as stack:
-            for t in _SCANNER_PATCH_TARGETS:
-                stack.enter_context(patch(t, new=AsyncMock(return_value=[])))
+            _mock_project_runner(stack)
             result = await ScanOrchestrator().run_full_pipeline(
                 tmp_project,
                 enable_epss=False,

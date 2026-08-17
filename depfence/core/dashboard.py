@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from depfence.core.models import ScanResult, Severity
+from depfence.core.models import PackageId, ScanResult, Severity
 
 # ---------------------------------------------------------------------------
 # ANSI helpers
@@ -84,7 +84,13 @@ class ScanSnapshot:
             counts[f.severity.value] = counts.get(f.severity.value, 0) + 1
 
         # Derive ecosystems from package IDs
-        ecosystems = sorted({f.package.ecosystem for f in result.findings})
+        ecosystems = sorted(
+            {
+                f.package.ecosystem
+                for f in result.findings
+                if isinstance(f.package, PackageId)
+            }
+        )
         if not ecosystems and result.ecosystem:
             ecosystems = [result.ecosystem]
 

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.fleet/v1.json",
+  "title": "DepFence fleet result v1",
+  "type": "object",
+  "required": ["schema_version", "created_at", "root_id", "status", "summary", "coverage", "projects"],
+  "properties": {
+    "schema_version": {"const": "depfence.fleet/v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "root_id": {"type": "string", "pattern": "^fleet-hmac-sha256:[0-9a-f]{64}$"},
+    "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+    "summary": {
+      "type": "object",
+      "required": ["projects", "states"],
+      "properties": {
+        "projects": {"type": "integer", "minimum": 0},
+        "states": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["complete", "errors"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "errors": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["project_id"],
+        "properties": {
+          "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+          "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+          "coverage": {},
+          "errors": {"type": "array", "items": {"type": "string"}},
+          "remote": {"type": "object"},
+          "git": {"type": "object"},
+          "counts": {"type": "object"},
+          "packages_scanned": {"type": "integer", "minimum": 0},
+          "summary": {"type": "object"},
+          "finding_ids": {"type": "array", "items": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"}}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

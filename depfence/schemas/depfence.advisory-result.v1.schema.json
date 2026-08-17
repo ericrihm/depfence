@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.advisory-result/v1.json",
+  "type": "object",
+  "required": ["schema_version", "task_id", "completed_at", "status", "claims", "citations", "uncertainties", "proposed_tests", "remediation_options"],
+  "properties": {
+    "schema_version": {"const": "depfence.advisory-result/v1"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["COMPLETE", "INCOMPLETE", "REFUSED"]},
+    "claims": {"type": "array", "items": {"type": "object", "required": ["text", "evidence_ids", "inference"], "properties": {"text": {"type": "string", "maxLength": 1000}, "evidence_ids": {"type": "array", "items": {"type": "string"}}, "inference": {"type": "boolean"}}, "additionalProperties": false}},
+    "citations": {"type": "array", "items": {"type": "object", "required": ["url", "primary"], "properties": {"url": {"type": "string", "format": "uri"}, "primary": {"type": "boolean"}}, "additionalProperties": false}},
+    "uncertainties": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "proposed_tests": {"type": "array", "items": {"type": "string", "maxLength": 1000}},
+    "remediation_options": {"type": "array", "items": {"type": "string", "maxLength": 1000}}
+  },
+  "additionalProperties": false
+}

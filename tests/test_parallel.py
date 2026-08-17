@@ -15,7 +15,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
+from depfence.core.models import (
+    Finding,
+    FindingType,
+    PackageId,
+    ScanResult,
+    ScanState,
+    Severity,
+)
 from depfence.core.parallel import (
     LockfileEntry,
     ParallelScanResult,
@@ -430,6 +437,54 @@ class TestParallelScan:
 
         # Same finding from two directories → deduplicated to 1
         assert len(result.findings) == 1
+
+    def test_merge_preserves_suppressions_errors_and_worst_coverage(self):
+        active = _finding("active", cve=None, title="active finding")
+        suppressed = _finding("suppressed", cve=None, title="suppressed finding")
+        first = _make_scan_result(target="one", findings=[active], errors=["one failed"])
+        first.suppressed_findings = [suppressed]
+        first.scanner_coverage = {
+            "shared": ScanState.FAIL,
+            "clean": ScanState.PASS,
+        }
+        second = _make_scan_result(target="two", errors=["two failed"])
+        second.suppressed_findings = [suppressed]
+        second.scanner_coverage = {
+            "shared": ScanState.INDETERMINATE,
+            "clean": ScanState.UNPROVEN,
+        }
+        second.scanner_errors = {"shared": "worker crashed"}
+        entries = [
+            (LockfileEntry("npm", Path("one/package-lock.json")), first),
+            (LockfileEntry("npm", Path("two/package-lock.json")), second),
+        ]
+
+        merged = _merge_results(".", entries)
+
+        assert merged.findings == [active]
+        assert merged.suppressed_findings == [suppressed]
+        assert merged.errors == ["one failed", "two failed"]
+        assert merged.scanner_coverage == {
+            "shared": ScanState.INDETERMINATE,
+            "clean": ScanState.UNPROVEN,
+        }
+        assert merged.scanner_errors == {"shared": "worker crashed"}
+
+    def test_cli_worker_budget_limits_project_children(self):
+        seen_project_workers: list[int] = []
+
+        async def _fake_scan(directory, **kwargs):
+            seen_project_workers.append(kwargs["project_workers"])
+            return _make_scan_result(target=str(directory))
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _touch(root / "one" / "package-lock.json")
+            _touch(root / "two" / "Cargo.lock")
+            with patch("depfence.core.engine.scan_directory", new=_fake_scan):
+                asyncio.run(parallel_scan(root, workers=2))
+
+        assert seen_project_workers == [1, 1]
 
     def test_completed_at_set(self):
         with tempfile.TemporaryDirectory() as d:

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "depfence"
 version = "0.8.0"
-description = "AI-aware dependency security scanner. 56 scanners: prompt injection detection, slopsquatting defense, MCP auditing, agent skill attack detection, fabricated-pin resolution, AI model security (pickle/GGUF SSTI/ONNX/TFLite), AI-BOM generation, build-time code execution (Rust/Go/PHP/Python/Maven/Gradle/SPM/CocoaPods), supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Dart/Flutter, Docker, HuggingFace, and MCP ecosystems."
+description = "AI-aware dependency security scanner with 56 registered scanners for prompt injection, visual-text deception, MCP, RAG, model, build-time, and software supply-chain threats."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -21,6 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Security",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -32,6 +33,9 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
     "packaging>=24.0",
     "pyyaml>=6.0",
+    "jsonschema>=4.23",
+    "packageurl-python>=0.16",
+    "mcp>=2,<3",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +54,11 @@ all = ["depfence[dev,ml]"]
 [project.scripts]
 depfence = "depfence.cli.main:cli"
 depfence-mcp = "depfence.mcp.server:main"
+depfence-artifact-analyzer = "depfence.artifact_worker:main"
+depfence-sealed-git-acquire = "depfence.sealed_git_worker:acquire_main"
+depfence-sealed-git-resolve = "depfence.sealed_git_worker:resolve_main"
+depfence-sealed-git-inventory = "depfence.sealed_git_worker:inventory_main"
+depfence-sealed-git-analyze = "depfence.sealed_git_worker:analyze_main"
 
 [project.entry-points."depfence.scanners"]
 npm_advisory = "depfence.scanners.npm_advisory:NpmAdvisoryScanner"
@@ -105,6 +114,9 @@ go_generate = "depfence.scanners.go_generate_scanner:GoGenerateScanner"
 composer_script = "depfence.scanners.composer_script_scanner:ComposerScriptScanner"
 python_build = "depfence.scanners.python_build_scanner:PythonBuildScanner"
 maven_plugin = "depfence.scanners.maven_plugin_scanner:MavenPluginScanner"
+agent_skill = "depfence.scanners.agent_skill_scanner:AgentSkillScanner"
+rag_poison = "depfence.scanners.rag_poison_scanner:RagPoisonScanner"
+visual_text_deception = "depfence.scanners.visual_text_deception_scanner:VisualTextDeceptionScanner"
 
 [project.entry-points."depfence.analyzers"]
 ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"
@@ -112,12 +124,14 @@ install_script = "depfence.analyzers.install_script:InstallScriptAnalyzer"
 
 [project.entry-points."depfence.reporters"]
 json_reporter = "depfence.reporters.json_out:JsonReporter"
+json_legacy_reporter = "depfence.reporters.json_out:LegacyJsonReporter"
 table_reporter = "depfence.reporters.table_out:TableReporter"
 sarif_reporter = "depfence.reporters.sarif_out:SarifReporter"
 cyclonedx_reporter = "depfence.reporters.cyclonedx:generate_sbom"
 spdx_reporter = "depfence.reporters.spdx_out:generate_spdx"
 compliance_reporter = "depfence.reporters.compliance_report:generate_compliance_report"
 html_reporter = "depfence.core.html_report:generate_html_report"
+kg_reporter = "depfence.reporters.kg_out:KgReporter"
 
 [project.urls]
 Homepage = "https://github.com/ericrihm/depfence"
@@ -130,7 +144,7 @@ include = ["depfence*"]
 exclude = ["depfence._private*", "tests*"]
 
 [tool.setuptools.package-data]
-depfence = ["data/*.json"]
+depfence = ["data/*.json", "schemas/*.json", "reporters/*.json", "reporters/*.jsonld"]
 
 [tool.ruff]
 target-version = "py310"

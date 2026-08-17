@@ -71,3 +71,55 @@ async def test_scan_handles_network_error(scanner):
         packages = [PackageId("npm", "lodash", "4.17.20")]
         findings = await scanner.scan(packages)
         assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_partial_batch_result_is_not_cached(tmp_path):
+    from depfence.cache.advisory_cache import AdvisoryCache
+
+    scanner = OsvScanner(use_cache=True)
+    scanner._cache = AdvisoryCache(cache_dir=tmp_path / "cache")
+    vuln = OsvVulnerability(
+        id="OSV-PARTIAL",
+        summary="Hydrated before another advisory failed",
+        severity="HIGH",
+        affected_versions=["1.0.0"],
+        fixed_version="1.0.1",
+        references=[],
+        published="2026-01-01T00:00:00Z",
+    )
+    mock_client = AsyncMock()
+    mock_client.query_batch.return_value = {"npm:demo@1.0.0": [vuln]}
+    mock_client.last_error = "hydration failed for OSV-OTHER: HTTP 503"
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    with patch("depfence.scanners.osv_scanner.OsvClient", return_value=mock_client):
+        findings = await scanner.scan([PackageId("npm", "demo", "1.0.0")])
+
+    assert [finding.metadata["osv_id"] for finding in findings] == ["OSV-PARTIAL"]
+    assert scanner._cache.get("npm", "demo", "1.0.0") is None
+
+
+@pytest.mark.asyncio
+async def test_withdrawn_advisory_is_not_an_active_finding(scanner):
+    vuln = OsvVulnerability(
+        id="OSV-WITHDRAWN",
+        summary="Withdrawn advisory",
+        severity="HIGH",
+        affected_versions=["1.0.0"],
+        fixed_version=None,
+        references=[],
+        published="2026-01-01T00:00:00Z",
+        withdrawn="2026-01-02T00:00:00Z",
+    )
+    mock_client = AsyncMock()
+    mock_client.query_batch.return_value = {"npm:demo@1.0.0": [vuln]}
+    mock_client.last_error = None
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    with patch("depfence.scanners.osv_scanner.OsvClient", return_value=mock_client):
+        findings = await scanner.scan([PackageId("npm", "demo", "1.0.0")])
+
+    assert findings == []

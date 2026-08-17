@@ -72,6 +72,7 @@ class SecretsScanner:
         return []
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
+        project_dir = Path(project_dir)
         findings: list[Finding] = []
         for f in self._find_scannable_files(project_dir):
             try:
@@ -85,9 +86,17 @@ class SecretsScanner:
         return findings
 
     def _find_scannable_files(self, project_dir: Path) -> list[Path]:
+        project_dir = Path(project_dir)
         files = []
+        root = project_dir.resolve()
         for f in project_dir.rglob("*"):
             if any(skip in f.parts for skip in _SKIP_DIRS):
+                continue
+            if f.is_symlink():
+                continue
+            try:
+                f.resolve().relative_to(root)
+            except (OSError, ValueError):
                 continue
             if f.is_file() and (f.suffix in _SCAN_EXTENSIONS or f.name in (".env", ".env.local", ".env.production")):
                 files.append(f)

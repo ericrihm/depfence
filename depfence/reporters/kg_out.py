@@ -41,31 +41,37 @@ import os
 import sys
 from urllib.parse import quote
 
+from depfence.core.finding_identity import finding_id
+from depfence.core.models import ScanState
+from depfence.reporters.package_id import coerce_package_id
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE_JSON = os.path.join(HERE, "kg_fixture.json")
 FIXTURE_GRAPH = os.path.join(HERE, "kg_fixture.jsonld")
 
 REPO = "depfence"
 BASE = "https://kg.local"
-VOCAB = "%s/%s/vocab#" % (BASE, REPO)
+VOCAB = f"{BASE}/{REPO}/vocab#"
 DERIVED_BY = "kg_out.py"
 
 # The single source of truth for what is an edge: relation -> target node kind. `@context` derives
 # the @id-typed property set from this (build_context), so DECLARING a relation here auto-widens the
 # referential-integrity gate. A second edge register beside this would be forbidden drift.
 RELATION_RANGE = {
-    "detected_by": "rule",        # finding  -> the rule/scanner class that flagged it
-    "affects": "package",         # finding  -> the dependency it concerns (absent for SAST)
-    "references_cve": "cve",      # finding  -> a CVE id
-    "classified_as": "cwe",       # finding  -> a CWE id
+    "detected_by": "rule",  # finding  -> the rule/scanner class that flagged it
+    "affects": "package",  # finding  -> the dependency it concerns (absent for SAST)
+    "references_cve": "cve",  # finding  -> a CVE id
+    "classified_as": "cwe",  # finding  -> a CWE id
     "in_ecosystem": "ecosystem",  # package  -> npm / pypi / cargo / ...
 }
-KINDS = ("finding", "package", "rule", "cve", "cwe", "ecosystem")
+KINDS = ("finding", "package", "rule", "cve", "cwe", "ecosystem", "product")
 
 # Node keys the build owns (structural, not authored edges). The undeclared-edge gate skips these;
 # every OTHER non-relation property is checked, but only flags a value that is itself an internal
 # IRI, so literal attributes (severity, title, ...) pass naturally.
-RESERVED_KEYS = ("id", "type", "repo", "origin", "derivedBy")
+RESERVED_KEYS = ("id", "type", "repo", "origin", "derivedBy", "lineage")
+LINEAGES = ("observed", "synthetic")
+SCHEMA_VERSION = "depfence.kg/v1"
 
 
 class KGError(Exception):
@@ -78,31 +84,43 @@ class KGError(Exception):
 
 # ---------------------------------------------------------------- id minting
 
+
 def iri(kind, name):
     """Mint a node IRI. `name` is percent-escaped whole (never space-substituted), so a package
     like `@scope/pkg` or a title with spaces yields one stable, unambiguous id (KG-CONTRACT §1)."""
     if kind not in KINDS:
-        raise KGError("unknown node kind %r" % kind, 3)
-    return "%s/%s/%s/%s" % (BASE, REPO, kind, quote(str(name), safe=""))
+        raise KGError(f"unknown node kind {kind!r}", 3)
+    return "{}/{}/{}/{}".format(BASE, REPO, kind, quote(str(name), safe=""))
 
 
-def _is_internal_iri(v):
-    return isinstance(v, str) and v.startswith("%s/%s/" % (BASE, REPO))
+def _graph_iris(value):
+    """Yield every estate IRI, including nested JSON-LD node references."""
+    if isinstance(value, str):
+        return [value] if value.startswith(f"{BASE}/") else []
+    if isinstance(value, list):
+        return [iri_value for member in value for iri_value in _graph_iris(member)]
+    if isinstance(value, dict):
+        return [iri_value for member in value.values() for iri_value in _graph_iris(member)]
+    return []
 
 
 def _finding_name(rec):
     """A stable, ephemeral-free finding id: a digest of the fields that define the finding's
     identity (rule, package, cve/cwe, title, location) - not a timestamp or a scan-run counter, so
     the same finding keeps the same node id across re-scans (the baseline-stability discipline)."""
-    pkg = rec.get("package") or {}
-    key = "|".join(str(x) for x in (
-        rec.get("rule", ""), pkg.get("ecosystem", ""), pkg.get("name", ""),
-        pkg.get("version", ""), rec.get("cve", ""), rec.get("cwe", ""),
-        rec.get("location", ""), rec.get("title", "")))
-    return "%s-%s" % (rec.get("rule", "finding"), hashlib.sha256(key.encode()).hexdigest()[:16])
+    return finding_id(rec)
+
+
+def _node_sort_key(node):
+    """Keep serialization stable without ordering findings by digest accidents."""
+    if node.get("type") == "finding":
+        detected_by = node.get("detected_by") or [""]
+        return ("finding", str(detected_by[0]), str(node.get("id", "")))
+    return (str(node.get("type", "")), str(node.get("id", "")), "")
 
 
 # ---------------------------------------------------------------- normalization
+
 
 def normalize_depfence(scan_result):
     """A depfence ScanResult -> the unified finding-record list this emitter consumes.
@@ -117,65 +135,149 @@ def normalize_depfence(scan_result):
     for f in getattr(scan_result, "findings", []) or []:
         ft = getattr(f, "finding_type", None)
         sev = getattr(f, "severity", None)
-        pkg = getattr(f, "package", None)
-        records.append({
-            "rule": getattr(ft, "value", str(ft)) if ft is not None else "unknown",
-            "severity": getattr(sev, "value", str(sev)) if sev is not None else "info",
-            "title": getattr(f, "title", "") or "",
-            "detail": (getattr(f, "detail", "") or "")[:500],
-            "confidence": float(getattr(f, "confidence", 1.0) or 1.0),
-            "package": ({"ecosystem": getattr(pkg, "ecosystem", "") or "",
-                         "name": getattr(pkg, "name", "") or "",
-                         "version": getattr(pkg, "version", None) or ""} if pkg else None),
-            "cve": getattr(f, "cve", None) or None,
-            "cwe": getattr(f, "cwe", None) or None,
-            "location": None,
-        })
+        raw_pkg = getattr(f, "package", None)
+        pkg = coerce_package_id(raw_pkg) if raw_pkg else None
+        metadata = getattr(f, "metadata", {}) or {}
+        location_path = next(
+            (
+                metadata.get(key)
+                for key in ("source_file", "file", "path", "relative_path", "lockfile_path")
+                if metadata.get(key)
+            ),
+            None,
+        )
+        location_line = metadata.get("line") or metadata.get("line_number")
+        location = (
+            f"{location_path}:{location_line}"
+            if location_path and location_line is not None
+            else location_path
+        )
+        records.append(
+            {
+                "rule": getattr(ft, "value", str(ft)) if ft is not None else "unknown",
+                "severity": getattr(sev, "value", str(sev)) if sev is not None else "info",
+                "title": getattr(f, "title", "") or "",
+                "detail": (getattr(f, "detail", "") or "")[:500],
+                "confidence": float(getattr(f, "confidence", 1.0) or 1.0),
+                "package": (
+                    {
+                        "ecosystem": getattr(pkg, "ecosystem", "") or "",
+                        "name": getattr(pkg, "name", "") or "",
+                        "version": getattr(pkg, "version", None) or "",
+                    }
+                    if pkg
+                    else None
+                ),
+                "cve": getattr(f, "cve", None) or None,
+                "cwe": getattr(f, "cwe", None) or None,
+                "location": location,
+            }
+        )
     return records
 
 
 # ---------------------------------------------------------------- graph build
 
-def build_nodes(records):
+
+def build_nodes(records, *, lineage="observed"):
     """Unified finding-records -> a de-duplicated node list. Never raises on record shape; a record
     missing its rule is still a finding (rule 'unknown'), never dropped silently."""
+    if lineage not in LINEAGES:
+        raise KGError(f"unknown lineage {lineage!r}; expected one of {LINEAGES}")
+
     by_id = {}
 
     def _put(node):
-        by_id.setdefault(node["id"], node)  # first writer wins; ids are content-stable
+        existing = by_id.get(node["id"])
+        if existing is None:
+            by_id[node["id"]] = node
+        elif existing != node:
+            raise KGError(f"divergent duplicate node identity {node['id']}")
 
     for rec in records:
         rule = rec.get("rule") or "unknown"
-        _put({"id": iri("rule", rule), "type": "rule", "repo": REPO,
-              "origin": "derived", "derivedBy": DERIVED_BY, "name": rule})
+        _put(
+            {
+                "id": iri("rule", rule),
+                "type": "rule",
+                "repo": REPO,
+                "origin": "derived",
+                "derivedBy": DERIVED_BY,
+                "lineage": lineage,
+                "name": rule,
+            }
+        )
 
         pkg_iri = None
         pkg = rec.get("package")
         if pkg and (pkg.get("name") or pkg.get("ecosystem")):
             eco = pkg.get("ecosystem") or "unknown"
-            pkg_name = "%s:%s@%s" % (eco, pkg.get("name") or "?", pkg.get("version") or "")
+            pkg_name = "{}:{}@{}".format(eco, pkg.get("name") or "?", pkg.get("version") or "")
             pkg_iri = iri("package", pkg_name)
-            _put({"id": iri("ecosystem", eco), "type": "ecosystem", "repo": REPO,
-                  "origin": "derived", "derivedBy": DERIVED_BY, "name": eco})
-            _put({"id": pkg_iri, "type": "package", "repo": REPO, "origin": "derived",
-                  "derivedBy": DERIVED_BY, "name": pkg_name,
-                  "in_ecosystem": [iri("ecosystem", eco)]})
+            _put(
+                {
+                    "id": iri("ecosystem", eco),
+                    "type": "ecosystem",
+                    "repo": REPO,
+                    "origin": "derived",
+                    "derivedBy": DERIVED_BY,
+                    "lineage": lineage,
+                    "name": eco,
+                }
+            )
+            _put(
+                {
+                    "id": pkg_iri,
+                    "type": "package",
+                    "repo": REPO,
+                    "origin": "derived",
+                    "derivedBy": DERIVED_BY,
+                    "lineage": lineage,
+                    "name": pkg_name,
+                    "in_ecosystem": [iri("ecosystem", eco)],
+                }
+            )
 
         cve_iri = cwe_iri = None
         if rec.get("cve"):
             cve_iri = iri("cve", rec["cve"])
-            _put({"id": cve_iri, "type": "cve", "repo": REPO, "origin": "derived",
-                  "derivedBy": DERIVED_BY, "name": rec["cve"]})
+            _put(
+                {
+                    "id": cve_iri,
+                    "type": "cve",
+                    "repo": REPO,
+                    "origin": "derived",
+                    "derivedBy": DERIVED_BY,
+                    "lineage": lineage,
+                    "name": rec["cve"],
+                }
+            )
         if rec.get("cwe"):
             cwe_iri = iri("cwe", rec["cwe"])
-            _put({"id": cwe_iri, "type": "cwe", "repo": REPO, "origin": "derived",
-                  "derivedBy": DERIVED_BY, "name": rec["cwe"]})
+            _put(
+                {
+                    "id": cwe_iri,
+                    "type": "cwe",
+                    "repo": REPO,
+                    "origin": "derived",
+                    "derivedBy": DERIVED_BY,
+                    "lineage": lineage,
+                    "name": rec["cwe"],
+                }
+            )
 
-        node = {"id": iri("finding", _finding_name(rec)), "type": "finding", "repo": REPO,
-                "origin": "derived", "derivedBy": DERIVED_BY,
-                "severity": rec.get("severity") or "info", "title": rec.get("title") or "",
-                "confidence": rec.get("confidence", 1.0),
-                "detected_by": [iri("rule", rule)]}
+        node = {
+            "id": iri("finding", _finding_name(rec)),
+            "type": "finding",
+            "repo": REPO,
+            "origin": "derived",
+            "derivedBy": DERIVED_BY,
+            "lineage": lineage,
+            "severity": rec.get("severity") or "info",
+            "title": rec.get("title") or "",
+            "confidence": rec.get("confidence", 1.0),
+            "detected_by": [iri("rule", rule)],
+        }
         if rec.get("location"):
             node["location"] = rec["location"]
         if pkg_iri:
@@ -186,7 +288,7 @@ def build_nodes(records):
             node["classified_as"] = [cwe_iri]
         _put(node)
 
-    return sorted(by_id.values(), key=lambda n: n["id"])
+    return sorted(by_id.values(), key=_node_sort_key)
 
 
 def gate(nodes):
@@ -197,45 +299,137 @@ def gate(nodes):
         for rel, val in n.items():
             if rel in RELATION_RANGE:
                 want = RELATION_RANGE[rel]
-                for t in (val if isinstance(val, list) else [val]):
+                for t in val if isinstance(val, list) else [val]:
                     if t not in ids:
-                        fails.append("dangling: %s --%s--> %s (no such node)" % (n["id"], rel, t))
+                        fails.append(
+                            "dangling: {} --{}--> {} (no such node)".format(n["id"], rel, t)
+                        )
                     elif ids[t] != want:
-                        fails.append("wrong_kind: %s --%s--> %s (is %s, want %s)"
-                                     % (n["id"], rel, t, ids[t], want))
+                        fails.append(
+                            "wrong_kind: {} --{}--> {} (is {}, want {})".format(
+                                n["id"], rel, t, ids[t], want
+                            )
+                        )
             elif rel in RESERVED_KEYS:
                 continue
             else:
-                for v in (val if isinstance(val, list) else [val]):
-                    if _is_internal_iri(v):
-                        fails.append("undeclared_edge: %s.%s -> %s (IRI value on a non-relation "
-                                     "property)" % (n["id"], rel, v))
+                for v in val if isinstance(val, list) else [val]:
+                    for iri_value in _graph_iris(v):
+                        fails.append(
+                            "undeclared_edge: {}.{} -> {} (IRI value on a non-relation "
+                            "property)".format(n["id"], rel, iri_value)
+                        )
     return sorted(fails)
 
 
 def build_context():
     ctx = {"@vocab": VOCAB, "id": "@id", "type": "@type"}
-    for rel in RELATION_RANGE:
-        ctx[rel] = {"@type": "@id"}
+    for rel, target_type in RELATION_RANGE.items():
+        ctx[rel] = {"@type": "@id", "targetType": target_type}
     return ctx
 
 
 def render(nodes):
-    graph = {"@context": build_context(), "@graph": nodes}
-    return json.dumps(graph, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    graph = {"@context": build_context(), "@graph": nodes, "schema_version": SCHEMA_VERSION}
+    try:
+        return json.dumps(graph, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    except (TypeError, ValueError) as exc:
+        raise KGError(f"graph is not finite, serializable JSON: {exc}") from exc
+
+
+def _scan_failures(scan_result):
+    failures = [str(error) for error in getattr(scan_result, "errors", []) or []]
+    scanner_errors = getattr(scan_result, "scanner_errors", {}) or {}
+    failures.extend(f"{name}: {error}" for name, error in sorted(scanner_errors.items()))
+    coverage = getattr(scan_result, "scanner_coverage", {}) or {}
+    for name, raw_state in sorted(coverage.items()):
+        state = getattr(raw_state, "value", raw_state)
+        if state in {ScanState.INDETERMINATE.value, ScanState.UNPROVEN.value}:
+            failures.append(f"{name}: coverage {state}")
+    evaluated = bool(coverage) or int(getattr(scan_result, "packages_scanned", 0) or 0) > 0
+    if not evaluated:
+        failures.append("no package or scanner coverage was evaluated")
+    return failures
 
 
 def emit(scan_result):
     """Runtime path: a ScanResult -> validated JSON-LD string. Raises KGError if a gate fails, so a
     non-conformant graph is never emitted as output."""
-    nodes = build_nodes(normalize_depfence(scan_result))
+    failures = _scan_failures(scan_result)
+    if failures:
+        raise KGError(
+            f"KG NOT PROVEN ({len(failures)} incomplete scan condition(s)): "
+            + "; ".join(failures[:3])
+        )
+    nodes = build_nodes(normalize_depfence(scan_result), lineage="observed")
     fails = gate(nodes)
     if fails:
-        raise KGError("KG NOT PROVEN (%d gate failure(s)): %s" % (len(fails), "; ".join(fails[:3])))
-    return render(nodes)
+        raise KGError(f"KG NOT PROVEN ({len(fails)} gate failure(s)): {'; '.join(fails[:3])}")
+    rendered = render(nodes)
+    from depfence.schemas import validate_document
+
+    validate_document(json.loads(rendered))
+    return rendered
+
+
+class KgReporter:
+    """Versioned, fail-closed JSON-LD reporter for the normal reporter registry."""
+
+    name = "kg"
+    format = "kg"
+
+    def render(self, result):
+        return emit(result)
+
+
+def write_private_overlay(scan_result, *, state=None):
+    """Write a non-authoritative local observation for explicit Atlas federation.
+
+    Private state must never re-publish runtime findings as canonical DepFence
+    nodes.  The observation therefore identifies only the public product node and
+    commits to the validated runtime graph by digest; detailed findings remain in
+    DepFence's private store and cannot override a repository-owned claim.
+    """
+    from pathlib import Path
+
+    from depfence.core.local_state import PrivateState
+
+    target = Path(getattr(scan_result, "target", Path.cwd())).resolve(strict=False)
+    private_state = state or PrivateState.open(project_root=target)
+    runtime_graph = emit(scan_result)
+    project_digest = private_state.project_id(target).split(":", 1)[-1]
+    observation = {
+        "@context": {
+            "@vocab": "https://kg.local/local-observation/vocab#",
+            "id": "@id",
+            "type": "@type",
+            "observedSubject": {"@type": "@id"},
+        },
+        "@graph": [
+            {
+                "id": f"https://kg.local/local-observation/depfence/{project_digest}",
+                "type": "Observation",
+                "repo": "local-observation",
+                "origin": "derived",
+                "derivedBy": DERIVED_BY,
+                "lineage": "observed",
+                "name": "private DepFence scan evidence",
+                "observedSubject": iri("product", REPO),
+                "evidenceDigest": "sha256:"
+                + hashlib.sha256(runtime_graph.encode()).hexdigest(),
+                "findingCount": len(getattr(scan_result, "findings", []) or []),
+                "packagesScanned": int(
+                    getattr(scan_result, "packages_scanned", 0) or 0
+                ),
+            }
+        ],
+    }
+    encoded = json.dumps(observation, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    return private_state.write_text("kg/depfence.jsonld", encoded)
 
 
 # ---------------------------------------------------------------- fixture gate
+
 
 def _records_from_fixture(path=FIXTURE_JSON):
     """Load the committed fixture as unified finding-records (a JSON list). Kept as plain records,
@@ -246,7 +440,19 @@ def _records_from_fixture(path=FIXTURE_JSON):
 
 
 def _built(path=FIXTURE_JSON):
-    nodes = build_nodes(_records_from_fixture(path))
+    nodes = build_nodes(_records_from_fixture(path), lineage="synthetic")
+    nodes.append(
+        {
+            "id": iri("product", REPO),
+            "type": "product",
+            "repo": REPO,
+            "origin": "derived",
+            "derivedBy": DERIVED_BY,
+            "lineage": "synthetic",
+            "name": REPO,
+        }
+    )
+    nodes.sort(key=_node_sort_key)
     return nodes, gate(nodes)
 
 
@@ -257,39 +463,43 @@ def main(argv=None):
         nodes, fails = _built()
         if fails:
             for f in fails:
-                sys.stderr.write("GATE: %s\n" % f)
+                sys.stderr.write(f"GATE: {f}\n")
             return 3
         out = render(nodes)
         if mode == "--write":
             with open(FIXTURE_GRAPH, "w") as fh:
                 fh.write(out)
-            print("wrote %s (%d nodes)" % (FIXTURE_GRAPH, len(nodes)))
+            print(f"wrote {FIXTURE_GRAPH} ({len(nodes)} nodes)")
             return 0
         if mode == "--emit-graph":
             import os as _os
-            dst = _os.path.join(_os.path.dirname(_os.path.dirname(HERE)), "docs", "graph",
-                                "depfence.jsonld")
+
+            dst = _os.path.join(
+                _os.path.dirname(_os.path.dirname(HERE)), "docs", "graph", "depfence.jsonld"
+            )
             _os.makedirs(_os.path.dirname(dst), exist_ok=True)
             with open(dst, "w") as fh:
                 fh.write(out)
-            print("wrote %s (%d nodes) [synthetic fixture graph, for federation discovery]"
-                  % (dst, len(nodes)))
+            print(
+                f"wrote {dst} ({len(nodes)} nodes) [synthetic fixture graph, for federation discovery]"
+            )
             return 0
         if mode == "--check":
             if not os.path.exists(FIXTURE_GRAPH):
-                sys.stderr.write("missing %s (run --write)\n" % FIXTURE_GRAPH)
+                sys.stderr.write(f"missing {FIXTURE_GRAPH} (run --write)\n")
                 return 1
             with open(FIXTURE_GRAPH) as fh:
                 if fh.read() != out:
-                    sys.stderr.write("STALE: %s does not match the emitter (run --write)\n"
-                                     % FIXTURE_GRAPH)
+                    sys.stderr.write(
+                        f"STALE: {FIXTURE_GRAPH} does not match the emitter (run --write)\n"
+                    )
                     return 1
-            print("current: %s matches source (%d nodes)" % (FIXTURE_GRAPH, len(nodes)))
+            print(f"current: {FIXTURE_GRAPH} matches source ({len(nodes)} nodes)")
             return 0
         sys.stderr.write("usage: kg_out.py [--write|--check]\n")
         return 2
     except KGError as e:
-        sys.stderr.write("kg_out: %s\n" % e)
+        sys.stderr.write(f"kg_out: {e}\n")
         return e.code
 
 

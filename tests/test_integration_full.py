@@ -485,7 +485,7 @@ def test_trust_scorer_rates_packages() -> None:
 # ---------------------------------------------------------------------------
 
 def test_cyclonedx_sbom_generation(tmp_path: Path) -> None:
-    """generate_sbom should produce a valid CycloneDX 1.5 SBOM."""
+    """generate_sbom should produce a valid current CycloneDX SBOM."""
     from depfence.core.models import Finding, FindingType, PackageId, Severity
     from depfence.reporters.cyclonedx import generate_sbom, write_sbom
 
@@ -528,7 +528,7 @@ def test_cyclonedx_sbom_generation(tmp_path: Path) -> None:
 
     # Top-level structure
     assert sbom["bomFormat"] == "CycloneDX"
-    assert sbom["specVersion"] == "1.5"
+    assert sbom["specVersion"] == "1.7"
     assert sbom["version"] == 1
     assert sbom["serialNumber"].startswith("urn:uuid:")
 

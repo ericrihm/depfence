@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from pathlib import Path
 
 from depfence.analyzers.ast_analysis import AstAnalyzer
@@ -48,6 +49,17 @@ def test_analyze_empty_directory_returns_empty(tmp_path):
     analyzer = AstAnalyzer()
     findings = _run(analyzer.analyze(_meta(), source_path=tmp_path))
     assert findings == []
+
+
+def test_untrusted_invalid_escape_does_not_emit_process_warning(tmp_path):
+    _write(tmp_path / "warning.py", 'pattern = "\\d+"\n')
+    analyzer = AstAnalyzer()
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        _run(analyzer.analyze(_meta(), tmp_path))
+
+    assert not [warning for warning in captured if warning.category is SyntaxWarning]
 
 
 # ---------------------------------------------------------------------------

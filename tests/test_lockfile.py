@@ -4,7 +4,10 @@ import json
 import tempfile
 from pathlib import Path
 
-from depfence.core.lockfile import detect_ecosystem, parse_lockfile
+import pytest
+
+from depfence.core.lockfile import UnsupportedLockfileError, detect_ecosystem, parse_lockfile
+from depfence.core.models import PackageId
 
 
 def test_detect_npm_lockfile():
@@ -67,3 +70,44 @@ def test_parse_empty_dir():
     with tempfile.TemporaryDirectory() as d:
         result = detect_ecosystem(Path(d))
         assert result == []
+
+
+def test_parse_standard_pylock_and_named_variant(tmp_path: Path):
+    lock = tmp_path / "pylock.dev.toml"
+    lock.write_text('lock-version = "1.0"\n[[packages]]\nname = "requests"\nversion = "2.32.0"\n')
+
+    assert ("pypi", lock) in detect_ecosystem(tmp_path)
+    assert parse_lockfile("pypi", lock)[0].version == "2.32.0"
+
+
+def test_parse_bun_text_lock(tmp_path: Path):
+    lock = tmp_path / "bun.lock"
+    lock.write_text('''{"packages":{"is-even":["is-even@1.0.0","",{},""]}}''')
+
+    assert parse_lockfile("npm", lock) == [
+        PackageId("npm", "is-even", "1.0.0")
+    ]
+
+
+def test_binary_bun_lock_is_unproven_not_heuristically_parsed(tmp_path: Path):
+    lock = tmp_path / "bun.lockb"
+    lock.write_bytes(b"BUN\x00plausible-package\x00")
+    with pytest.raises(UnsupportedLockfileError, match="binary format"):
+        parse_lockfile("npm", lock)
+
+
+def test_pylock_requires_supported_lock_version(tmp_path: Path):
+    lock = tmp_path / "pylock.toml"
+    lock.write_text('[[packages]]\nname = "requests"\nversion = "2.32.0"\n')
+    with pytest.raises(UnsupportedLockfileError, match="missing"):
+        parse_lockfile("pypi", lock)
+
+
+def test_parse_npm_shrinkwrap_and_deno_npm_packages(tmp_path: Path):
+    shrinkwrap = tmp_path / "npm-shrinkwrap.json"
+    shrinkwrap.write_text(json.dumps({"packages": {"node_modules/lodash": {"version": "4.17.21"}}}))
+    deno = tmp_path / "deno.lock"
+    deno.write_text(json.dumps({"packages": {"npm": {"lodash@4.17.21": {}}}}))
+
+    assert parse_lockfile("npm", shrinkwrap)[0].name == "lodash"
+    assert parse_lockfile("npm", deno)[0].version == "4.17.21"

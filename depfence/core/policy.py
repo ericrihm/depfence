@@ -101,6 +101,10 @@ class PolicyEngine:
             return cls(Path(env_path))
 
         candidates = [
+            project_dir / "depfence.yml",
+            project_dir / "depfence.yaml",
+            project_dir / ".depfence.yml",
+            project_dir / ".depfence.yaml",
             project_dir / ".depfence-policy.yml",
             project_dir / ".depfence-policy.yaml",
             project_dir / "depfence-policy.yml",
@@ -386,22 +390,16 @@ scanners:
 # Policy rules
 rules:
   - name: block-known-malicious
-    description: Block packages in threat intelligence DB
-    match:
-      in_threat_db: true
+    finding_type: malicious_package
     action: block
 
-  - name: no-install-scripts
-    description: Block packages with install scripts
-    match:
-      has_install_scripts: true
+  - name: warn-install-scripts
+    finding_type: suspicious_install_script
     action: warn
     ecosystems: [npm]
 
   - name: block-unpinned-actions
-    description: Require SHA pinning for GitHub Actions
-    match:
-      unpinned_action: true
+    finding_type: unpinned_dependency
     action: block
 
 # Ignore patterns

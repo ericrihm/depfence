@@ -3,22 +3,31 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from depfence.core.models import PackageId
+
+
+class UnsupportedLockfileError(ValueError):
+    """The file was recognized, but parsing it would require guessing."""
 
 
 def detect_ecosystem(project_dir: Path) -> list[tuple[str, Path]]:
     lockfiles: list[tuple[str, Path]] = []
     candidates = [
         ("npm", "package-lock.json"),
+        ("npm", "npm-shrinkwrap.json"),
         ("npm", "yarn.lock"),
         ("npm", "pnpm-lock.yaml"),
         ("npm", "bun.lockb"),
+        ("npm", "bun.lock"),
+        ("npm", "deno.lock"),
         ("pypi", "requirements.txt"),
         ("pypi", "poetry.lock"),
         ("pypi", "Pipfile.lock"),
         ("pypi", "uv.lock"),
+        ("pypi", "pylock.toml"),
         ("cargo", "Cargo.lock"),
         ("go", "go.sum"),
         ("maven", "gradle.lockfile"),
@@ -37,6 +46,12 @@ def detect_ecosystem(project_dir: Path) -> list[tuple[str, Path]]:
         path = project_dir / filename
         if path.exists():
             lockfiles.append((eco, path))
+    known_paths = {path for _ecosystem, path in lockfiles}
+    for pattern in ("requirements*.txt", "pylock.*.toml"):
+        for path in sorted(project_dir.glob(pattern)):
+            if path.is_file() and path not in known_paths:
+                lockfiles.append(("pypi", path))
+                known_paths.add(path)
     return lockfiles
 
 
@@ -60,14 +75,16 @@ def parse_lockfile(ecosystem: str, path: Path) -> list[PackageId]:
 
 
 def _parse_npm(path: Path) -> list[PackageId]:
-    if path.name == "package-lock.json":
+    if path.name in {"package-lock.json", "npm-shrinkwrap.json"}:
         return _parse_package_lock_json(path)
     if path.name == "yarn.lock":
         return _parse_yarn_lock(path)
     if path.name == "pnpm-lock.yaml":
         return _parse_pnpm_lock(path)
-    if path.name == "bun.lockb":
+    if path.name in {"bun.lock", "bun.lockb"}:
         return _parse_bun_lock(path)
+    if path.name == "deno.lock":
+        return _parse_deno_lock(path)
     return []
 
 
@@ -178,6 +195,8 @@ def _parse_pypi_requirements(path: Path) -> list[PackageId]:
         return _parse_poetry_lock(path)
     if path.name == "uv.lock":
         return _parse_uv_lock(path)
+    if path.name == "pylock.toml" or (path.name.startswith("pylock.") and path.suffix == ".toml"):
+        return _parse_pylock(path)
 
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -275,38 +294,62 @@ def _parse_pnpm_lock_regex(path: Path) -> list[PackageId]:
 
 
 def _parse_bun_lock(path: Path) -> list[PackageId]:
-    """Parse bun.lockb (binary) — extract what we can from bun.lock (text) if present."""
+    """Parse Bun's text lockfile; never invent packages from binary strings."""
     packages: list[PackageId] = []
-    # bun.lockb is binary; check for bun.lock (text JSONC format) alongside it
-    text_lock = path.parent / "bun.lock"
+    text_lock = path if path.name == "bun.lock" else path.parent / "bun.lock"
     if text_lock.exists():
-        import re
         content = text_lock.read_text()
-        # bun.lock is JSONC with entries like: ["package-name", "npm:package@version", ...]
-        for match in re.finditer(r'"([^"]+)",\s*"npm:([^"@]+)@([^"]+)"', content):
-            name = match.group(2) or match.group(1)
-            version = match.group(3)
+        # Package values begin with a resolved identifier such as
+        # ["is-even@1.0.0", ...] or ["@scope/pkg@2.0.0", ...].
+        for match in re.finditer(r':\s*\[\s*"(?:npm:)?(@?[^"\s]+)@([^"\s]+)"', content):
+            name, version = match.groups()
             if name and version:
                 packages.append(PackageId("npm", name, version))
         return packages
 
-    # Try reading bun.lockb as binary — it contains package names as UTF-8 strings
-    try:
-        data = path.read_bytes()
-        import re
-        # Extract readable package name patterns from binary
-        strings = re.findall(rb'([a-zA-Z@][a-zA-Z0-9_./@-]{2,60})\x00', data)
-        seen: set[str] = set()
-        for s in strings:
-            name = s.decode("utf-8", errors="ignore")
-            if "/" in name and "@" not in name[1:]:
-                continue
-            if name not in seen and not name.startswith("http"):
-                seen.add(name)
-                packages.append(PackageId("npm", name, None))
-    except Exception:
-        pass
+    raise UnsupportedLockfileError(
+        "bun.lockb is a legacy binary format; generate bun.lock with a current Bun release"
+    )
 
+
+def _parse_deno_lock(path: Path) -> list[PackageId]:
+    """Extract npm dependencies from supported Deno JSON lockfiles."""
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError("Deno lockfile must contain a JSON object")
+    version = str(data.get("version") or "")
+    if version and version not in {"3", "4", "5"}:
+        raise UnsupportedLockfileError(f"unsupported Deno lockfile version {version!r}")
+    npm = (data.get("packages") or {}).get("npm") or data.get("npm") or {}
+    packages: list[PackageId] = []
+    for identifier in npm:
+        value = str(identifier).removeprefix("npm:")
+        name, separator, version = value.rpartition("@")
+        if separator and name and version:
+            packages.append(PackageId("npm", name, version))
+    return packages
+
+
+def _parse_pylock(path: Path) -> list[PackageId]:
+    """Parse the standardized PEP 751 ``pylock.toml`` package table."""
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover - Python 3.10 compatibility
+        import tomli as tomllib
+
+    data = tomllib.loads(path.read_text())
+    lock_version = str(data.get("lock-version") or "")
+    if lock_version != "1.0":
+        label = lock_version or "missing"
+        raise UnsupportedLockfileError(f"unsupported PEP 751 lock-version: {label}")
+    packages: list[PackageId] = []
+    for package in data.get("packages", []):
+        if not isinstance(package, dict):
+            continue
+        name = str(package.get("name") or "").strip()
+        version = str(package.get("version") or "").strip() or None
+        if name:
+            packages.append(PackageId("pypi", name, version))
     return packages
 
 

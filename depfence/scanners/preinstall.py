@@ -242,6 +242,7 @@ class PreinstallScanner:
             except Exception:
                 class_source = source
 
+            class_tree: ast.AST
             try:
                 class_tree = ast.parse(class_source)
             except (SyntaxError, ValueError):

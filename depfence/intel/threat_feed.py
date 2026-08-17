@@ -79,6 +79,16 @@ class ThreatFeed:
         from depfence.intel.kev_monitor import KEVMonitor
         self._kev_monitor = KEVMonitor()
 
+    def close(self) -> None:
+        """Release the KEV database owned by this feed."""
+        self._kev_monitor.close()
+
+    def __enter__(self) -> ThreatFeed:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -106,13 +116,17 @@ class ThreatFeed:
         from depfence.core.models import Severity
 
         if not findings:
+            self.close()
             return ThreatSnapshot(
                 total_risk_score=0.0,
                 coverage_score=1.0,
                 total_findings=0,
             )
 
-        kev_hits = self._kev_monitor.check_local_kev(findings)
+        try:
+            kev_hits = self._kev_monitor.check_local_kev(findings)
+        finally:
+            self.close()
         kev_cves = {e.cve for e in kev_hits}
         ransomware_kev_cves = {e.cve for e in kev_hits if e.known_ransomware}
 
@@ -230,7 +244,7 @@ class ThreatFeed:
     def _compute_risk(scored: list[dict], kev_hits: list) -> float:
         if not scored:
             return 0.0
-        mean_urgency = sum(s["urgency"] for s in scored) / len(scored)
+        mean_urgency = sum(float(s["urgency"]) for s in scored) / len(scored)
         kev_factor = 1.0 + 0.2 * min(len(kev_hits), 5)
         return min(mean_urgency * kev_factor * 100, 100.0)
 

@@ -31,10 +31,11 @@ import asyncio
 import os
 import re
 from pathlib import Path
+from typing import cast
 
 import httpx
 
-from depfence.core.fetcher import _get_client
+from depfence.core.fetcher import _get_client, fetch_enabled
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 
 # uses: owner/repo[/subpath]@<40-hex>   [# comment]
@@ -119,8 +120,8 @@ async def _resolve_tag(client: httpx.AsyncClient, repo: str, tag: str) -> str | 
             rr = await client.get(f"{_API}/repos/{repo}/git/tags/{obj.get('sha')}", headers=headers)
             if rr.status_code != 200:
                 return None
-            return rr.json().get("object", {}).get("sha")
-        return obj.get("sha")
+            return cast(str | None, rr.json().get("object", {}).get("sha"))
+        return cast(str | None, obj.get("sha"))
     except (httpx.HTTPError, OSError, ValueError):
         return None
 
@@ -136,6 +137,8 @@ class ResolveExistenceScanner:
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         if os.environ.get("DEPFENCE_RESOLVE_EXISTENCE", "1").lower() in _DISABLE_VALUES:
+            return []
+        if not fetch_enabled():
             return []
 
         workflows_dir = project_dir / ".github" / "workflows"
@@ -170,7 +173,7 @@ class ResolveExistenceScanner:
         unverified: list[str] = []
         seen_fab: set[tuple[str, str, str]] = set()  # de-dupe identical findings across files
 
-        for repo, sha, comment, wf in pins:
+        for repo, sha, comment, workflow_path in pins:
             res = resolved[(repo, sha)]
             pkg = PackageId("gha", repo, sha)
             short = sha[:10]
@@ -207,7 +210,7 @@ class ResolveExistenceScanner:
                         f"owner/repo and re-pin with `ratchet pin`."
                     ),
                     references=[f"https://github.com/{repo}"],
-                    metadata={"workflow": wf, "repo": repo, "sha": sha,
+                    metadata={"workflow": workflow_path, "repo": repo, "sha": sha,
                               "http_status": res.status, "fault_class": "fabricated_repo"},
                 ))
                 continue
@@ -239,7 +242,7 @@ class ResolveExistenceScanner:
                     f"with `ratchet pin`."
                 ),
                 references=[f"https://github.com/{repo}/commits"],
-                metadata={"workflow": wf, "repo": repo, "sha": sha,
+                metadata={"workflow": workflow_path, "repo": repo, "sha": sha,
                           "http_status": res.status, "fault_class": fault},
             ))
 

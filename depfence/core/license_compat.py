@@ -424,8 +424,9 @@ def detect_project_license(project_dir: Path) -> str | None:
                 return lic
             # PEP 639 / new format: {text = "..."} or {file = "..."}
             if isinstance(lic, dict):
-                if "text" in lic and lic["text"]:
-                    return lic["text"]
+                license_text = lic.get("text")
+                if isinstance(license_text, str) and license_text:
+                    return license_text
                 # If it's {file = "..."}, fall through to LICENSE file check below.
         except Exception:  # noqa: BLE001
             pass

@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
+
 log = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.securityscorecards.dev"
@@ -114,7 +116,8 @@ class ScorecardClient:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> ScorecardClient:
-        self._client = httpx.AsyncClient(timeout=self._timeout)
+        if fetch_enabled():
+            self._client = httpx.AsyncClient(timeout=self._timeout)
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -150,6 +153,8 @@ class ScorecardClient:
             found (HTTP 404), the URL cannot be parsed, or a network error
             occurs.
         """
+        if not fetch_enabled():
+            return None
         repo_path = _parse_repo_path(repo_url)
         if not repo_path:
             log.warning("ScorecardClient: could not parse repo URL %r", repo_url)
@@ -202,7 +207,7 @@ class ScorecardClient:
             Mapping from the *original* URL string to its ``ScorecardResult``.
             URLs that produced no result are absent from the map.
         """
-        if not repo_urls:
+        if not repo_urls or not fetch_enabled():
             return {}
 
         semaphore = asyncio.Semaphore(_BATCH_CONCURRENCY)

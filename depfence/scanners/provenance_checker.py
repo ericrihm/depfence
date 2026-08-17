@@ -18,6 +18,7 @@ from pathlib import Path
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
 from depfence.core.lockfile import detect_ecosystem, parse_lockfile
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 
@@ -62,9 +63,45 @@ class ProvenanceStatus:
     source_repo: str | None
     transparency_log: bool       # whether it's in Rekor/Sigstore transparency log
     verified: bool               # whether the signature chain validates
+    status: str = "unavailable"  # not_present, unavailable, present_unverified, verified
+    error: str | None = None
+    signature_verified: bool = False
+    artifact_digest_verified: bool = False
+    signer_identity_verified: bool = False
+    issuer_verified: bool = False
+    source_verified: bool = False
+    builder_verified: bool = False
+    external_parameters_verified: bool = False
+    trusted_time_verified: bool = False
+
+    def __post_init__(self) -> None:
+        """Prevent callers from manufacturing a ``verified`` provenance state."""
+        allowed = {"not_present", "unavailable", "present_unverified", "verified"}
+        if self.status not in allowed:
+            raise ValueError(f"unsupported provenance status: {self.status}")
+        if self.verified != (self.status == "verified"):
+            raise ValueError("verified flag and provenance status disagree")
+        if self.verified:
+            required = {
+                "presence": self.has_provenance,
+                "signature": self.signature_verified,
+                "transparency inclusion": self.transparency_log,
+                "artifact digest": self.artifact_digest_verified,
+                "signer identity": self.signer_identity_verified,
+                "issuer": self.issuer_verified,
+                "source": self.source_verified,
+                "builder": self.builder_verified,
+                "external parameters": self.external_parameters_verified,
+                "trusted time": self.trusted_time_verified,
+            }
+            missing = [name for name, proved in required.items() if not proved]
+            if missing:
+                raise ValueError(
+                    "verified provenance requires evidence for: " + ", ".join(missing)
+                )
 
 
-def _unknown_status(pkg: PackageId) -> ProvenanceStatus:
+def _unknown_status(pkg: PackageId, error: str | None = None) -> ProvenanceStatus:
     """Return a neutral status used when an API call fails."""
     return ProvenanceStatus(
         package=pkg,
@@ -74,6 +111,21 @@ def _unknown_status(pkg: PackageId) -> ProvenanceStatus:
         source_repo=None,
         transparency_log=False,
         verified=False,
+        status="unavailable",
+        error=error,
+    )
+
+
+def _not_present_status(pkg: PackageId) -> ProvenanceStatus:
+    return ProvenanceStatus(
+        package=pkg,
+        has_provenance=False,
+        provenance_type=None,
+        builder=None,
+        source_repo=None,
+        transparency_log=False,
+        verified=False,
+        status="not_present",
     )
 
 
@@ -160,11 +212,13 @@ def _extract_declared_pypi_repo(info: dict) -> str | None:
     project_urls: dict = info.get("project_urls") or {}
     for key in ("Source", "Source Code", "Repository", "Code", "Homepage"):
         url = project_urls.get(key, "")
-        if url and "github.com" in url.lower():
+        if isinstance(url, str) and url and "github.com" in url.lower():
             return url
     # Broader fallback — any project_url that looks like a VCS host
     for url in project_urls.values():
-        if url and re.search(r"github\.com|gitlab\.com|bitbucket\.org", url, re.I):
+        if isinstance(url, str) and url and re.search(
+            r"github\.com|gitlab\.com|bitbucket\.org", url, re.I
+        ):
             return url
     # Last resort
     home_page: str = info.get("home_page") or ""
@@ -197,7 +251,8 @@ class ProvenanceChecker:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> ProvenanceChecker:
-        self._client = httpx.AsyncClient(timeout=self._timeout)
+        if fetch_enabled():
+            self._client = httpx.AsyncClient(timeout=self._timeout)
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -217,6 +272,8 @@ class ProvenanceChecker:
     async def check_npm_provenance(self, name: str, version: str) -> ProvenanceStatus:
         """Check npm registry metadata for dist.attestations or dist.signatures."""
         pkg = PackageId("npm", name, version)
+        if not fetch_enabled():
+            return _unknown_status(pkg, "network fetching is disabled")
         client = self._get_client()
         owned = self._client is None
         try:
@@ -235,10 +292,10 @@ class ProvenanceChecker:
             # PEP 740-equivalent: dist.attestations (modern npm provenance)
             attestations = dist.get("attestations")
             if attestations:
-                # attestations is usually a URL pointing to the bundle
-                # Treat presence as has_provenance=True; deeper verification
-                # would require fetching and validating the bundle, which is
-                # out of scope for a lightweight scanner.
+                # Registry metadata proves only that an attestation was
+                # advertised.  It does not validate the bundle signature,
+                # artifact digest, Fulcio identity/issuer, Rekor entry, source
+                # revision, or build parameters, so it must never be VERIFIED.
                 statements: list[dict] = []
                 if isinstance(attestations, dict):
                     statements = attestations.get("provenance", {}).get(
@@ -249,15 +306,20 @@ class ProvenanceChecker:
                 if statements:
                     builder = _extract_npm_builder(statements[0])
                     repo = _extract_npm_repo(statements[0])
-                verified = _repos_match(repo, declared_repo)
                 return ProvenanceStatus(
                     package=pkg,
                     has_provenance=True,
                     provenance_type="npm-attestation",
                     builder=builder,
                     source_repo=repo,
-                    transparency_log=True,  # npm attestations use Sigstore/Rekor
-                    verified=verified,
+                    transparency_log=False,
+                    verified=False,
+                    status="present_unverified",
+                    error=(
+                        "attested source repository does not match declared repository"
+                        if not _repos_match(repo, declared_repo)
+                        else "attestation bundle has not been cryptographically verified"
+                    ),
                 )
 
             # Older signature-based provenance
@@ -269,25 +331,17 @@ class ProvenanceChecker:
                     provenance_type="sigstore",
                     builder=None,
                     source_repo=None,
-                    transparency_log=True,
-                    # No source repo in old signatures — treat as unverified
-                    # only if we have a declared repo to compare against.
-                    verified=declared_repo is None,
+                    transparency_log=False,
+                    verified=False,
+                    status="present_unverified",
+                    error="signature metadata has not been cryptographically verified",
                 )
 
-            return ProvenanceStatus(
-                package=pkg,
-                has_provenance=False,
-                provenance_type=None,
-                builder=None,
-                source_repo=None,
-                transparency_log=False,
-                verified=False,
-            )
+            return _not_present_status(pkg)
 
         except httpx.TimeoutException:
             log.warning("Timeout checking npm provenance for %s@%s", name, version)
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, "request timed out")
         except httpx.HTTPStatusError as exc:
             log.warning(
                 "HTTP %d checking npm provenance for %s@%s",
@@ -295,10 +349,10 @@ class ProvenanceChecker:
                 name,
                 version,
             )
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, f"HTTP {exc.response.status_code}")
         except Exception as exc:  # noqa: BLE001
             log.warning("Error checking npm provenance for %s@%s: %s", name, version, exc)
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, str(exc))
         finally:
             if owned:
                 await client.aclose()
@@ -306,6 +360,8 @@ class ProvenanceChecker:
     async def check_pypi_provenance(self, name: str, version: str) -> ProvenanceStatus:
         """Check PyPI JSON API for PEP 740 / Trusted Publisher attestation markers."""
         pkg = PackageId("pypi", name, version)
+        if not fetch_enabled():
+            return _unknown_status(pkg, "network fetching is disabled")
         client = self._get_client()
         owned = self._client is None
         try:
@@ -337,7 +393,6 @@ class ProvenanceChecker:
                             repo = first.get("source_repository") or first.get(
                                 "source_repo"
                             )
-                    verified = _repos_match(repo, declared_repo)
                     return ProvenanceStatus(
                         package=pkg,
                         has_provenance=True,
@@ -346,8 +401,14 @@ class ProvenanceChecker:
                         else "sigstore",
                         builder=builder,
                         source_repo=repo,
-                        transparency_log=True,
-                        verified=verified,
+                        transparency_log=False,
+                        verified=False,
+                        status="present_unverified",
+                        error=(
+                            "attested source repository does not match declared repository"
+                            if not _repos_match(repo, declared_repo)
+                            else "attestation bundle has not been cryptographically verified"
+                        ),
                     )
 
             # Fallback: check info-level attestation URL
@@ -358,25 +419,17 @@ class ProvenanceChecker:
                     provenance_type="sigstore",
                     builder=None,
                     source_repo=None,
-                    transparency_log=True,
-                    # No repo in fallback attestation — treat as unverified only
-                    # if we have a declared repo to compare against.
-                    verified=declared_repo is None,
+                    transparency_log=False,
+                    verified=False,
+                    status="present_unverified",
+                    error="attestation URL has not been fetched or cryptographically verified",
                 )
 
-            return ProvenanceStatus(
-                package=pkg,
-                has_provenance=False,
-                provenance_type=None,
-                builder=None,
-                source_repo=None,
-                transparency_log=False,
-                verified=False,
-            )
+            return _not_present_status(pkg)
 
         except httpx.TimeoutException:
             log.warning("Timeout checking PyPI provenance for %s %s", name, version)
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, "request timed out")
         except httpx.HTTPStatusError as exc:
             log.warning(
                 "HTTP %d checking PyPI provenance for %s %s",
@@ -384,10 +437,10 @@ class ProvenanceChecker:
                 name,
                 version,
             )
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, f"HTTP {exc.response.status_code}")
         except Exception as exc:  # noqa: BLE001
             log.warning("Error checking PyPI provenance for %s %s: %s", name, version, exc)
-            return _unknown_status(pkg)
+            return _unknown_status(pkg, str(exc))
         finally:
             if owned:
                 await client.aclose()
@@ -409,15 +462,7 @@ class ProvenanceChecker:
         if eco == "pypi":
             return await self.check_pypi_provenance(pkg.name, version)
         # Unsupported ecosystem — return neutral unknown status
-        return ProvenanceStatus(
-            package=pkg,
-            has_provenance=False,
-            provenance_type=None,
-            builder=None,
-            source_repo=None,
-            transparency_log=False,
-            verified=False,
-        )
+        return _unknown_status(pkg, f"unsupported ecosystem: {pkg.ecosystem}")
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         """Parse lockfiles in *project_dir* and emit provenance findings.
@@ -443,20 +488,23 @@ class ProvenanceChecker:
             is_popular = _is_popular(pkg)
 
             if status.has_provenance and not status.verified:
-                # Attestation present but source repo doesn't match the package's
-                # own declared repository — strong signal of supply-chain tampering.
+                repo_mismatch = status.error is not None and "does not match" in status.error
                 findings.append(
                     Finding(
                         finding_type=FindingType.PROVENANCE,
-                        severity=Severity.MEDIUM,
+                        severity=Severity.HIGH if repo_mismatch else Severity.MEDIUM,
                         package=pkg,
-                        title=f"Provenance source-repo mismatch: {pkg.name}",
+                        title=(
+                            f"Provenance source-repo mismatch: {pkg.name}"
+                            if repo_mismatch
+                            else f"Build provenance present but unverified: {pkg.name}"
+                        ),
                         detail=(
-                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} has a "
-                            f"provenance attestation, but the attested source repository "
-                            f"({status.source_repo!r}) does not match the package's own "
-                            f"declared repository URL. This may indicate a compromised "
-                            f"build pipeline or a typosquat with a forged attestation."
+                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} advertises "
+                            "provenance, but DepFence did not verify the signature, artifact "
+                            "digest, signer identity and issuer, transparency evidence, and "
+                            "source/build expectations. Presence alone is not verification. "
+                            f"Reason: {status.error or 'verification was not performed'}."
                         ),
                         references=[
                             "https://slsa.dev/",
@@ -471,6 +519,8 @@ class ProvenanceChecker:
                             "builder": status.builder,
                             "transparency_log": status.transparency_log,
                             "popular": is_popular,
+                            "provenance_status": status.status,
+                            "verification_error": status.error,
                         },
                     )
                 )
@@ -478,18 +528,28 @@ class ProvenanceChecker:
 
             if not status.has_provenance:
                 severity = Severity.HIGH if is_popular else Severity.MEDIUM
+                unavailable = status.status == "unavailable"
                 findings.append(
                     Finding(
                         finding_type=FindingType.PROVENANCE,
                         severity=severity,
                         package=pkg,
-                        title=f"Missing build provenance: {pkg.name}",
+                        title=(
+                            f"Provenance coverage unavailable: {pkg.name}"
+                            if unavailable
+                            else f"Missing build provenance: {pkg.name}"
+                        ),
                         detail=(
-                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} has no "
-                            f"verifiable SLSA/Sigstore provenance attestation. "
-                            f"Without provenance, published artifacts cannot be traced "
-                            f"back to a specific source commit and CI run, making "
-                            f"supply-chain tampering undetectable."
+                            f"{pkg.ecosystem}:{pkg.name} version {pkg.version} "
+                            + (
+                                f"could not be checked for provenance ({status.error or 'unknown error'}). "
+                                if unavailable
+                                else "has no "
+                            )
+                            + "verifiable SLSA/Sigstore provenance attestation. "
+                            + "Without provenance, published artifacts cannot be traced "
+                            + "back to a specific source commit and CI run, making "
+                            + "supply-chain tampering undetectable."
                             + (
                                 " This is a high-download package — an ideal target for "
                                 "supply-chain attacks."
@@ -508,6 +568,9 @@ class ProvenanceChecker:
                             "provenance_type": status.provenance_type,
                             "transparency_log": status.transparency_log,
                             "popular": is_popular,
+                            "provenance_status": status.status,
+                            "verification_error": status.error,
+                            **({"assurance": "unproven"} if unavailable else {}),
                         },
                     )
                 )

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.scan/v1.json",
+  "title": "DepFence scan result v1",
+  "type": "object",
+  "required": ["schema_version", "target", "ecosystem", "started_at", "completed_at", "status", "packages_scanned", "summary", "coverage", "findings", "suppressed_findings"],
+  "properties": {
+    "schema_version": {"const": "depfence.scan/v1"},
+    "target": {"type": "string"},
+    "ecosystem": {"type": "string"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": ["string", "null"], "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+    "packages_scanned": {"type": "integer", "minimum": 0},
+    "summary": {
+      "type": "object",
+      "required": ["findings", "suppressed_findings", "severity"],
+      "properties": {
+        "findings": {"type": "integer", "minimum": 0},
+        "suppressed_findings": {"type": "integer", "minimum": 0},
+        "severity": {"$ref": "#/$defs/severityCounts"}
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["complete", "scanners", "errors", "scanner_errors"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "scanners": {"type": "object", "additionalProperties": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]}},
+        "errors": {"type": "array", "items": {"type": "string"}},
+        "scanner_errors": {"type": "object", "additionalProperties": {"type": "string"}},
+        "outcomes": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/scannerOutcome"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "suppressed_findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "scannerOutcome": {
+      "type": "object",
+      "required": ["state", "reason_code", "error_code", "findings_preserved", "evaluated", "skipped", "duration_ms"],
+      "properties": {
+        "state": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+        "reason_code": {"enum": ["evaluated", "not_applicable", "disabled_by_policy", "partial_coverage", "unsupported", "malformed_input", "unreadable", "input_limit", "scope_escape", "timeout", "worker_crash", "dependency_unavailable", "verification_failed", "runtime_failure", "no_evidence"]},
+        "error_code": {"type": ["string", "null"], "enum": [null, "network.disabled", "scanner.timeout", "scope.escape", "input.limit", "input.malformed", "input.unavailable", "worker.failure", "input.unsupported", "dependency.unavailable", "verification.failed", "scanner.runtime"]},
+        "findings_preserved": {"type": "integer", "minimum": 0},
+        "evaluated": {"type": "boolean"},
+        "skipped": {"type": "boolean"},
+        "duration_ms": {"type": ["number", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "severityCounts": {
+      "type": "object",
+      "required": ["critical", "high", "medium", "low", "info"],
+      "properties": {
+        "critical": {"type": "integer", "minimum": 0}, "high": {"type": "integer", "minimum": 0},
+        "medium": {"type": "integer", "minimum": 0}, "low": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "finding_type", "severity", "package", "title", "detail", "cve", "cwe", "fix_version", "references", "confidence", "metadata"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"},
+        "finding_type": {"type": "string"},
+        "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+        "package": {
+          "type": "object", "required": ["ecosystem", "name", "version"],
+          "properties": {"ecosystem": {"type": "string"}, "name": {"type": "string"}, "version": {"type": ["string", "null"]}},
+          "additionalProperties": false
+        },
+        "title": {"type": "string"}, "detail": {"type": "string"},
+        "cve": {"type": ["string", "null"]}, "cwe": {"type": ["string", "null"]},
+        "fix_version": {"type": ["string", "null"]},
+        "references": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "metadata": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

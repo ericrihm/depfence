@@ -19,6 +19,8 @@ from pathlib import Path
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
+
 log = logging.getLogger(__name__)
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
@@ -205,7 +207,7 @@ class DepConfusionScanner:
                 findings.extend(self._check_npm_scope_offline(pkg))
 
             # 4. Live registry cross-check (npm only — scoped packages)
-            if pkg.ecosystem == "npm" and pkg.name.startswith("@"):
+            if fetch_enabled() and pkg.ecosystem == "npm" and pkg.name.startswith("@"):
                 finding = await self._check_npm_scope_online(pkg)
                 if finding:
                     findings.append(finding)

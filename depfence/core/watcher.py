@@ -13,8 +13,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Protocol
 
 log = logging.getLogger(__name__)
+
+
+class _Observer(Protocol):
+    """Subset of the watchdog observer API used by ``LockfileWatcher``."""
+
+    def stop(self) -> None: ...
+
+    def join(self, timeout: float | None = None) -> None: ...
 
 # Lockfile patterns that should trigger a re-scan
 LOCKFILE_PATTERNS: tuple[str, ...] = (
@@ -162,7 +171,7 @@ class FileWatcher:
         self._watcher_thread: threading.Thread | None = None
 
         # watchdog observer (only when not polling)
-        self._observer: object | None = None
+        self._observer: _Observer | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -183,7 +192,7 @@ class FileWatcher:
         self._stop_event.set()
         if self._observer is not None:
             try:
-                self._observer.stop()  # type: ignore[union-attr]
+                self._observer.stop()
                 self._observer.join(timeout=5)
             except Exception:
                 pass

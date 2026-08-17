@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.privacy/v1.json",
+  "type": "object",
+  "required": ["schema_version", "operation", "mode", "status", "secure_erasure", "retention", "actions", "errors"],
+  "properties": {
+    "schema_version": {"const": "depfence.privacy/v1"},
+    "operation": {"enum": ["status", "migrate", "prune"]},
+    "mode": {"enum": ["dry-run", "apply"]},
+    "status": {"enum": ["PASS", "CHANGES_REQUIRED", "UPDATED", "INDETERMINATE"]},
+    "secure_erasure": {"const": false},
+    "retention": {
+      "type": "object",
+      "required": ["detailed_days", "summary_days"],
+      "properties": {
+        "detailed_days": {"const": 30},
+        "summary_days": {"const": 365}
+      },
+      "additionalProperties": false
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact", "action", "records"],
+        "properties": {
+          "artifact": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "action": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "records": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "artifact", "detail"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z0-9_]+$"},
+          "artifact": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "detail": {"type": "string", "maxLength": 200}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.finding-evidence/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "finding_id", "evidence_id", "project_id", "evidence_class", "confidence", "location", "evidence_digest", "snippet_status", "snippet_digest", "metadata_digest", "snippet", "errors"],
+  "properties": {
+    "schema_version": {"const": "depfence.finding-evidence/v1"},
+    "status": {"enum": ["PASS", "INDETERMINATE"]},
+    "finding_id": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"},
+    "evidence_id": {"type": ["string", "null"], "pattern": "^evidence-hmac-sha256:[0-9a-f]{64}$"},
+    "project_id": {"type": ["string", "null"], "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+    "evidence_class": {"type": ["string", "null"], "enum": ["static_analysis", "coverage_failure", "supply_chain", "provenance", "secret", "policy", "other", null]},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "location": {"type": ["object", "null"]},
+    "evidence_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "snippet_status": {"type": ["string", "null"], "enum": ["available", "redacted", "truncated", "unavailable", null]},
+    "snippet_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "metadata_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "snippet": {"type": ["string", "null"], "maxLength": 320},
+    "errors": {"type": "array", "items": {"type": "string", "maxLength": 240}}
+  },
+  "additionalProperties": false
+}

@@ -34,7 +34,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
@@ -77,7 +77,7 @@ def _load_db() -> dict[str, dict[str, Any]]:
     """Load the SPDX license database."""
     try:
         with open(_LICENSE_DB_PATH) as f:
-            return json.load(f)
+            return cast(dict[str, dict[str, Any]], json.load(f))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -130,12 +130,12 @@ def _category_for_spdx(spdx_id: str) -> str:
     """Return the license category for a canonical SPDX identifier."""
     # Exact match
     if spdx_id in _LICENSE_DB:
-        return _LICENSE_DB[spdx_id].get("category", "unknown")
+        return cast(str, _LICENSE_DB[spdx_id].get("category", "unknown"))
     # Case-folded match
     upper = spdx_id.upper()
     if upper in _LICENSE_DB_UPPER:
         canonical = _LICENSE_DB_UPPER[upper]
-        return _LICENSE_DB[canonical].get("category", "unknown")
+        return cast(str, _LICENSE_DB[canonical].get("category", "unknown"))
     # Known SPDX variants (e.g. "GPL-2.0-only" not in DB but pattern-match)
     if re.match(r"(AGPL|GPL|SSPL|OSL|RPL|CPAL|Sleepycat|ODbL|SPL)", spdx_id, re.I):
         return "strong_copyleft"
@@ -189,7 +189,7 @@ def _load_policy(project_dir: Path) -> dict[str, Any]:
             try:
                 import yaml  # type: ignore[import]
                 raw = yaml.safe_load(cfg_path.read_text()) or {}
-                return raw.get("licenses", _DEFAULT_POLICY)
+                return cast(dict[str, Any], raw.get("licenses", _DEFAULT_POLICY))
             except Exception:
                 pass
     return _DEFAULT_POLICY
@@ -312,7 +312,7 @@ class LicensePolicyScanner:
         policy = _load_policy(project_dir)
         allow_cats = set(policy.get("allow", _DEFAULT_POLICY["allow"]))
         deny_cats = set(policy.get("deny", _DEFAULT_POLICY["deny"]))
-        exceptions_list = policy.get("exceptions", [])
+        exceptions_list = cast(list[dict[str, str]], policy.get("exceptions", []))
         exception_names = {e["package"] for e in exceptions_list if "package" in e}
 
         results: list[LicensePolicyResult] = []

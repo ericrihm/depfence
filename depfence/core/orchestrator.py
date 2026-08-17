@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, ScanState, Severity
+from depfence.core.registry import get_registry, run_shipped_project_scanners
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ class ScanOrchestrator:
         # Phase 1 — Parse lockfiles (sync, fast)
         # ------------------------------------------------------------------
         packages: list[PackageId] = []
+        parse_errors: list[str] = []
         try:
             from depfence.core.lockfile import detect_ecosystem, parse_lockfile
 
@@ -118,8 +120,10 @@ class ScanOrchestrator:
                     packages.extend(pkgs)
                 except Exception as exc:  # noqa: BLE001
                     log.warning("Failed to parse %s: %s", lockfile_path, exc)
+                    parse_errors.append(f"Error parsing {lockfile_path}: {exc}")
         except Exception as exc:  # noqa: BLE001
             log.warning("Lockfile detection failed: %s", exc)
+            parse_errors.append(f"Lockfile detection failed: {exc}")
 
         log.debug("Phase 1 complete: %d packages discovered", len(packages))
 
@@ -146,7 +150,19 @@ class ScanOrchestrator:
             started_at=datetime.now(tz=timezone.utc),
             packages_scanned=len(packages),
             findings=all_findings,
+            errors=parse_errors,
         )
+        for issue in get_registry().issues:
+            scan_result.errors.append(f"Plugin load error: {issue}")
+        for scanner_result in scanner_enrichments:
+            name = scanner_result.source.removeprefix("scanner:")
+            scan_result.scanner_coverage[name] = (
+                ScanState.PASS if scanner_result.success else ScanState.INDETERMINATE
+            )
+            if scanner_result.error:
+                message = f"Project scanner {name} incomplete: {scanner_result.error}"
+                scan_result.scanner_errors[name] = message
+                scan_result.errors.append(message)
 
         log.debug("Phase 2 complete: %d findings from project scanners", len(all_findings))
 
@@ -236,7 +252,7 @@ class ScanOrchestrator:
         if name == "kev":
             return self._enrich_kev(findings)
         if name == "threat_intel":
-            return self._check_threat_intel(packages)
+            return self._check_threat_intel(packages, findings)
         raise ValueError(f"Unknown enrichment: {name!r}")
 
     async def _run_with_timeout(self, coro, name: str, timeout: float) -> EnrichmentResult:
@@ -249,8 +265,8 @@ class ScanOrchestrator:
         This method handles both cases: if the coroutine returns an
         ``EnrichmentResult`` directly, that is used.  If it returns a tuple
         ``(list[Finding], EnrichmentResult)`` the enrichment result is
-        extracted and findings are discarded (they have already been mutated
-        in-place via ``scan_result.findings``).
+        extracted; the findings have already been appended to the shared
+        pipeline accumulator by ``_check_threat_intel``.
         """
         start = time.monotonic()
         try:
@@ -260,10 +276,16 @@ class ScanOrchestrator:
             if isinstance(result, tuple):
                 # _check_threat_intel returns (new_findings, EnrichmentResult)
                 _new_findings, enrichment = result
+                if not isinstance(enrichment, EnrichmentResult):
+                    raise TypeError("enrichment tuple did not contain EnrichmentResult")
                 enrichment.duration_ms = duration_ms
                 return enrichment
 
             # result is already an EnrichmentResult
+            if not isinstance(result, EnrichmentResult):
+                raise TypeError(
+                    f"enrichment returned {type(result).__name__}, expected EnrichmentResult"
+                )
             result.duration_ms = duration_ms
             return result
 
@@ -324,14 +346,15 @@ class ScanOrchestrator:
         )
 
     async def _check_threat_intel(
-        self, packages: list[PackageId]
+        self,
+        packages: list[PackageId],
+        findings: list[Finding] | None = None,
     ) -> tuple[list[Finding], EnrichmentResult]:
         """Look up packages against the threat-intel database.
 
         Returns new malicious-package findings and an EnrichmentResult.
-        The new findings are also appended to the orchestrator's internal
-        accumulation via side-effect (they are returned so the caller may
-        surface them if needed).
+        New findings are appended to the pipeline accumulator when supplied,
+        and are also returned for direct callers.
         """
         from depfence.core.threat_intel import ThreatIntelDB
 
@@ -370,6 +393,9 @@ class ScanOrchestrator:
             )
             new_findings.append(finding)
 
+        if findings is not None:
+            findings.extend(new_findings)
+
         enrichment = EnrichmentResult(
             source="threat_intel",
             success=True,
@@ -384,80 +410,29 @@ class ScanOrchestrator:
 
         Returns a flat list of findings from all scanners, plus an
         EnrichmentResult per scanner (for timing/error tracking).
+
+        The canonical registry includes AgentSkillScanner, McpScanner, and
+        McpFingerprintScanner; names are retained here for compatibility with
+        older wiring assertions, not as a second executable scanner list.
+        It also owns "editor_config", "binding_gyp", "obfuscation",
+        "preinstall", "network", "git_message", "payload_behavior", and
+        "ruby_lifecycle".
         """
-        from depfence.scanners.agent_skill_scanner import AgentSkillScanner
-        from depfence.scanners.ai_bom_generator import AiBomGenerator
-        from depfence.scanners.binding_gyp_scanner import BindingGypScanner
-        from depfence.scanners.dockerfile_scanner import DockerfileScanner
-        from depfence.scanners.editor_config_scanner import EditorConfigScanner
-        from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
-        from depfence.scanners.git_message_scanner import GitMessageScanner
-        from depfence.scanners.mcp_fingerprint import McpFingerprintScanner
-        from depfence.scanners.mcp_scanner import McpScanner
-        from depfence.scanners.model_format_scanner import ModelFormatScanner
-        from depfence.scanners.model_integrity import ModelIntegrityScanner
-        from depfence.scanners.model_scanner import ModelScanner
-        from depfence.scanners.network_scanner import NetworkScanner
-        from depfence.scanners.obfuscation import ObfuscationScanner
-        from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
-        from depfence.scanners.pinning_scanner import PinningScanner
-        from depfence.scanners.preinstall import PreinstallScanner
-        from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
-        from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
-        from depfence.scanners.secrets_scanner import SecretsScanner
-        from depfence.scanners.terraform_scanner import TerraformScanner
-
-        scanner_specs: list[tuple[str, object]] = [
-            ("dockerfile", DockerfileScanner()),
-            ("terraform", TerraformScanner()),
-            ("gha_workflow", GhaWorkflowScanner()),
-            ("secrets", SecretsScanner()),
-            ("pinning", PinningScanner()),
-            ("resolve_existence", ResolveExistenceScanner()),
-            ("editor_config", EditorConfigScanner()),
-            ("binding_gyp", BindingGypScanner()),
-            ("obfuscation", ObfuscationScanner()),
-            ("preinstall", PreinstallScanner()),
-            ("network", NetworkScanner()),
-            ("git_message", GitMessageScanner()),
-            ("payload_behavior", PayloadBehaviorScanner()),
-            ("ruby_lifecycle", RubyLifecycleScanner()),
-            ("model_scanner", ModelScanner()),
-            ("model_format", ModelFormatScanner()),
-            ("model_integrity", ModelIntegrityScanner()),
-            ("ai_bom", AiBomGenerator()),
-            ("mcp_scanner", McpScanner()),
-            ("mcp_fingerprint", McpFingerprintScanner()),
-            ("agent_skill", AgentSkillScanner()),
-        ]
-
-        async def _run_scanner(name: str, scanner) -> tuple[str, list[Finding], str | None]:
-            try:
-                findings = await scanner.scan_project(project_dir)
-                return name, findings, None
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Scanner '%s' failed: %s", name, exc)
-                return name, [], str(exc)
-
-        start = time.monotonic()
-        raw_results = await asyncio.gather(
-            *[_run_scanner(name, scanner) for name, scanner in scanner_specs],
-            return_exceptions=False,
-        )
+        registry = get_registry()
+        raw_results = await run_shipped_project_scanners(registry, project_dir)
 
         all_findings: list[Finding] = []
         enrichment_results: list[EnrichmentResult] = []
-        total_ms = (time.monotonic() - start) * 1000.0
 
-        for name, findings, error in raw_results:
-            all_findings.extend(findings)
+        for result in raw_results:
+            all_findings.extend(result.findings)
             enrichment_results.append(
                 EnrichmentResult(
-                    source=f"scanner:{name}",
-                    success=error is None,
-                    findings_added=len(findings),
-                    duration_ms=total_ms,  # approximate; all ran concurrently
-                    error=error,
+                    source=f"scanner:{result.name}",
+                    success=result.success,
+                    findings_added=len(result.findings),
+                    duration_ms=result.duration_ms,
+                    error=result.error,
                 )
             )
 

@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+from depfence import __version__
+from depfence.core.finding_identity import finding_id
 from depfence.core.models import FindingType, ScanResult, Severity
 
 # ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ _RULE_ID_PREFIX: dict[str, str] = {
     FindingType.NETWORK.value: "depfence/network",
     FindingType.PHANTOM_DEP.value: "depfence/phantom-dep",
     FindingType.SCOPE_SQUAT.value: "depfence/scope-squat",
+    FindingType.VISUAL_TEXT_DECEPTION.value: "depfence/visual-text-deception",
 }
 
 _HELP_URI_BASE = "https://github.com/depfence/depfence/wiki/rules"
@@ -101,11 +104,28 @@ def make_partial_fingerprint(package_str: str, cve: str | None, finding_type_val
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _rule_entry(finding: Any) -> dict[str, Any]:
+_VISUAL_TEXT_RULE_IDS = frozenset({
+    "DF-FONT-001",
+    "DF-WEB-001",
+    "DF-DOCX-001",
+    "DF-PDF-001",
+    "DF-VIS-001",
+})
+
+
+def _finding_rule_id(finding: Any) -> str:
+    """Return a stable rule identity, including vetted artifact subrules."""
+    if finding.finding_type is FindingType.VISUAL_TEXT_DECEPTION:
+        candidate = finding.metadata.get("rule_id")
+        if candidate in _VISUAL_TEXT_RULE_IDS:
+            return str(candidate)
+    return map_finding_type_to_rule_id(finding.finding_type)
+
+
+def _rule_entry(finding: Any, rule_id: str | None = None) -> dict[str, Any]:
     """Build a SARIF ``rules[]`` descriptor from a :class:`Finding`."""
     ft_val = finding.finding_type.value
-    rule_prefix = map_finding_type_to_rule_id(finding.finding_type)
-    rid = f"{rule_prefix}/{str(finding.package)}"
+    rid = rule_id or _finding_rule_id(finding)
     return {
         "id": rid,
         "name": ft_val.replace("_", " ").title().replace(" ", ""),
@@ -122,6 +142,34 @@ def _rule_entry(finding: Any) -> dict[str, Any]:
     }
 
 
+def _relative_uri(value: object, target: object | None = None) -> str:
+    """Return a repository-relative, platform-independent SARIF artifact URI."""
+    raw = str(value or ".")
+    path = Path(raw)
+    if path.is_absolute():
+        candidates = [Path.cwd()]
+        if target:
+            target_path = Path(str(target))
+            if target_path.is_absolute():
+                # Do not consult the filesystem: URI stability must not depend
+                # on whether the target still exists when a report is rendered.
+                target_base = target_path.parent if target_path.suffix else target_path
+                if path != target_path:
+                    candidates.insert(0, target_base)
+        for base in candidates:
+            try:
+                raw = str(path.relative_to(base)) or "."
+                break
+            except ValueError:
+                continue
+        else:
+            raw = path.name or "."
+    normalized = PurePosixPath(raw.replace("\\", "/")).as_posix()
+    while normalized.startswith("../"):
+        normalized = normalized[3:]
+    return normalized or "."
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -130,7 +178,8 @@ def _rule_entry(finding: Any) -> dict[str, Any]:
 def generate_sarif(
     result: ScanResult,
     tool_name: str = "depfence",
-    tool_version: str = "0.4.0",
+    tool_version: str = __version__,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate a SARIF 2.1.0 document from a :class:`~depfence.core.models.ScanResult`.
 
@@ -161,26 +210,19 @@ def generate_sarif(
     rule_key_to_index: dict[str, int] = {}
     artifact_uris: set[str] = set()
 
-    scan_date = (
-        result.started_at.strftime("%Y-%m-%d")
-        if result.started_at
-        else datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    )
-    automation_id = f"{tool_name}/{result.target}/{scan_date}/"
+    target_uri = _relative_uri(result.target)
+    automation_id = run_id or f"{tool_name}/{target_uri}/"
 
     for finding in result.findings:
-        ft_val = finding.finding_type.value
         pkg_str = str(finding.package)
 
-        rule_prefix = map_finding_type_to_rule_id(finding.finding_type)
-        rule_key = f"{rule_prefix}/{pkg_str}"
+        rule_key = _finding_rule_id(finding)
 
         if rule_key not in rule_key_to_index:
             rule_key_to_index[rule_key] = len(rules)
-            rules.append(_rule_entry(finding))
+            rules.append(_rule_entry(finding, rule_key))
 
         # Primary location — the scan target (lockfile / project dir).
-        target_uri = result.target
         artifact_uris.add(target_uri)
 
         locations: list[dict[str, Any]] = [
@@ -198,7 +240,8 @@ def generate_sarif(
         code_flows: list[dict[str, Any]] = []
         lockfile_path: str | None = finding.metadata.get("lockfile_path")  # type: ignore[assignment]
         if lockfile_path:
-            artifact_uris.add(lockfile_path)
+            lockfile_uri = _relative_uri(lockfile_path, result.target)
+            artifact_uris.add(lockfile_uri)
             code_flows.append(
                 {
                     "message": {"text": f"Dependency path to {pkg_str}"},
@@ -209,7 +252,7 @@ def generate_sarif(
                                     "location": {
                                         "physicalLocation": {
                                             "artifactLocation": {
-                                                "uri": lockfile_path,
+                                                "uri": lockfile_uri,
                                                 "uriBaseId": "%SRCROOT%",
                                             },
                                         },
@@ -226,14 +269,15 @@ def generate_sarif(
         related_locations: list[dict[str, Any]] = []
         lockfile_paths: list[str] = finding.metadata.get("lockfile_paths", [])  # type: ignore[assignment]
         for idx, lp in enumerate(lockfile_paths):
-            artifact_uris.add(lp)
+            lockfile_uri = _relative_uri(lp, result.target)
+            artifact_uris.add(lockfile_uri)
             related_locations.append(
                 {
                     "id": idx + 1,
                     "message": {"text": f"{pkg_str} declared in {lp}"},
                     "physicalLocation": {
                         "artifactLocation": {
-                            "uri": lp,
+                            "uri": lockfile_uri,
                             "uriBaseId": "%SRCROOT%",
                         },
                     },
@@ -254,6 +298,10 @@ def generate_sarif(
 
         # Result properties.
         result_properties: dict[str, Any] = {
+            # SARIF's four-level ``level`` collapses DepFence CRITICAL and HIGH
+            # into ``error``.  Preserve the product severity so action outputs
+            # and downstream consumers can count CRITICAL findings exactly.
+            "depfence-severity": finding.severity.value,
             "security-severity": _SECURITY_SEVERITY.get(finding.severity, "5.5"),
         }
         if finding.cve:
@@ -270,9 +318,7 @@ def generate_sarif(
             "message": {"text": finding.detail or finding.title},
             "locations": locations,
             "partialFingerprints": {
-                "primaryLocationLineHash/v1": make_partial_fingerprint(
-                    pkg_str, finding.cve, ft_val
-                ),
+                "primaryLocationLineHash/v1": finding_id(finding),
             },
             "properties": result_properties,
         }
@@ -292,6 +338,20 @@ def generate_sarif(
         for uri in sorted(artifact_uris)
     ]
 
+    notifications = [
+        {
+            "level": "error",
+            "descriptor": {"id": "depfence/incomplete-execution"},
+            "message": {"text": str(error)},
+        }
+        for error in dict.fromkeys(
+            [*result.errors, *result.scanner_errors.values()]
+        )
+    ]
+    invocation: dict[str, Any] = {"executionSuccessful": not notifications}
+    if notifications:
+        invocation["toolExecutionNotifications"] = notifications
+
     sarif_doc: dict[str, Any] = {
         "$schema": SARIF_SCHEMA,
         "version": SARIF_VERSION,
@@ -309,6 +369,7 @@ def generate_sarif(
                 },
                 "results": results,
                 "artifacts": artifacts,
+                "invocations": [invocation],
             }
         ],
     }
@@ -316,6 +377,19 @@ def generate_sarif(
     return sarif_doc
 
 
-def render_sarif(result: ScanResult, tool_name: str = "depfence", tool_version: str = "0.4.0") -> str:
+def render_sarif(
+    result: ScanResult,
+    tool_name: str = "depfence",
+    tool_version: str = __version__,
+    run_id: str | None = None,
+) -> str:
     """Convenience wrapper that returns ``generate_sarif`` output as indented JSON."""
-    return json.dumps(generate_sarif(result, tool_name=tool_name, tool_version=tool_version), indent=2)
+    return json.dumps(
+        generate_sarif(
+            result,
+            tool_name=tool_name,
+            tool_version=tool_version,
+            run_id=run_id,
+        ),
+        indent=2,
+    )

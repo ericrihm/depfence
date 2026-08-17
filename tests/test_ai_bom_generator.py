@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
+from depfence.core.scan_scope import PartialScanError
+from depfence.scanners import ai_bom_generator as ai_bom_module
 from depfence.scanners.ai_bom_generator import AiBomGenerator
 
 # ---------------------------------------------------------------------------
@@ -16,6 +19,68 @@ from depfence.scanners.ai_bom_generator import AiBomGenerator
 @pytest.fixture
 def scanner() -> AiBomGenerator:
     return AiBomGenerator()
+
+
+@pytest.mark.asyncio
+async def test_host_global_mcp_inventory_requires_opt_in_and_is_redacted(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    global_config = tmp_path / "private-home" / "mcp.json"
+    global_config.parent.mkdir()
+    private_arg = "--token=host-private-marker"
+    global_config.write_text(json.dumps({"mcpServers": {"private": {
+        "command": "/private/bin/server", "args": [private_arg]
+    }}}))
+    monkeypatch.setattr(ai_bom_module, "_mcp_config_locations", lambda: [global_config])
+
+    default_findings = await AiBomGenerator().scan_project(project)
+    opted_in = await AiBomGenerator(include_global=True).scan_project(project)
+
+    assert default_findings == []
+    bom = opted_in[0].metadata["ai_bom"]
+    record = bom["mcp_servers"][0]
+    assert record["command"] == "server"
+    assert record["arg_count"] == 1
+    assert "args" not in record
+    assert private_arg not in str(bom)
+    assert str(global_config) not in str(bom)
+    assert record["config_source"] == "global:mcp.json"
+
+
+@pytest.mark.asyncio
+async def test_malformed_candidate_preserves_partial_bom_findings(tmp_path):
+    (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        "shell": {"command": "bash", "args": ["-c", "synthetic-private-arg"]}
+    }}))
+    (tmp_path / "package.json").write_text("{")
+
+    with pytest.raises(PartialScanError) as raised:
+        await AiBomGenerator().scan_project(tmp_path)
+
+    assert "package.json" in str(raised.value)
+    assert raised.value.findings
+    assert "synthetic-private-arg" not in str(raised.value.findings)
+
+
+@pytest.mark.asyncio
+async def test_symlinked_candidate_is_incomplete(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-mcp.json"
+    outside.write_text('{"mcpServers":{}}')
+    (tmp_path / ".mcp.json").symlink_to(outside)
+
+    with pytest.raises(PartialScanError, match="symlink"):
+        await AiBomGenerator().scan_project(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_malformed_global_config_only_matters_when_opted_in(tmp_path, monkeypatch):
+    global_config = tmp_path.parent / f"{tmp_path.name}-global-mcp.json"
+    global_config.write_text("{")
+    monkeypatch.setattr(ai_bom_module, "_mcp_config_locations", lambda: [global_config])
+
+    assert await AiBomGenerator().scan_project(tmp_path) == []
+    with pytest.raises(PartialScanError, match="global:.*malformed"):
+        await AiBomGenerator(include_global=True).scan_project(tmp_path)
 
 
 # Minimal synthetic pickle bytes — just enough to be a real file, never unpickled.

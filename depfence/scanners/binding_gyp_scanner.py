@@ -214,7 +214,8 @@ class BindingGypScanner:
         if pkg_json.is_file():
             try:
                 data = json.loads(pkg_json.read_text())
-                return data.get("name", project_dir.name)
+                name = data.get("name", project_dir.name)
+                return name if isinstance(name, str) else project_dir.name
             except (OSError, json.JSONDecodeError):
                 pass
         return project_dir.name

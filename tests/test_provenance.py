@@ -22,11 +22,12 @@ async def test_high_value_without_provenance_flagged(scanner):
 
 
 @pytest.mark.asyncio
-async def test_high_value_with_provenance_clean(scanner):
+async def test_high_value_with_provenance_is_not_claimed_verified(scanner):
     meta = PackageMeta(pkg=PackageId("pypi", "langchain", "0.2.0"))
     meta.has_provenance = True
     findings = await scanner.scan([meta])
-    assert len(findings) == 0
+    assert len(findings) == 1
+    assert findings[0].metadata["provenance_status"] == "present_unverified"
 
 
 @pytest.mark.asyncio

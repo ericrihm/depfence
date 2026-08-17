@@ -29,6 +29,8 @@ import re
 import subprocess
 import sys
 
+from depfence.core.signal_bus import emit_signal
+
 _USES_PIN_RE = re.compile(
     r"""uses:\s*["']?
         (?P<repo>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)
@@ -40,10 +42,6 @@ _USES_PIN_RE = re.compile(
 _WORKFLOW_RE = re.compile(r"(^|/)\.github/workflows/[^/]+\.ya?ml$")
 _DISABLE = {"0", "false", "no", "off"}
 _FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
-
-_SIGNAL_BUS_PENDING = os.environ.get(
-    "DEPFENCE_SIGNAL_BUS", os.path.expanduser("~/.depfence/signals/pending.jsonl")
-)
 
 
 def _gh_api(path: str) -> tuple[int, str | None]:
@@ -101,25 +99,18 @@ def _new_content(tool_name: str, tool_input: dict) -> str:
     return ""
 
 
-def _emit_signal(fabricated: list[str], file_path: str) -> None:
-    """Best-effort write a depfence_sha_fabrication signal to the signal bus."""
-    import time as _time
-    try:
-        sig = json.dumps({
-            "name": "depfence_sha_fabrication",
-            "value": {
-                "fabricated_pins": fabricated,
-                "file": file_path,
-                "reason": "resolve-never-predict: SHA does not resolve",
-                "count": len(fabricated),
-            },
-            "source": "depfence_pretooluse_hook",
-            "timestamp": _time.time(),
-        })
-        with open(_SIGNAL_BUS_PENDING, "a") as f:
-            f.write(sig + "\n")
-    except OSError:
-        pass  # best-effort — never crash the hook
+def _emit_signal(fabricated: list[str], file_path: str) -> str | None:
+    """Write a bounded private signal and report degraded observability."""
+    return emit_signal(
+        name="depfence_sha_fabrication",
+        value={
+            "fabricated_pins": fabricated,
+            "reason": "resolve-never-predict: SHA does not resolve",
+            "count": len(fabricated),
+        },
+        source="depfence_pretooluse_hook",
+        file_path=file_path,
+    )
 
 
 def main(data: dict) -> dict:
@@ -166,7 +157,9 @@ def main(data: dict) -> dict:
         + "\nNever hand-write a SHA — emit a tag (e.g. @v4) and let `ratchet pin` resolve it."
     )
 
-    _emit_signal(fabricated, file_path)
+    signal_error = _emit_signal(fabricated, file_path)
+    if signal_error:
+        detail += f"\nLocal observability: {signal_error}."
 
     if os.environ.get("DEPFENCE_PRETOOLUSE_BLOCK", "").lower() in ("1", "true", "yes", "on"):
         return {"hookSpecificOutput": {

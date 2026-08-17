@@ -23,6 +23,7 @@ from datetime import datetime
 
 import pytest
 
+from depfence import __version__
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.reporters.sarif import (
     SARIF_SCHEMA,
@@ -321,10 +322,11 @@ def test_rule_id_contains_finding_type_prefix():
     assert "depfence/vulnerability" in rule["id"]
 
 
-def test_rule_id_contains_package_string():
+def test_rule_id_is_stable_across_package_versions():
     sarif = _gen(findings=[_vuln_finding(pkg=_NPM_PKG)])
     rule = sarif["runs"][0]["tool"]["driver"]["rules"][0]
-    assert "lodash" in rule["id"]
+    upgraded = _gen(findings=[_vuln_finding(pkg=PackageId("npm", "lodash", "9.0.0"))])
+    assert rule["id"] == upgraded["runs"][0]["tool"]["driver"]["rules"][0]["id"]
 
 
 def test_result_rule_id_matches_rule_in_rules_array():
@@ -485,9 +487,9 @@ def test_fingerprint_in_sarif_matches_helper():
     finding = _vuln_finding()
     sarif = _gen(findings=[finding])
     fp_in_sarif = sarif["runs"][0]["results"][0]["partialFingerprints"]["primaryLocationLineHash/v1"]
-    expected = make_partial_fingerprint(
-        str(finding.package), finding.cve, finding.finding_type.value
-    )
+    from depfence.core.finding_identity import finding_id
+
+    expected = finding_id(finding)
     assert fp_in_sarif == expected
 
 
@@ -747,7 +749,7 @@ def test_generate_sarif_default_tool_name():
 def test_generate_sarif_default_tool_version():
     result = _make_result()
     sarif = generate_sarif(result)
-    assert sarif["runs"][0]["tool"]["driver"]["semanticVersion"] == "0.4.0"
+    assert sarif["runs"][0]["tool"]["driver"]["semanticVersion"] == __version__
 
 
 def test_generate_sarif_returns_dict():

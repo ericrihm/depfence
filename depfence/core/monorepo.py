@@ -148,7 +148,8 @@ def _workspace_name_from_npm(pkg_dir: Path) -> str:
     pkg_json = pkg_dir / "package.json"
     try:
         data = json.loads(pkg_json.read_text())
-        return data.get("name", pkg_dir.name)
+        name = data.get("name")
+        return name if isinstance(name, str) else pkg_dir.name
     except (json.JSONDecodeError, OSError):
         return pkg_dir.name
 
@@ -165,6 +166,12 @@ def _workspace_name_from_pyproject(pyproject: Path) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _finding_package_name(finding: Finding) -> str:
+    """Return the comparable package name for either public package form."""
+    if isinstance(finding.package, PackageId):
+        return finding.package.name
+    return finding.package
 
 def discover_workspaces(project_dir: Path) -> list[WorkspaceInfo]:
     """Discover workspace packages in *project_dir*.
@@ -285,7 +292,7 @@ def deduplicate_findings(
     # Group findings by dedup key
     groups: dict[tuple[str, str], list[Finding]] = {}
     for finding in findings:
-        key = (finding.package.name, finding.cve or finding.title)
+        key = (_finding_package_name(finding), finding.cve or finding.title)
         groups.setdefault(key, []).append(finding)
 
     result: list[dict] = []
@@ -330,7 +337,7 @@ def workspace_summary(workspaces: list[WorkspaceInfo], findings: list[Finding]) 
     # Index findings by package name for quick lookup
     findings_by_pkg: dict[str, list[Finding]] = {}
     for f in findings:
-        findings_by_pkg.setdefault(f.package.name, []).append(f)
+        findings_by_pkg.setdefault(_finding_package_name(f), []).append(f)
 
     severity_zero: dict[str, int] = {s.value: 0 for s in Severity}
 
@@ -346,7 +353,7 @@ def workspace_summary(workspaces: list[WorkspaceInfo], findings: list[Finding]) 
 
         # Findings that affect this workspace (package name intersection)
         ws_pkg_set = {p.name for p in ws.packages}
-        ws_findings = [f for f in findings if f.package.name in ws_pkg_set]
+        ws_findings = [f for f in findings if _finding_package_name(f) in ws_pkg_set]
 
         sev_breakdown = dict(severity_zero)
         for f in ws_findings:

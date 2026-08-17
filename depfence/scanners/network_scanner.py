@@ -171,8 +171,7 @@ class NetworkScanner:
                 detail="Code contains references to mining pools — likely cryptojacking.",
             ))
 
-        if self._WEBHOOK_URLS.search(content):
-            match = self._WEBHOOK_URLS.search(content)
+        if match := self._WEBHOOK_URLS.search(content):
             findings.append(Finding(
                 finding_type=FindingType.BEHAVIORAL,
                 severity=Severity.HIGH,
@@ -291,7 +290,7 @@ class NetworkScanner:
             "**/postinstall*", "**/preinstall*",
             "**/install.js", "**/install.py",
         ]
-        files = []
+        files: list[Path] = []
         for pattern in patterns:
             if "*" in pattern:
                 files.extend(project_dir.glob(pattern))

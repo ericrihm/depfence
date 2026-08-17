@@ -17,10 +17,18 @@ import hashlib
 import json
 import platform
 import re
+import stat
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
+from depfence.core.scan_scope import (
+    InputLimitError,
+    MalformedInputError,
+    PartialScanError,
+    ScanIncompleteError,
+    ScanScope,
+)
 
 # ---------------------------------------------------------------------------
 # Model file definitions
@@ -51,6 +59,8 @@ _MIN_MODEL_BYTES = 64
 
 # Chunk size for streaming sha256 — never load full weight files into memory.
 _HASH_CHUNK = 64 * 1024  # 64 KB
+_MAX_MODEL_BYTES = 10 * 1024 * 1024 * 1024
+_GLOBAL_CONFIG_LIMIT = 4 * 1024 * 1024
 
 # Config filenames that may carry architecture / checksum metadata.
 _MODEL_CONFIG_NAMES: frozenset[str] = frozenset({
@@ -185,13 +195,13 @@ def _arch_hints_from_path(path: Path) -> list[str]:
     return [hint for hint in _ARCH_HINTS if hint in text]
 
 
-def _extract_mcp_servers(data: dict) -> dict:
+def _extract_mcp_servers(data: dict[Any, Any]) -> dict[Any, Any]:
     if "mcpServers" in data:
-        return data["mcpServers"]
+        return cast(dict[Any, Any], data["mcpServers"])
     if "mcp" in data and isinstance(data["mcp"], dict):
-        return data["mcp"].get("servers", {})
+        return cast(dict[Any, Any], data["mcp"].get("servers", {}))
     if "servers" in data:
-        return data["servers"]
+        return cast(dict[Any, Any], data["servers"])
     return {}
 
 
@@ -218,64 +228,72 @@ def _skip_path(path: Path) -> bool:
 # Model inventory
 # ---------------------------------------------------------------------------
 
-def _scan_model_files(project_dir: Path) -> list[dict[str, Any]]:
+def _scan_model_files(
+    scope: ScanScope,
+    files: list[Path],
+    errors: list[str],
+) -> list[dict[str, Any]]:
     """Walk project for model weight files and return inventory records."""
     records: list[dict[str, Any]] = []
+    project_dir = scope.root
 
-    for ext, (fmt, is_pickle) in _MODEL_EXT_INFO.items():
-        for model_path in sorted(project_dir.rglob(f"*{ext}")):
-            if _skip_path(model_path):
-                continue
+    for model_path in files:
+        info = _MODEL_EXT_INFO.get(model_path.suffix.lower())
+        if info is None or _skip_path(model_path):
+            continue
+        fmt, is_pickle = info
+        relative = model_path.relative_to(project_dir).as_posix()
+        try:
+            size = model_path.stat().st_size
+        except OSError as exc:
+            errors.append(f"{relative}: cannot inspect model: {exc}")
+            continue
+        if size < _MIN_MODEL_BYTES:
+            continue
+
+        record: dict[str, Any] = {
+            "path": relative,
+            "format": fmt,
+            "size_bytes": size,
+            "is_pickle": is_pickle,
+            "architecture_hints": _arch_hints_from_path(model_path),
+            "sha256": None,
+            "has_checksum": False,
+        }
+
+        if size >= _MAX_MODEL_BYTES:
+            errors.append(f"{relative}: model exceeds the {_MAX_MODEL_BYTES} byte hash limit")
+        else:
             try:
-                size = model_path.stat().st_size
-            except OSError:
-                continue
-            if size < _MIN_MODEL_BYTES:
-                continue
+                record["sha256"] = _sha256_streaming(model_path)
+                record["has_checksum"] = True
+            except OSError as exc:
+                errors.append(f"{relative}: cannot hash model: {exc}")
 
-            record: dict[str, Any] = {
-                "path": str(model_path.relative_to(project_dir)),
-                "format": fmt,
-                "size_bytes": size,
-                "is_pickle": is_pickle,
-                "architecture_hints": _arch_hints_from_path(model_path),
-                "sha256": None,
-                "has_checksum": False,
-            }
-
-            # Stream sha256 — skip if file is too large (>= 10 GB) to avoid
-            # stalling the scan; flag as unverified instead.
-            if size < 10 * 1024 * 1024 * 1024:
-                try:
-                    record["sha256"] = _sha256_streaming(model_path)
-                    record["has_checksum"] = True
-                except OSError:
-                    pass
-
-            records.append(record)
+        records.append(record)
 
     # Also check config.json / model.json for declared architecture.
-    for cfg_name in _MODEL_CONFIG_NAMES:
-        for cfg_path in sorted(project_dir.rglob(cfg_name)):
-            if _skip_path(cfg_path):
-                continue
-            try:
-                data = json.loads(cfg_path.read_text(encoding="utf-8", errors="replace"))
-            except (json.JSONDecodeError, OSError):
-                continue
+    for cfg_path in files:
+        if cfg_path.name not in _MODEL_CONFIG_NAMES or _skip_path(cfg_path):
+            continue
+        relative = cfg_path.relative_to(project_dir).as_posix()
+        try:
+            data = scope.parse_json(cfg_path)
+        except ScanIncompleteError as exc:
+            errors.append(f"{relative}: {exc}")
+            continue
 
-            arch_keys = {
-                "model_type", "architectures", "model_architecture",
-                "_name_or_path", "pretrained_cfg",
-            }
-            arch_info = {k: data[k] for k in arch_keys if k in data}
-            if arch_info:
-                # Attach architecture metadata to any model records in the same dir
-                cfg_dir = cfg_path.parent
-                for rec in records:
-                    rec_path = project_dir / rec["path"]
-                    if rec_path.parent == cfg_dir and not rec.get("architecture_from_config"):
-                        rec["architecture_from_config"] = arch_info
+        arch_keys = {
+            "model_type", "architectures", "model_architecture",
+            "_name_or_path", "pretrained_cfg",
+        }
+        arch_info = {k: data[k] for k in arch_keys if k in data}
+        if arch_info:
+            cfg_dir = cfg_path.parent
+            for rec in records:
+                rec_path = project_dir / rec["path"]
+                if rec_path.parent == cfg_dir and not rec.get("architecture_from_config"):
+                    rec["architecture_from_config"] = arch_info
 
     return records
 
@@ -284,45 +302,91 @@ def _scan_model_files(project_dir: Path) -> list[dict[str, Any]]:
 # MCP server inventory
 # ---------------------------------------------------------------------------
 
-def _scan_mcp_servers(project_dir: Path) -> list[dict[str, Any]]:
+def _scan_mcp_servers(
+    scope: ScanScope,
+    errors: list[str],
+    *,
+    include_global: bool = False,
+) -> list[dict[str, Any]]:
     """Collect MCP server entries from all known config locations."""
     servers: list[dict[str, Any]] = []
     seen: set[Path] = set()
 
-    def _process_config(config_path: Path) -> None:
-        if config_path in seen or not config_path.exists():
-            return
-        seen.add(config_path)
+    def _process_config(
+        config_path: Path, *, source: str, project_scoped: bool
+    ) -> None:
         try:
-            data = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
-        except (json.JSONDecodeError, OSError):
+            config_path.lstat()
+        except FileNotFoundError:
             return
+        except OSError as exc:
+            errors.append(f"{source}: cannot inspect MCP config: {exc}")
+            return
+        try:
+            if project_scoped:
+                resolved = scope.resolve(config_path)
+                data = scope.parse_json(resolved)
+            else:
+                info = config_path.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                    raise MalformedInputError("global MCP config must be a regular file")
+                if info.st_size > _GLOBAL_CONFIG_LIMIT:
+                    raise InputLimitError(
+                        f"global MCP config exceeds {_GLOBAL_CONFIG_LIMIT} byte limit"
+                    )
+                resolved = config_path.resolve(strict=True)
+                data = json.loads(resolved.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise MalformedInputError("global MCP config root must be an object")
+        except (json.JSONDecodeError, OSError, UnicodeError, ScanIncompleteError) as exc:
+            label = "opted-in global input is unavailable or malformed" if not project_scoped else str(exc)
+            errors.append(f"{source}: {label}")
+            return
+        if resolved in seen:
+            return
+        seen.add(resolved)
         mcp_servers = _extract_mcp_servers(data)
+        if not isinstance(mcp_servers, dict):
+            errors.append(f"{source}: MCP server collection must be an object")
+            return
         for name, cfg in mcp_servers.items():
-            if not isinstance(cfg, dict):
+            if not isinstance(name, str) or not isinstance(cfg, dict):
+                errors.append(f"{source}: MCP server entry must map a name to an object")
                 continue
-            command = cfg.get("command", "")
+            command_value = cfg.get("command", "")
             args = cfg.get("args", [])
             transport = cfg.get("transport", cfg.get("type", "stdio"))
             tools = cfg.get("tools", [])
+            env = cfg.get("env", {})
+            if (
+                not isinstance(command_value, str)
+                or not isinstance(args, list)
+                or not isinstance(transport, str)
+                or not isinstance(tools, list)
+                or not isinstance(env, dict)
+            ):
+                errors.append(f"{source}: MCP server {name!r} has invalid field types")
+                continue
+            command = re.split(r"[\\/]", command_value)[-1]
             servers.append({
                 "name": name,
                 "command": command,
-                "args": args,
+                "arg_count": len(args) if isinstance(args, list) else 0,
                 "transport": transport,
                 "tool_count": len(tools) if isinstance(tools, list) else 0,
                 "has_shell_access": _mcp_server_has_shell_access(cfg),
-                "config_source": str(config_path),
-                "env_keys": list(cfg.get("env", {}).keys()),
+                "config_source": source,
+                "env_keys": sorted(str(key) for key in env),
             })
 
     # Project-level configs
     for rel in _PROJECT_MCP_LOCATIONS:
-        _process_config(project_dir / rel)
+        _process_config(scope.root / rel, source=rel.as_posix(), project_scoped=True)
 
-    # Global configs
-    for p in _mcp_config_locations():
-        _process_config(p)
+    # Host-global inventory is privacy-sensitive and requires explicit opt-in.
+    if include_global:
+        for p in _mcp_config_locations():
+            _process_config(p, source=f"global:{p.name}", project_scoped=False)
 
     return servers
 
@@ -335,9 +399,9 @@ def _parse_requirements_txt(req_file: Path) -> list[tuple[str, str]]:
     """Return (package_name, version_constraint) pairs from a requirements file."""
     results: list[tuple[str, str]] = []
     try:
-        content = req_file.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return results
+        content = req_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ScanIncompleteError(f"cannot read requirements input: {exc}") from exc
     for line in content.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", "-", "http")):
@@ -357,11 +421,16 @@ def _parse_package_json(pkg_file: Path) -> list[tuple[str, str, str]]:
     """Return (name, version, ecosystem='npm') triples from package.json."""
     results: list[tuple[str, str, str]] = []
     try:
-        data = json.loads(pkg_file.read_text(encoding="utf-8", errors="replace"))
-    except (json.JSONDecodeError, OSError):
-        return results
+        data = json.loads(pkg_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+        raise MalformedInputError(f"cannot parse package.json: {exc}") from exc
+    if not isinstance(data, dict):
+        raise MalformedInputError("package.json root must be an object")
     for section in ("dependencies", "devDependencies", "peerDependencies"):
-        for name, version in data.get(section, {}).items():
+        values = data.get(section, {})
+        if not isinstance(values, dict):
+            raise MalformedInputError(f"package.json {section} must be an object")
+        for name, version in values.items():
             results.append((name, str(version), "npm"))
     return results
 
@@ -374,12 +443,12 @@ def _parse_pyproject_toml(pyproject: Path) -> list[tuple[str, str]]:
     except ModuleNotFoundError:
         try:
             import tomli as tomllib  # type: ignore[import,no-reuse-declared]
-        except ModuleNotFoundError:
-            return results
+        except ModuleNotFoundError as exc:
+            raise ScanIncompleteError("no TOML parser is available") from exc
     try:
         data = tomllib.loads(pyproject.read_bytes().decode())
-    except Exception:
-        return results
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise MalformedInputError(f"cannot parse pyproject.toml: {exc}") from exc
     # PEP 621 style
     deps = data.get("project", {}).get("dependencies", [])
     for dep in deps:
@@ -402,9 +471,14 @@ def _parse_pyproject_toml(pyproject: Path) -> list[tuple[str, str]]:
     return results
 
 
-def _scan_ai_frameworks(project_dir: Path) -> list[dict[str, Any]]:
+def _scan_ai_frameworks(
+    scope: ScanScope,
+    files: list[Path],
+    errors: list[str],
+) -> list[dict[str, Any]]:
     """Scan lockfiles and requirement files for AI packages."""
     found: dict[str, dict[str, Any]] = {}  # keyed by "ecosystem:name"
+    project_dir = scope.root
 
     def _add(name: str, version: str, ecosystem: str) -> None:
         key = f"{ecosystem}:{name}"
@@ -412,30 +486,41 @@ def _scan_ai_frameworks(project_dir: Path) -> list[dict[str, Any]]:
             found[key] = {"name": name, "version": version or "unknown", "ecosystem": ecosystem}
 
     # Python: requirements*.txt
-    for req_file in project_dir.rglob("requirements*.txt"):
-        if _skip_path(req_file):
+    for req_file in files:
+        if not req_file.match("requirements*.txt") or _skip_path(req_file):
             continue
-        for name, version in _parse_requirements_txt(req_file):
+        try:
+            dependencies = _parse_requirements_txt(req_file)
+        except ScanIncompleteError as exc:
+            errors.append(f"{req_file.relative_to(project_dir).as_posix()}: {exc}")
+            continue
+        for name, version in dependencies:
             norm = name.replace("-", "_").lower()
             if norm in _AI_PACKAGES or name.lower() in _AI_PACKAGES:
                 _add(name, version, "pypi")
 
     # Python: pyproject.toml
-    for pyproject in project_dir.rglob("pyproject.toml"):
-        if _skip_path(pyproject):
+    for pyproject in files:
+        if pyproject.name != "pyproject.toml" or _skip_path(pyproject):
             continue
-        for name, version in _parse_pyproject_toml(pyproject):
+        try:
+            dependencies = _parse_pyproject_toml(pyproject)
+        except ScanIncompleteError as exc:
+            errors.append(f"{pyproject.relative_to(project_dir).as_posix()}: {exc}")
+            continue
+        for name, version in dependencies:
             norm = name.replace("-", "_").lower()
             if norm in _AI_PACKAGES or name.lower() in _AI_PACKAGES:
                 _add(name, version, "pypi")
 
     # Python: setup.cfg
-    for setup_cfg in project_dir.rglob("setup.cfg"):
-        if _skip_path(setup_cfg):
+    for setup_cfg in files:
+        if setup_cfg.name != "setup.cfg" or _skip_path(setup_cfg):
             continue
         try:
-            content = setup_cfg.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            content = scope.read_text(setup_cfg)
+        except ScanIncompleteError as exc:
+            errors.append(f"{setup_cfg.relative_to(project_dir).as_posix()}: {exc}")
             continue
         in_deps = False
         for line in content.splitlines():
@@ -456,10 +541,15 @@ def _scan_ai_frameworks(project_dir: Path) -> list[dict[str, Any]]:
                         _add(name, version_part, "pypi")
 
     # JavaScript: package.json
-    for pkg_json in project_dir.rglob("package.json"):
-        if _skip_path(pkg_json):
+    for pkg_json in files:
+        if pkg_json.name != "package.json" or _skip_path(pkg_json):
             continue
-        for name, version, eco in _parse_package_json(pkg_json):
+        try:
+            package_dependencies = _parse_package_json(pkg_json)
+        except ScanIncompleteError as exc:
+            errors.append(f"{pkg_json.relative_to(project_dir).as_posix()}: {exc}")
+            continue
+        for name, version, eco in package_dependencies:
             if name in _AI_PACKAGES_NPM or name.lower() in _AI_PACKAGES_NPM:
                 _add(name, version, eco)
 
@@ -578,7 +668,7 @@ def _findings_from_bom(
     for server in bom["mcp_servers"]:
         if server.get("has_shell_access"):
             cmd_display = server.get("command", "")
-            args_display = " ".join(str(a) for a in server.get("args", []))
+            arg_count = int(server.get("arg_count", 0))
             findings.append(Finding(
                 finding_type=FindingType.BEHAVIORAL,
                 severity=Severity.HIGH,
@@ -586,14 +676,15 @@ def _findings_from_bom(
                 title=f"MCP server with shell access: {server['name']}",
                 detail=(
                     f"MCP server '{server['name']}' (configured in {server['config_source']}) "
-                    f"uses command '{cmd_display} {args_display}'.strip() that grants direct shell "
+                    f"uses shell-capable command '{cmd_display}' with {arg_count} argument(s). "
+                    "Argument values are redacted from scan output. This configuration grants direct shell "
                     "or script execution access. A compromised server description or tool call "
                     "could execute arbitrary commands in the agent's environment."
                 ),
                 confidence=0.85,
                 metadata={
                     "command": cmd_display,
-                    "args": server.get("args", []),
+                    "arg_count": arg_count,
                     "transport": server.get("transport"),
                     "config_source": server["config_source"],
                 },
@@ -620,33 +711,54 @@ class AiBomGenerator:
     name = "ai_bom"
     ecosystems = ["all"]
 
+    def __init__(self, *, include_global: bool = False) -> None:
+        self._include_global = include_global
+
     async def scan(self, packages: list) -> list[Finding]:
         """Standard package-list interface — BOM generation requires scan_project."""
         return []
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
         """Scan *project_dir* and return BOM info finding + risk findings."""
-        project_dir = Path(project_dir).resolve()
+        scope = project_dir if isinstance(project_dir, ScanScope) else ScanScope(project_dir)
+        errors: list[str] = []
+        files: list[Path] = []
+        try:
+            for candidate in scope.walk_files():
+                files.append(candidate)
+        except ScanIncompleteError as exc:
+            errors.append(str(exc))
 
-        models = _scan_model_files(project_dir)
-        mcp_servers = _scan_mcp_servers(project_dir)
-        frameworks = _scan_ai_frameworks(project_dir)
+        models = _scan_model_files(scope, files, errors)
+        mcp_servers = _scan_mcp_servers(
+            scope, errors, include_global=self._include_global
+        )
+        frameworks = _scan_ai_frameworks(scope, files, errors)
 
         bom = _build_bom(models, mcp_servers, frameworks)
-        return _findings_from_bom(bom, project_dir)
+        findings = _findings_from_bom(bom, scope.root)
+        if errors:
+            raise PartialScanError("; ".join(dict.fromkeys(errors)), findings)
+        return findings
 
 
 # ---------------------------------------------------------------------------
 # Convenience entry point
 # ---------------------------------------------------------------------------
 
-def generate_ai_bom(project_dir: Path | str) -> dict[str, Any]:
+def generate_ai_bom(
+    project_dir: Path | str, *, include_global: bool = False
+) -> dict[str, Any]:
     """Generate and return the raw AI-BOM dict without emitting findings.
 
     Useful for embedding in other reports or exporting to JSON.
     """
-    d = Path(project_dir).resolve()
-    models = _scan_model_files(d)
-    mcp_servers = _scan_mcp_servers(d)
-    frameworks = _scan_ai_frameworks(d)
+    scope = ScanScope(Path(project_dir))
+    files = list(scope.walk_files())
+    errors: list[str] = []
+    models = _scan_model_files(scope, files, errors)
+    mcp_servers = _scan_mcp_servers(scope, errors, include_global=include_global)
+    frameworks = _scan_ai_frameworks(scope, files, errors)
+    if errors:
+        raise ScanIncompleteError("; ".join(dict.fromkeys(errors)))
     return _build_bom(models, mcp_servers, frameworks)

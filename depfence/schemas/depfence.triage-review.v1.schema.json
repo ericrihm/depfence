@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.triage-review/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "records", "decisions", "latest_hmac", "errors"],
+  "properties": {
+    "schema_version": {"const": "depfence.triage-review/v1"},
+    "status": {"enum": ["PASS", "INDETERMINATE"]},
+    "records": {"type": "integer", "minimum": 0},
+    "decisions": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "latest_hmac": {"type": ["string", "null"], "pattern": "^triage_record-hmac-sha256:[0-9a-f]{64}$"},
+    "errors": {"type": "array", "items": {"type": "string", "maxLength": 240}}
+  },
+  "additionalProperties": false
+}

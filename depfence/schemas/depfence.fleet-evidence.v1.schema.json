@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.fleet-evidence/v1.json",
+  "type": "object",
+  "required": ["schema_version", "mode", "status", "audit_id", "root_id", "projects", "errors"],
+  "properties": {
+    "schema_version": {"const": "depfence.fleet-evidence/v1"},
+    "mode": {"enum": ["dry-run", "apply"]},
+    "status": {"enum": ["PASS", "INDETERMINATE"]},
+    "audit_id": {"type": ["string", "null"], "pattern": "^fleet_audit-hmac-sha256:[0-9a-f]{64}$"},
+    "root_id": {"type": ["string", "null"], "pattern": "^fleet-hmac-sha256:[0-9a-f]{64}$"},
+    "projects": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "required": ["project_id", "status", "checkpoint_digest", "finding_ids"],
+        "properties": {
+          "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+          "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+          "checkpoint_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "finding_ids": {"type": "array", "items": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "errors": {"type": "array", "items": {"type": "string", "maxLength": 240}}
+  },
+  "additionalProperties": false
+}

@@ -158,6 +158,14 @@ def _parse_uses(uses: str) -> tuple[str, str]:
     return owner_repo.strip(), ref.strip()
 
 
+def _get_on_block(workflow: dict[str, Any]) -> Any:
+    """Return the trigger block, including YAML 1.1's boolean ``on`` key."""
+    on_block = workflow.get("on")
+    if on_block:
+        return on_block
+    return next((value for key, value in workflow.items() if key is True), None)
+
+
 # ---------------------------------------------------------------------------
 # Individual check functions
 # ---------------------------------------------------------------------------
@@ -166,7 +174,7 @@ def _check_script_injection(
     workflow: dict[str, Any], pkg: PackageId, workflow_path: str
 ) -> list[Finding]:
     findings: list[Finding] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
 
     for job_id, step, run in _iter_run_blocks(workflow):
         matches_specific = _INJECTION_RE.findall(run)
@@ -319,7 +327,7 @@ def _check_permissions(
     # Missing permissions block at top-level — defaults to write in many repos
     if top_perms is None:
         # Only flag if the workflow has on: triggers (i.e. is a real workflow, not a reusable)
-        on_block = workflow.get("on") or workflow.get(True)  # YAML parses 'on' as True
+        on_block = _get_on_block(workflow)
         if on_block:
             findings.append(Finding(
                 finding_type=FindingType.BEHAVIORAL,
@@ -467,7 +475,7 @@ def _check_pull_request_target(
     findings: list[Finding] = []
 
     # Check if workflow is triggered by pull_request_target
-    on_block = workflow.get("on") or workflow.get(True)
+    on_block = _get_on_block(workflow)
     if not on_block:
         return findings
 
@@ -726,7 +734,7 @@ _CHECKOUT_VERSION_RE = re.compile(
 
 def _get_triggers(workflow: dict[str, Any]) -> set[str]:
     """Extract all trigger names from the workflow's 'on' block."""
-    on_block = workflow.get("on") or workflow.get(True)
+    on_block = _get_on_block(workflow)
     if not on_block:
         return set()
     if isinstance(on_block, str):

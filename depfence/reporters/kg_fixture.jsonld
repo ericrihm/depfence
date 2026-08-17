@@ -2,20 +2,25 @@
   "@context": {
     "@vocab": "https://kg.local/depfence/vocab#",
     "affects": {
-      "@type": "@id"
+      "@type": "@id",
+      "targetType": "package"
     },
     "classified_as": {
-      "@type": "@id"
+      "@type": "@id",
+      "targetType": "cwe"
     },
     "detected_by": {
-      "@type": "@id"
+      "@type": "@id",
+      "targetType": "rule"
     },
     "id": "@id",
     "in_ecosystem": {
-      "@type": "@id"
+      "@type": "@id",
+      "targetType": "ecosystem"
     },
     "references_cve": {
-      "@type": "@id"
+      "@type": "@id",
+      "targetType": "cve"
     },
     "type": "@type"
   },
@@ -23,6 +28,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/cve/CVE-2021-23337",
+      "lineage": "synthetic",
       "name": "CVE-2021-23337",
       "origin": "derived",
       "repo": "depfence",
@@ -31,6 +37,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/cwe/CWE-1321",
+      "lineage": "synthetic",
       "name": "CWE-1321",
       "origin": "derived",
       "repo": "depfence",
@@ -39,6 +46,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/cwe/CWE-95",
+      "lineage": "synthetic",
       "name": "CWE-95",
       "origin": "derived",
       "repo": "depfence",
@@ -47,6 +55,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/ecosystem/npm",
+      "lineage": "synthetic",
       "name": "npm",
       "origin": "derived",
       "repo": "depfence",
@@ -55,6 +64,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/ecosystem/pypi",
+      "lineage": "synthetic",
       "name": "pypi",
       "origin": "derived",
       "repo": "depfence",
@@ -72,7 +82,8 @@
       "detected_by": [
         "https://kg.local/depfence/rule/known_vulnerability"
       ],
-      "id": "https://kg.local/depfence/finding/known_vulnerability-914d466d0749a77e",
+      "id": "https://kg.local/depfence/finding/df-a572077c3aaf85fb94ca",
+      "lineage": "synthetic",
       "origin": "derived",
       "references_cve": [
         "https://kg.local/depfence/cve/CVE-2021-23337"
@@ -91,7 +102,8 @@
       "detected_by": [
         "https://kg.local/depfence/rule/python.lang.security.audit.exec-detected"
       ],
-      "id": "https://kg.local/depfence/finding/python.lang.security.audit.exec-detected-ee5a0ab879108aec",
+      "id": "https://kg.local/depfence/finding/df-e25b245a44131fb537d2",
+      "lineage": "synthetic",
       "location": "app/handlers.py:42",
       "origin": "derived",
       "repo": "depfence",
@@ -108,7 +120,8 @@
       "detected_by": [
         "https://kg.local/depfence/rule/slopsquat_candidate"
       ],
-      "id": "https://kg.local/depfence/finding/slopsquat_candidate-7d3ecca9eaf58437",
+      "id": "https://kg.local/depfence/finding/df-1039cff91b9ea59a7e59",
+      "lineage": "synthetic",
       "origin": "derived",
       "repo": "depfence",
       "severity": "medium",
@@ -121,6 +134,7 @@
       "in_ecosystem": [
         "https://kg.local/depfence/ecosystem/npm"
       ],
+      "lineage": "synthetic",
       "name": "npm:lodash@4.17.20",
       "origin": "derived",
       "repo": "depfence",
@@ -132,6 +146,7 @@
       "in_ecosystem": [
         "https://kg.local/depfence/ecosystem/pypi"
       ],
+      "lineage": "synthetic",
       "name": "pypi:reqeusts@1.0.0",
       "origin": "derived",
       "repo": "depfence",
@@ -139,7 +154,17 @@
     },
     {
       "derivedBy": "kg_out.py",
+      "id": "https://kg.local/depfence/product/depfence",
+      "lineage": "synthetic",
+      "name": "depfence",
+      "origin": "derived",
+      "repo": "depfence",
+      "type": "product"
+    },
+    {
+      "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/rule/known_vulnerability",
+      "lineage": "synthetic",
       "name": "known_vulnerability",
       "origin": "derived",
       "repo": "depfence",
@@ -148,6 +173,7 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/rule/python.lang.security.audit.exec-detected",
+      "lineage": "synthetic",
       "name": "python.lang.security.audit.exec-detected",
       "origin": "derived",
       "repo": "depfence",
@@ -156,10 +182,12 @@
     {
       "derivedBy": "kg_out.py",
       "id": "https://kg.local/depfence/rule/slopsquat_candidate",
+      "lineage": "synthetic",
       "name": "slopsquat_candidate",
       "origin": "derived",
       "repo": "depfence",
       "type": "rule"
     }
-  ]
+  ],
+  "schema_version": "depfence.kg/v1"
 }

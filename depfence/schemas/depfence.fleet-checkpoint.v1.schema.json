@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.fleet-checkpoint/v1.json",
+  "title": "DepFence fleet project checkpoint v1",
+  "type": "object",
+  "required": ["schema_version", "audit_id", "root_id", "project"],
+  "properties": {
+    "schema_version": {"const": "depfence.fleet-checkpoint/v1"},
+    "audit_id": {"type": "string", "pattern": "^fleet_audit-hmac-sha256:[0-9a-f]{64}$"},
+    "root_id": {"type": "string", "pattern": "^fleet-hmac-sha256:[0-9a-f]{64}$"},
+    "project": {
+      "type": "object",
+      "required": ["project_id", "status", "packages_scanned", "summary", "finding_ids", "coverage"],
+      "properties": {
+        "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+        "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+        "packages_scanned": {"type": "integer", "minimum": 0},
+        "summary": {"type": "object"},
+        "finding_ids": {"type": "array", "items": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"}},
+        "coverage": {
+          "type": "object",
+          "required": ["scanners", "errors", "scanner_errors"],
+          "properties": {
+            "scanners": {
+              "type": "object",
+              "additionalProperties": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]}
+            },
+            "reasons": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": ["evaluated", "disabled_by_policy", "timed_out", "failed", "unsupported", "not_applicable"]
+              }
+            },
+            "reason_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "policy_disabled": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "errors": {"type": "array", "items": {"type": "string"}},
+            "scanner_errors": {"type": "object", "additionalProperties": {"type": "string"}}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

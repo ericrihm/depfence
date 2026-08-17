@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.advisory-task/v1.json",
+  "type": "object",
+  "required": ["schema_version", "task_id", "created_at", "role", "risk", "classification", "objective", "evidence_ids", "budget", "required_deliverables", "prohibited_actions"],
+  "properties": {
+    "schema_version": {"const": "depfence.advisory-task/v1"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "role": {"enum": ["security_contracts", "integration_planner", "mechanical_release", "adversarial_reviewer"]},
+    "risk": {"enum": ["P0", "P1", "P2", "P3"]},
+    "classification": {"const": "redacted-private"},
+    "objective": {"type": "string", "minLength": 1, "maxLength": 500},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "budget": {
+      "type": "object",
+      "required": ["time_seconds", "max_output_tokens"],
+      "properties": {
+        "time_seconds": {"type": "integer", "minimum": 1},
+        "max_output_tokens": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "required_deliverables": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "prohibited_actions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "additionalProperties": false
+}

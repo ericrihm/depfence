@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="canonical" href="https://ericrihm.github.io/depfence/">
   <meta property="og:title" content="depfence — AI-Aware Dependency Security">
-  <meta property="og:description" content="The only scanner that catches prompt injection in dependencies, slopsquatting, MCP rug-pulls, agent skill attacks, anti-analysis evasion, and ML model supply chain threats. 45 scanners. 13 ecosystems. Open source Apache 2.0.">
+  <meta property="og:description" content="AI-aware static analysis for prompt injection, visual-text deception, slopsquatting, MCP rug-pulls, agent skill attacks, anti-analysis evasion, and ML model supply chain threats. 56 scanners. 14 ecosystems. Apache 2.0.">
   <meta property="og:type" content="website">
 </head>
 <body>
@@ -25,7 +25,7 @@
       <li><a href="api.html">API</a></li>
       <li><a href="benchmark.html">Benchmark</a></li>
       <li><a href="https://github.com/ericrihm/depfence">GitHub</a></li>
-      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">v0.7.0</a></li>
+      <li><a href="https://pypi.org/project/depfence/" class="nav-cta">v0.8.0</a></li>
     </ul>
   </div>
 </nav>
@@ -47,7 +47,7 @@
       Traditional scanners match CVEs and stop there. depfence goes further:
       prompt injection detection, anti-analysis evasion (Gaslight-class), slopsquatting,
       MCP server auditing, agent skill attacks, fabricated SHA/version pins,
-      ML model provenance, and supply chain intelligence — across 13 package ecosystems.
+      ML model provenance, and supply chain intelligence — across 14 package ecosystems.
     </p>
 
     <div class="hero-actions">
@@ -84,16 +84,16 @@
   <div class="container">
     <div class="stats-grid">
       <div class="stat-item">
-        <div class="stat-value">45</div>
+        <div class="stat-value">56</div>
         <div class="stat-label">Scanners</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">13</div>
+        <div class="stat-value">14</div>
         <div class="stat-label">Ecosystems</div>
       </div>
       <div class="stat-item">
-        <div class="stat-value">3,330+</div>
-        <div class="stat-label">Tests</div>
+        <div class="stat-value">pytest</div>
+        <div class="stat-label">Regression suite</div>
       </div>
       <div class="stat-item">
         <div class="stat-value">Apache 2.0</div>
@@ -109,7 +109,7 @@
     <div class="section-header">
       <div class="section-label">What depfence detects</div>
       <h2>Security built for modern stacks</h2>
-      <p>45 scanners covering the full threat surface of a production software supply chain.</p>
+      <p>56 registered scanners covering dependency, build, CI, MCP, model, and document-ingestion threats.</p>
     </div>
 
     <div class="features-grid">
@@ -175,7 +175,7 @@
       <div class="feature-card" style="--card-accent: #39d353;">
         <div class="feature-icon" style="--icon-bg: rgba(57,211,83,0.1);">📋</div>
         <h3>SBOM Generation</h3>
-        <p>Generate CycloneDX 1.5 and SPDX 2.3 SBOMs with full vulnerability enrichment. Diff two SBOMs to audit what changed between releases. Upload SARIF to GitHub Code Scanning.</p>
+        <p>Generate CycloneDX 1.7 (or compatibility 1.5) and SPDX 2.3 SBOMs. Diff two SBOMs to audit what changed between releases. Upload schema-validated SARIF to GitHub Code Scanning.</p>
         <div class="tag-list">
           <span class="tag">CycloneDX</span>
           <span class="tag">SPDX</span>
@@ -222,7 +222,7 @@
           <div class="bullet">✦</div>
           <div>
             <strong>ML model supply chain</strong>
-            <span>Flags unsafe <code>torch.load</code> calls, detects pickle opcodes in model weight files, and verifies HuggingFace model provenance before weights reach disk.</span>
+            <span>Flags unsafe <code>torch.load</code> calls, detects pickle opcodes in model weight files, and reports model provenance or integrity evidence without treating presence as verification.</span>
           </div>
         </li>
         <li>
@@ -248,7 +248,7 @@
 <section class="scanners-section">
   <div class="container">
     <div class="section-header">
-      <div class="section-label">45 scanners</div>
+      <div class="section-label">56 scanners</div>
       <h2>Full threat surface coverage</h2>
       <p>Each scanner is independently runnable, testable, and overridable via policy-as-code.</p>
     </div>
@@ -272,8 +272,8 @@
           <li><span class="scanner-name">dep_confusion</span><span class="scanner-desc">Private registry hijacking</span></li>
           <li><span class="scanner-name">ownership</span><span class="scanner-desc">Maintainer account takeovers</span></li>
           <li><span class="scanner-name">preinstall</span><span class="scanner-desc">Malicious install scripts</span></li>
-          <li><span class="scanner-name">provenance</span><span class="scanner-desc">SLSA attestation verification</span></li>
-          <li><span class="scanner-name">provenance_checker</span><span class="scanner-desc">Sigstore + SLSA validation</span></li>
+          <li><span class="scanner-name">provenance</span><span class="scanner-desc">SLSA attestation presence risk</span></li>
+          <li><span class="scanner-name">provenance_checker</span><span class="scanner-desc">Explicit unverified/unavailable provenance states</span></li>
         </ul>
       </div>
       <div class="scanner-group">
@@ -401,7 +401,7 @@
 <span class="cmd-key">depfence</span> license-scan .                   <span class="cmd-comment"># license compliance</span>
 
 <span class="cmd-comment"># SBOM + reporting</span>
-<span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">-o</span> sbom.json             <span class="cmd-comment"># CycloneDX 1.5</span>
+<span class="cmd-key">depfence</span> sbom . <span class="cmd-flag">-o</span> sbom.json             <span class="cmd-comment"># CycloneDX 1.7</span>
 <span class="cmd-key">depfence</span> report . <span class="cmd-flag">--format</span> html          <span class="cmd-comment"># full HTML report</span>
 <span class="cmd-key">depfence</span> sbom-diff before.json after.json  <span class="cmd-comment"># compare two SBOMs</span>
 
@@ -511,7 +511,7 @@
             <td><span class="no">—</span></td>
           </tr>
           <tr>
-            <td class="feature-name">SLSA provenance verification</td>
+            <td class="feature-name">SLSA provenance-state inspection</td>
             <td><span class="check">✓</span></td>
             <td><span class="partial">partial</span></td>
             <td><span class="no">—</span></td>
@@ -613,7 +613,7 @@
         <p>AI-aware dependency security scanner. Detects the threats advisory databases miss.</p>
         <div class="badge-row" style="margin-top: 16px;">
           <span class="badge badge-green">Apache 2.0</span>
-          <span class="badge badge-blue">v0.7.0</span>
+          <span class="badge badge-blue">v0.8.0</span>
           <span class="badge">Python 3.10+</span>
         </div>
       </div>

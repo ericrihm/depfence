@@ -21,6 +21,8 @@ from pathlib import Path
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
+
 log = logging.getLogger(__name__)
 
 _CATALOG_URL = (
@@ -100,7 +102,8 @@ class KevClient:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> KevClient:
-        self._client = httpx.AsyncClient(timeout=self._timeout)
+        if fetch_enabled():
+            self._client = httpx.AsyncClient(timeout=self._timeout)
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -172,6 +175,15 @@ class KevClient:
             if cached is not None:
                 self._catalog = cached
                 return self._catalog
+
+        # Strict offline mode may consume an existing cache, but it must never
+        # refresh it or open a socket.  A missing cache remains an unknown
+        # coverage state for the caller; it is not evidence of no KEV match.
+        if not fetch_enabled():
+            cached = self._load_cache()
+            if cached is not None:
+                self._catalog = cached
+            return self._catalog
 
         # Fetch from the network
         client = self._get_client()

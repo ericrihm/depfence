@@ -82,7 +82,7 @@ def score_all_packages(findings: list[Finding]) -> list[PackageRiskScore]:
     """Score all packages from a scan result, sorted by risk (highest first)."""
     by_package: dict[str, list[Finding]] = {}
     for f in findings:
-        by_package.setdefault(f.package, []).append(f)
+        by_package.setdefault(str(f.package), []).append(f)
 
     scores = [score_package(pkg, pkg_findings) for pkg, pkg_findings in by_package.items()]
     scores.sort(key=lambda s: s.score, reverse=True)

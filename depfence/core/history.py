@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import stat
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from depfence.core.local_state import PrivateState
 from depfence.core.models import PackageId, ScanResult
+from depfence.core.privacy import state_project_boundary
 
-_DEFAULT_DB_DIR = Path.home() / ".depfence" / "cache"
 _DB_NAME = "scan_history.db"
 
 _SCHEMA = """
@@ -171,22 +175,36 @@ class ScanHistory:
     """Persists scan state to SQLite and enables time-series diffing."""
 
     def __init__(self, db_dir: Path | None = None) -> None:
-        self._db_dir = Path(db_dir) if db_dir else _DEFAULT_DB_DIR
-        self._db_dir.mkdir(parents=True, exist_ok=True)
+        self._state: PrivateState | None = None
+        if db_dir is None:
+            state = PrivateState.open(project_root=state_project_boundary())
+            self._state = state
+            self._db_dir = state.path("cache")
+        else:
+            self._db_dir = Path(db_dir)
+        if self._db_dir.is_symlink():
+            raise OSError("refusing symlinked scan-history directory")
+        self._db_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self._db_dir, 0o700)
         self._db_path = self._db_dir / _DB_NAME
+        if self._db_path.is_symlink():
+            raise OSError("refusing symlinked scan-history database")
         self._init_db()
+        os.chmod(self._db_path, stat.S_IRUSR | stat.S_IWUSR)
 
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
+        if self._db_path.is_symlink():
+            raise OSError("refusing symlinked scan-history database")
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
         return conn
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executescript(_SCHEMA)
 
     # ------------------------------------------------------------------
@@ -219,8 +237,13 @@ class ScanHistory:
 
         critical = sum(1 for f in result.findings if f.severity.value == "critical")
         high = sum(1 for f in result.findings if f.severity.value == "high")
+        project_label = (
+            self._state.project_id(path)
+            if self._state is not None
+            else f"project-sha256:{hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()}"
+        )
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             cursor = conn.execute(
                 """
                 INSERT INTO scan_snapshots
@@ -231,7 +254,7 @@ class ScanHistory:
                 """,
                 (
                     proj_hash,
-                    str(Path(path).resolve()),
+                    project_label,
                     scanned_at,
                     result.ecosystem,
                     packages_json,
@@ -252,7 +275,7 @@ class ScanHistory:
         """Return the n most recent scan snapshots for this project."""
         n = max(1, min(n, 1000))
         proj_hash = _project_hash(project_path)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT * FROM scan_snapshots
@@ -286,7 +309,7 @@ class ScanHistory:
         return snapshots
 
     def get_snapshot_by_id(self, snapshot_id: int) -> ScanSnapshot | None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             row = conn.execute(
                 "SELECT * FROM scan_snapshots WHERE id = ?", (snapshot_id,)
             ).fetchone()
@@ -312,7 +335,7 @@ class ScanHistory:
     def get_all(self, project_path: str = ".") -> list[ScanSnapshot]:
         """Return all snapshots for a project, newest first."""
         proj_hash = _project_hash(project_path)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT * FROM scan_snapshots
@@ -346,7 +369,7 @@ class ScanHistory:
     def delete_project_history(self, project_path: str = ".") -> int:
         """Delete all snapshots for a project. Returns rows deleted."""
         proj_hash = _project_hash(project_path)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             cursor = conn.execute(
                 "DELETE FROM scan_snapshots WHERE project_hash = ?", (proj_hash,)
             )

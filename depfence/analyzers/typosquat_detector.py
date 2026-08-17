@@ -7,6 +7,7 @@ patterns.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
@@ -263,7 +264,7 @@ def _key_dist(c1: str, c2: str) -> float:
     p2 = _QWERTY_POS.get(c2.lower())
     if p1 is None or p2 is None:
         return 1.5
-    return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+    return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
 def keyboard_distance(a: str, b: str) -> float:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,10 +13,37 @@ from depfence.core.fetcher import fetch_batch
 from depfence.core.inline_suppress import filter_findings as _inline_filter
 from depfence.core.inline_suppress import parse_suppressions
 from depfence.core.lockfile import detect_ecosystem, parse_lockfile
-from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, ScanResult, Severity
-from depfence.core.registry import get_registry
+from depfence.core.models import (
+    Finding,
+    FindingType,
+    PackageId,
+    PackageMeta,
+    ScannerOutcome,
+    ScannerReasonCode,
+    ScanResult,
+    ScanState,
+    Severity,
+    merge_scan_state,
+)
+from depfence.core.registry import (
+    SCANNER_PROFILES,
+    SHIPPED_SCANNERS,
+    PluginRegistry,
+    get_registry,
+    run_shipped_project_scanners,
+)
+from depfence.core.scanner_outcome import from_legacy
 
 log = logging.getLogger(__name__)
+
+
+def _merge_scanner_coverage(
+    target: dict[str, ScanState],
+    incoming: dict[str, ScanState],
+) -> None:
+    """Merge package/project lanes without overwriting incomplete coverage."""
+    for name, status in incoming.items():
+        target[name] = merge_scan_state(target.get(name), status)
 
 
 def _parse_lockfiles(
@@ -54,32 +82,127 @@ async def _run_scanners(
     skip_advisory: bool,
     skip_behavioral: bool,
     skip_reputation: bool,
-) -> tuple[list[Finding], list[str]]:
+    scanner_names: frozenset[str] | set[str] | None = None,
+    outcomes: dict[str, ScannerOutcome] | None = None,
+) -> tuple[list[Finding], list[str], dict[str, ScanState], dict[str, str]]:
     skip = {
         "behavioral": skip_behavioral,
         "reputation": skip_reputation,
     }
-    tasks = []
+
+    def record_skip(name: str, reason: ScannerReasonCode) -> None:
+        if outcomes is not None:
+            outcomes[name] = ScannerOutcome(
+                state=ScanState.PASS,
+                reason_code=reason,
+                evaluated=False,
+                skipped=True,
+                duration_ms=0.0,
+            )
+
+    async def timed_scan(
+        operation: Awaitable[list[Finding]],
+        timeout: float,
+    ) -> tuple[list[Finding] | Exception, float]:
+        started = time.monotonic()
+        try:
+            value: list[Finding] | Exception = await asyncio.wait_for(operation, timeout=timeout)
+        except Exception as exc:  # scanner failures are typed below
+            value = exc
+        return value, (time.monotonic() - started) * 1000.0
+
+    tasks: list[tuple[str, Awaitable[tuple[list[Finding] | Exception, float]]]] = []
+    errors: list[str] = []
+    coverage: dict[str, ScanState] = {}
+    scanner_errors: dict[str, str] = {}
+    shipped_by_name = {spec.name: spec for spec in SHIPPED_SCANNERS}
+    from depfence.core.fetcher import fetch_enabled
+
     for name, scanner in registry.scanners.items():  # type: ignore[attr-defined]
-        if skip_advisory and "advisory" in name:
+        if scanner_names is not None and name not in scanner_names:
+            record_skip(name, ScannerReasonCode.DISABLED_BY_POLICY)
+            continue
+        spec = shipped_by_name.get(name)
+        if spec is not None and not spec.package:
+            continue
+        if skip_advisory and (spec.advisory if spec else "advisory" in name):
+            record_skip(name, ScannerReasonCode.DISABLED_BY_POLICY)
             continue
         if skip.get(name, False):
+            record_skip(name, ScannerReasonCode.DISABLED_BY_POLICY)
             continue
         if not hasattr(scanner, 'scan') or not hasattr(scanner, 'ecosystems'):
             continue
         relevant = [m for m in metas if m.pkg.ecosystem in scanner.ecosystems]
         if relevant:
-            tasks.append(scanner.scan(relevant))
+            if spec and spec.requires_network and not fetch_enabled():
+                message = f"Scanner {name} not run: network disabled by offline policy"
+                coverage[name] = ScanState.INDETERMINATE
+                scanner_errors[name] = message
+                errors.append(message)
+                if outcomes is not None:
+                    legacy = from_legacy(ScanState.INDETERMINATE, message)
+                    outcomes[name] = ScannerOutcome(
+                        state=legacy.state,
+                        reason_code=ScannerReasonCode.DISABLED_BY_POLICY,
+                        error_code=legacy.error_code,
+                        evaluated=False,
+                        skipped=True,
+                    )
+                continue
+            timeout = spec.timeout_seconds if spec else 60.0
+            tasks.append((name, timed_scan(scanner.scan(relevant), timeout)))
+        else:
+            record_skip(name, ScannerReasonCode.NOT_APPLICABLE)
     if not tasks:
-        return [], []
+        return [], errors, coverage, scanner_errors
     findings: list[Finding] = []
-    errors: list[str] = []
-    for sr in await asyncio.gather(*tasks, return_exceptions=True):
+    raw_results = await asyncio.gather(*(task for _name, task in tasks))
+    for (name, _task), (sr, duration_ms) in zip(tasks, raw_results, strict=True):
         if isinstance(sr, list):
             findings.extend(sr)
+            scanner = registry.scanners[name]  # type: ignore[attr-defined]
+            scanner_error = getattr(scanner, "last_error", None)
+            if isinstance(scanner_error, str) and scanner_error:
+                message = f"Scanner {name} incomplete: {scanner_error}"
+                errors.append(message)
+                scanner_errors[name] = message
+                coverage[name] = ScanState.INDETERMINATE
+                if outcomes is not None:
+                    legacy = from_legacy(ScanState.INDETERMINATE, message)
+                    outcomes[name] = ScannerOutcome(
+                        state=ScanState.INDETERMINATE,
+                        reason_code=(
+                            ScannerReasonCode.PARTIAL_COVERAGE
+                            if legacy.reason_code == ScannerReasonCode.RUNTIME_FAILURE
+                            else legacy.reason_code
+                        ),
+                        error_code=legacy.error_code,
+                        findings_preserved=len(sr),
+                        duration_ms=duration_ms,
+                        evaluated=True,
+                        skipped=False,
+                    )
+            else:
+                coverage[name] = ScanState.PASS
+                if outcomes is not None:
+                    outcomes[name] = from_legacy(
+                        ScanState.PASS,
+                        findings_preserved=len(sr),
+                        duration_ms=duration_ms,
+                    )
         elif isinstance(sr, Exception):
-            errors.append(str(sr))
-    return findings, errors
+            message = f"Scanner {name} failed: {type(sr).__name__}: {sr}"
+            errors.append(message)
+            scanner_errors[name] = message
+            coverage[name] = ScanState.INDETERMINATE
+            if outcomes is not None:
+                outcomes[name] = from_legacy(
+                    ScanState.INDETERMINATE,
+                    message,
+                    duration_ms=duration_ms,
+                )
+    return findings, errors, coverage, scanner_errors
 
 
 async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], list[str]]:
@@ -100,65 +223,72 @@ async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], 
     return findings, errors
 
 
-async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[str]]:
-    from depfence.scanners.agent_skill_scanner import AgentSkillScanner
-    from depfence.scanners.ai_bom_generator import AiBomGenerator
-    from depfence.scanners.android_manifest_scanner import AndroidManifestScanner
-    from depfence.scanners.binding_gyp_scanner import BindingGypScanner
-    from depfence.scanners.cocoapods_hook_scanner import CocoaPodsHookScanner
-    from depfence.scanners.composer_script_scanner import ComposerScriptScanner
-    from depfence.scanners.dockerfile_scanner import DockerfileScanner
-    from depfence.scanners.editor_config_scanner import EditorConfigScanner
-    from depfence.scanners.flutter_pubspec_scanner import FlutterPubspecScanner
-    from depfence.scanners.gha_workflow_scanner import GhaWorkflowScanner
-    from depfence.scanners.git_message_scanner import GitMessageScanner
-    from depfence.scanners.go_generate_scanner import GoGenerateScanner
-    from depfence.scanners.gradle_plugin_scanner import GradlePluginScanner
-    from depfence.scanners.maven_plugin_scanner import MavenPluginScanner
-    from depfence.scanners.mcp_scanner import McpScanner
-    from depfence.scanners.model_format_scanner import ModelFormatScanner
-    from depfence.scanners.model_integrity import ModelIntegrityScanner
-    from depfence.scanners.model_scanner import ModelScanner
-    from depfence.scanners.network_scanner import NetworkScanner
-    from depfence.scanners.obfuscation import ObfuscationScanner
-    from depfence.scanners.payload_behavior_scanner import PayloadBehaviorScanner
-    from depfence.scanners.pinning_scanner import PinningScanner
-    from depfence.scanners.preinstall import PreinstallScanner
-    from depfence.scanners.prompt_injection_scanner import PromptInjectionScanner
-    from depfence.scanners.protestware_scanner import ProtestwareScanner
-    from depfence.scanners.python_build_scanner import PythonBuildScanner
-    from depfence.scanners.resolve_existence_scanner import ResolveExistenceScanner
-    from depfence.scanners.ruby_lifecycle_scanner import RubyLifecycleScanner
-    from depfence.scanners.rust_build_scanner import RustBuildScanner
-    from depfence.scanners.secrets_scanner import SecretsScanner
-    from depfence.scanners.spm_plugin_scanner import SpmPluginScanner
-    from depfence.scanners.terraform_scanner import TerraformScanner
+async def _run_project_scanners(
+    project_dir: Path,
+    registry: PluginRegistry | None = None,
+    *,
+    skip_advisory: bool = False,
+    scanner_names: frozenset[str] | set[str] | None = None,
+    max_workers: int = 4,
+    deadline_seconds: float | None = None,
+    outcomes: dict[str, ScannerOutcome] | None = None,
+) -> tuple[list[Finding], list[str], dict[str, ScanState], dict[str, str]]:
+    """Run the canonical shipped project-scanner catalog.
 
-    instances = [
-        DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
-        SecretsScanner(), PinningScanner(), ResolveExistenceScanner(),
-        EditorConfigScanner(), BindingGypScanner(),
-        ObfuscationScanner(), PreinstallScanner(), NetworkScanner(),
-        GitMessageScanner(), PayloadBehaviorScanner(), ProtestwareScanner(),
-        RubyLifecycleScanner(),
-        GradlePluginScanner(), AndroidManifestScanner(),
-        CocoaPodsHookScanner(), FlutterPubspecScanner(), SpmPluginScanner(),
-        RustBuildScanner(), GoGenerateScanner(), ComposerScriptScanner(),
-        PythonBuildScanner(), MavenPluginScanner(),
-        ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
-        PromptInjectionScanner(), AgentSkillScanner(), McpScanner(),
-        AiBomGenerator(),
-    ]
+    Compatibility note: the catalog includes ObfuscationScanner,
+    PreinstallScanner, NetworkScanner, GitMessageScanner,
+    PayloadBehaviorScanner, RubyLifecycleScanner, EditorConfigScanner, and
+    BindingGypScanner.  The names remain here for older wiring assertions while
+    their executable declarations live only in ``registry.SHIPPED_SCANNERS``.
+    """
+    registry = registry or get_registry()
+    runs = await run_shipped_project_scanners(
+        registry,
+        project_dir,
+        skip_advisory=skip_advisory,
+        scanner_names=scanner_names,
+        max_workers=max_workers,
+        deadline_seconds=deadline_seconds,
+    )
     findings: list[Finding] = []
     errors: list[str] = []
-    proj_tasks = [s.scan_project(project_dir) for s in instances]
-    for pr in await asyncio.gather(*proj_tasks, return_exceptions=True):
-        if isinstance(pr, list):
-            findings.extend(pr)
-        elif isinstance(pr, Exception):
-            log.debug("Project scanner error: %s", pr)
-            errors.append(str(pr))
-    return findings, errors
+    coverage: dict[str, ScanState] = {}
+    scanner_errors: dict[str, str] = {}
+    for run in runs:
+        findings.extend(run.findings)
+        coverage[run.name] = run.status
+        if outcomes is not None:
+            outcome = from_legacy(
+                run.status,
+                run.error,
+                findings_preserved=len(run.findings),
+                duration_ms=run.duration_ms,
+            )
+            if run.skipped:
+                outcome = ScannerOutcome(
+                    state=run.status,
+                    reason_code=ScannerReasonCode.NOT_APPLICABLE,
+                    findings_preserved=len(run.findings),
+                    evaluated=run.evaluated,
+                    skipped=True,
+                    duration_ms=run.duration_ms,
+                )
+            elif outcome.error_code and outcome.error_code.value == "network.disabled":
+                outcome = ScannerOutcome(
+                    state=run.status,
+                    reason_code=ScannerReasonCode.DISABLED_BY_POLICY,
+                    error_code=outcome.error_code,
+                    findings_preserved=len(run.findings),
+                    evaluated=False,
+                    skipped=True,
+                    duration_ms=run.duration_ms,
+                )
+            outcomes[run.name] = outcome
+        if run.error:
+            message = f"Project scanner {run.name} incomplete: {run.error}"
+            errors.append(message)
+            scanner_errors[run.name] = message
+    return findings, errors, coverage, scanner_errors
 
 
 async def _enrich_findings(
@@ -243,7 +373,13 @@ async def scan_directory(
     enrich: bool = True,
     use_cache: bool = True,
     progress_callback: Callable[[str], None] | None = None,
+    profile: str = "full",
+    project_workers: int = 4,
+    project_deadline: float | None = None,
 ) -> ScanResult:
+    if profile not in SCANNER_PROFILES:
+        raise ValueError(f"unknown scanner profile {profile!r}")
+    selected_scanners = SCANNER_PROFILES[profile]
     result = ScanResult(target=str(project_dir), ecosystem="multi")
     _progress = progress_callback or (lambda _msg: None)
 
@@ -258,6 +394,8 @@ async def scan_directory(
     result.packages_scanned = len(all_packages)
 
     registry = get_registry()
+    for issue in getattr(registry, "issues", ()):
+        result.errors.append(f"Plugin load error: {issue}")
     _configure_cache(registry, use_cache)
 
     all_findings: list[Finding] = []
@@ -274,24 +412,45 @@ async def scan_directory(
             metas = [PackageMeta(pkg=p) for p in all_packages]
 
         _progress("Running entry-point scanners...")
-        scanner_findings, scanner_errors = await _run_scanners(
-            registry, metas, skip_advisory, skip_behavioral, skip_reputation
+        scanner_findings, scanner_errors, scanner_coverage, scanner_error_map = await _run_scanners(
+            registry,
+            metas,
+            skip_advisory,
+            skip_behavioral,
+            skip_reputation,
+            None if profile == "full" else selected_scanners,
+            result.scanner_outcomes,
         )
         all_findings.extend(scanner_findings)
         result.errors.extend(scanner_errors)
+        _merge_scanner_coverage(result.scanner_coverage, scanner_coverage)
+        result.scanner_errors.update(scanner_error_map)
 
-        _progress("Running analyzers...")
-        analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
-        all_findings.extend(analyzer_findings)
-        result.errors.extend(analyzer_errors)
+        if profile == "full":
+            _progress("Running analyzers...")
+            analyzer_findings, analyzer_errors = await _run_analyzers(registry, metas)
+            all_findings.extend(analyzer_findings)
+            result.errors.extend(analyzer_errors)
 
-        await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
+        hook_errors = await registry.fire_hook("post_scan", findings=all_findings, metas=metas)
+        if hook_errors:
+            result.errors.extend(hook_errors)
 
     if project_scanners:
-        _progress("Running project scanners (32 scanners)...")
-        proj_findings, proj_errors = await _run_project_scanners(project_dir)
+        _progress("Running project scanners...")
+        proj_findings, proj_errors, proj_coverage, proj_error_map = await _run_project_scanners(
+            project_dir,
+            registry,
+            skip_advisory=skip_advisory,
+            scanner_names=selected_scanners,
+            max_workers=project_workers,
+            deadline_seconds=project_deadline,
+            outcomes=result.scanner_outcomes,
+        )
         all_findings.extend(proj_findings)
         result.errors.extend(proj_errors)
+        _merge_scanner_coverage(result.scanner_coverage, proj_coverage)
+        result.scanner_errors.update(proj_error_map)
 
     if enrich:
         _progress("Enriching findings (EPSS, KEV, threat intel)...")
@@ -321,6 +480,6 @@ def render_result(result: ScanResult, format: str = "table", *, max_rows: int | 
                 import inspect
                 sig = inspect.signature(reporter.render)
                 if "max_rows" in sig.parameters:
-                    return reporter.render(result, max_rows=max_rows)
+                    return reporter.render(result, max_rows=max_rows)  # type: ignore[call-arg]
             return reporter.render(result)
     return f"{len(result.findings)} findings in {result.packages_scanned} packages"

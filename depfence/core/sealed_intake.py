@@ -1,0 +1,769 @@
+"""Manifest-only Git intake inside a disposable OCI volume.
+
+This path is intended for repositories whose files must never be materialized
+on the host.  A trusted, digest-pinned image performs acquisition and offline
+inventory.  DepFence retains only a bounded manifest in private state.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import platform
+import re
+import subprocess
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import cast
+from urllib.parse import urlparse
+
+from depfence.core.artifact_analysis import _run_bounded_subprocess, verify_image_signature
+from depfence.core.local_state import PrivateState
+from depfence.core.models import ScanState
+from depfence.core.scan_scope import InputLimitError, ScanIncompleteError
+
+MAX_INTAKE_MANIFEST_BYTES = 1024 * 1024
+MAX_ANALYSIS_MANIFEST_BYTES = 1024 * 1024
+MAX_RESOLUTION_MANIFEST_BYTES = 16 * 1024
+DEFAULT_FILE_BUDGET = 100_000
+DEFAULT_BYTE_BUDGET = 512 * 1024 * 1024
+_WARNING_CODES = frozenset({
+    "submodule_present",
+    "symlink_present",
+    "non_regular_entry",
+    "oversized_blob",
+    "unknown_mode",
+})
+
+
+def _validated_source_host(source: str, allowed_hosts: frozenset[str]) -> str:
+    if any(ord(character) < 33 or ord(character) == 127 for character in source):
+        raise ValueError("sealed intake source contains whitespace or control characters")
+    parsed = urlparse(source)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or parsed.query
+    ):
+        raise ValueError("sealed intake source must be credential-free HTTPS")
+    host = parsed.hostname.casefold().rstrip(".")
+    normalized_hosts = {value.casefold().rstrip(".") for value in allowed_hosts}
+    if host not in normalized_hosts:
+        raise ValueError(f"sealed intake source host is not allowlisted: {host}")
+    return host
+
+
+def _run_command(
+    command: list[str],
+    environment: dict[str, str],
+    timeout: float,
+) -> tuple[int, bytes, bytes]:
+    try:
+        return _run_bounded_subprocess(command, b"", environment, timeout)
+    except ScanIncompleteError:
+        raise
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ScanIncompleteError(
+            f"sealed intake helper unavailable ({type(exc).__name__})"
+        ) from exc
+
+
+@dataclass(frozen=True)
+class SealedResolutionConfig:
+    engine: str
+    image: str
+    allowed_hosts: frozenset[str]
+    acquisition_network: str
+    https_proxy: str
+    certificate_identity: str
+    certificate_oidc_issuer: str
+    runtime: str | None = None
+    timeout_seconds: float = 90.0
+
+    def validate(self, source: str) -> str:
+        if self.engine not in {"docker", "podman"}:
+            raise ValueError("sealed resolution engine must be docker or podman")
+        if not re.fullmatch(r"[^\s]+@sha256:[0-9a-fA-F]{64}", self.image):
+            raise ValueError("sealed resolution image must be pinned by an @sha256: digest")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", self.acquisition_network):
+            raise ValueError("sealed resolution requires a dedicated acquisition network")
+        proxy = urlparse(self.https_proxy)
+        if proxy.scheme not in {"http", "https"} or not proxy.hostname or proxy.username or proxy.password:
+            raise ValueError("sealed resolution requires a credential-free HTTPS proxy URL")
+        if not self.certificate_identity or len(self.certificate_identity) > 512:
+            raise ValueError("sealed resolution certificate identity is invalid")
+        if not self.certificate_oidc_issuer.startswith("https://"):
+            raise ValueError("sealed resolution certificate issuer is invalid")
+        if self.timeout_seconds <= 0 or self.timeout_seconds > 300:
+            raise ValueError("sealed resolution timeout must be between 0 and 300 seconds")
+        if self.runtime is not None and self.runtime not in {"runsc", "kata", "kata-runtime"}:
+            raise ValueError("sealed resolution runtime must be runsc or Kata")
+        if platform.system() == "Linux" and self.runtime is None:
+            raise ValueError("native Linux sealed resolution requires gVisor (runsc) or Kata")
+        return _validated_source_host(source, self.allowed_hosts)
+
+
+@dataclass(frozen=True)
+class SealedIntakeConfig:
+    engine: str
+    image: str
+    analyzer_image: str
+    allowed_hosts: frozenset[str]
+    acquisition_network: str
+    https_proxy: str
+    certificate_identity: str
+    certificate_oidc_issuer: str
+    runtime: str | None = None
+    timeout_seconds: float = 180.0
+
+    def validate(self, source: str, commit: str) -> str:
+        if self.engine not in {"docker", "podman"}:
+            raise ValueError("sealed intake engine must be docker or podman")
+        if not re.fullmatch(r"[^\s]+@sha256:[0-9a-fA-F]{64}", self.image):
+            raise ValueError("sealed intake image must be pinned by an @sha256: digest")
+        if not re.fullmatch(r"[^\s]+@sha256:[0-9a-fA-F]{64}", self.analyzer_image):
+            raise ValueError("sealed analyzer image must be pinned by an @sha256: digest")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", self.acquisition_network):
+            raise ValueError("sealed intake requires a dedicated acquisition network")
+        proxy = urlparse(self.https_proxy)
+        if proxy.scheme not in {"http", "https"} or not proxy.hostname or proxy.username or proxy.password:
+            raise ValueError("sealed intake requires a credential-free HTTPS proxy URL")
+        if not self.certificate_identity or len(self.certificate_identity) > 512:
+            raise ValueError("sealed intake certificate identity is invalid")
+        if not self.certificate_oidc_issuer.startswith("https://"):
+            raise ValueError("sealed intake certificate issuer is invalid")
+        if not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", commit):
+            raise ValueError("sealed intake requires an exact 40- or 64-hex commit")
+        host = _validated_source_host(source, self.allowed_hosts)
+        if self.timeout_seconds <= 0 or self.timeout_seconds > 1800:
+            raise ValueError("sealed intake timeout must be between 0 and 1800 seconds")
+        if self.runtime is not None and self.runtime not in {"runsc", "kata", "kata-runtime"}:
+            raise ValueError("sealed intake runtime must be runsc or Kata")
+        if platform.system() == "Linux" and self.runtime is None:
+            raise ValueError("native Linux sealed intake requires gVisor (runsc) or Kata")
+        return host
+
+
+def _base_run(
+    config: SealedIntakeConfig,
+    *,
+    network: str,
+    read_only_volume: bool,
+    container_name: str,
+) -> list[str]:
+    volume_mode = ",readonly" if read_only_volume else ""
+    command = [
+        config.engine,
+        "run",
+        "--rm",
+        "--name",
+        container_name,
+        "--label",
+        "dev.depfence.purpose=sealed-intake",
+        "--pull",
+        "never",
+        "--network",
+        network,
+        "--read-only",
+        "--user",
+        "65532:65532",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        "64",
+        "--memory",
+        "768m",
+        "--cpus",
+        "1",
+        "--ulimit",
+        "nofile=256:256",
+        "--ulimit",
+        "core=0:0",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,nodev,size=268435456",  # noqa: S108 - container tmpfs
+        "--mount",
+        f"type=volume,src={{volume}},dst=/quarantine{volume_mode}",
+    ]
+    if config.runtime:
+        command.extend(["--runtime", config.runtime])
+    return command
+
+
+def _resolution_run(
+    config: SealedResolutionConfig,
+    *,
+    container_name: str,
+) -> list[str]:
+    command = [
+        config.engine,
+        "run",
+        "--rm",
+        "--name",
+        container_name,
+        "--label",
+        "dev.depfence.purpose=sealed-resolution",
+        "--pull",
+        "never",
+        "--network",
+        config.acquisition_network,
+        "--read-only",
+        "--user",
+        "65532:65532",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        "32",
+        "--memory",
+        "256m",
+        "--cpus",
+        "0.5",
+        "--ulimit",
+        "nofile=128:128",
+        "--ulimit",
+        "core=0:0",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216",  # noqa: S108 - container tmpfs
+    ]
+    if config.runtime:
+        command.extend(["--runtime", config.runtime])
+    return command
+
+
+def _validated_resolution(raw: bytes, expected_host: str) -> dict[str, object]:
+    if len(raw) > MAX_RESOLUTION_MANIFEST_BYTES:
+        raise InputLimitError("sealed resolution manifest exceeded its byte budget")
+    try:
+        document = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ScanIncompleteError("sealed resolution returned malformed JSON") from exc
+    expected_fields = {
+        "schema_version", "source_host", "symbolic_ref", "exact_commit",
+        "complete", "limitations",
+    }
+    if not isinstance(document, dict) or set(document) != expected_fields:
+        raise ScanIncompleteError("sealed resolution envelope is invalid")
+    if document.get("schema_version") != "depfence.sealed-resolution-worker/v1":
+        raise ScanIncompleteError("sealed resolution protocol is unsupported")
+    if document.get("source_host") != expected_host:
+        raise ScanIncompleteError("sealed resolution host does not match the request")
+    commit = document.get("exact_commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
+        raise ScanIncompleteError("sealed resolution commit is invalid")
+    symbolic_ref = document.get("symbolic_ref")
+    if not isinstance(symbolic_ref, str) or (
+        symbolic_ref
+        and (
+            len(symbolic_ref) > 256
+            or not re.fullmatch(r"refs/heads/[A-Za-z0-9._/+\-]{1,244}", symbolic_ref)
+            or ".." in symbolic_ref
+            or "@{" in symbolic_ref
+            or symbolic_ref.endswith((".", "/"))
+        )
+    ):
+        raise ScanIncompleteError("sealed resolution symbolic ref is invalid")
+    if document.get("complete") is not True or document.get("limitations") != []:
+        raise ScanIncompleteError("sealed resolution was incomplete")
+    return cast(dict[str, object], document)
+
+
+def resolve_source_sealed(
+    source: str,
+    *,
+    state: PrivateState,
+    config: SealedResolutionConfig,
+) -> dict[str, object]:
+    """Resolve remote HEAD through the sealed proxy without fetching objects."""
+
+    host = config.validate(source)
+    resolution_id = str(uuid.uuid4())
+    container_name = "depfence-resolve-" + resolution_id
+    environment = {"PATH": os.environ.get("PATH", "")}
+    verify_image_signature(
+        config.image,
+        config.certificate_identity,
+        config.certificate_oidc_issuer,
+    )
+    command = _resolution_run(config, container_name=container_name)
+    command.extend([
+        "--env",
+        f"HTTPS_PROXY={config.https_proxy}",
+        "--env",
+        "NO_PROXY=",
+        config.image,
+        "depfence-sealed-git-resolve",
+        "--source",
+        source,
+        "--allowed-host",
+        host,
+        "--no-redirects",
+        "--format",
+        "json",
+    ])
+    try:
+        return_code, stdout, _stderr = _run_command(
+            command, environment, config.timeout_seconds
+        )
+        if return_code:
+            raise ScanIncompleteError(
+                f"sealed HEAD resolution failed with exit {return_code}"
+            )
+        worker = _validated_resolution(stdout, host)
+    except ScanIncompleteError as exc:
+        state.write_text(
+            Path("intake") / "sealed-resolutions" / f"{resolution_id}.failure.json",
+            json.dumps(
+                {
+                    "schema_version": "depfence.sealed-resolution-failure/v1",
+                    "resolution_id": resolution_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "source_id": state.opaque_id("source", source),
+                    "source_host": host,
+                    "status": ScanState.INDETERMINATE.value,
+                    "reason_code": "sealed_resolution_failed",
+                    "materialized_on_host": False,
+                    "objects_fetched": False,
+                },
+                sort_keys=True,
+                indent=2,
+            ) + "\n",
+        )
+        raise exc
+    finally:
+        try:
+            _run_command(
+                [config.engine, "rm", "--force", container_name],
+                environment,
+                30.0,
+            )
+        except (OSError, ScanIncompleteError):
+            raise ScanIncompleteError("sealed resolution cleanup was indeterminate") from None
+    result = {
+        "schema_version": "depfence.sealed-resolution/v1",
+        "resolution_id": resolution_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_id": state.opaque_id("source", source),
+        "source_host": host,
+        "symbolic_ref": worker["symbolic_ref"],
+        "exact_commit": worker["exact_commit"],
+        "status": ScanState.PASS.value,
+        "complete": True,
+        "limitations": [],
+        "materialized_on_host": False,
+        "objects_fetched": False,
+        "approved": False,
+    }
+    state.write_text(
+        Path("intake") / "sealed-resolutions" / f"{resolution_id}.json",
+        json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + "\n",
+    )
+    return result
+
+
+def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
+    if len(raw) > MAX_INTAKE_MANIFEST_BYTES:
+        raise InputLimitError("sealed intake manifest exceeded its byte budget")
+    try:
+        document = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ScanIncompleteError("sealed intake returned malformed JSON") from exc
+    if not isinstance(document, dict):
+        raise ScanIncompleteError("sealed intake manifest must be an object")
+    allowed = {
+        "commit", "tree_sha256", "file_count", "byte_count", "regular_files",
+        "symlink_count", "submodule_count", "non_regular_count", "suffix_counts",
+        "warning_codes",
+    }
+    if not set(document) <= allowed:
+        raise ScanIncompleteError("sealed intake manifest contains unsupported fields")
+    if str(document.get("commit", "")).casefold() != expected_commit.casefold():
+        raise ScanIncompleteError("sealed intake commit does not match the requested commit")
+    tree_digest = str(document.get("tree_sha256", ""))
+    if not re.fullmatch(r"[0-9a-f]{64}", tree_digest):
+        raise ScanIncompleteError("sealed intake tree digest is invalid")
+    integer_fields = (
+        "file_count", "byte_count", "regular_files", "symlink_count",
+        "submodule_count", "non_regular_count",
+    )
+    for field in integer_fields:
+        value = document.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ScanIncompleteError(f"sealed intake field is invalid: {field}")
+    accounted = sum(
+        int(document[field])
+        for field in ("regular_files", "symlink_count", "submodule_count", "non_regular_count")
+    )
+    if accounted != document["file_count"]:
+        raise ScanIncompleteError("sealed intake file counts do not reconcile")
+    suffixes = document.get("suffix_counts", {})
+    if not isinstance(suffixes, dict) or len(suffixes) > 256:
+        raise ScanIncompleteError("sealed intake suffix inventory is invalid")
+    for suffix, count in suffixes.items():
+        if not isinstance(suffix, str) or not re.fullmatch(r"\.[a-z0-9]{1,16}|<none>", suffix):
+            raise ScanIncompleteError("sealed intake suffix key is invalid")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ScanIncompleteError("sealed intake suffix count is invalid")
+    if sum(cast(int, count) for count in suffixes.values()) != document["file_count"]:
+        raise ScanIncompleteError("sealed intake suffix counts do not reconcile")
+    warnings = document.get("warning_codes", [])
+    if not isinstance(warnings, list) or any(value not in _WARNING_CODES for value in warnings):
+        raise ScanIncompleteError("sealed intake warning codes are invalid")
+    return document
+
+
+def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
+    if len(raw) > MAX_ANALYSIS_MANIFEST_BYTES:
+        raise InputLimitError("sealed analysis manifest exceeded its byte budget")
+    try:
+        document = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ScanIncompleteError("sealed analysis returned malformed JSON") from exc
+    if not isinstance(document, dict):
+        raise ScanIncompleteError("sealed analysis manifest must be an object")
+    allowed = {
+        "schema_version", "commit", "complete", "candidate_count", "analyzed_count",
+        "analyzed_bytes", "coverage_by_suffix", "findings", "limitations", "toolchain",
+    }
+    if set(document) != allowed or document.get("schema_version") != "depfence.sealed-analysis/v1":
+        raise ScanIncompleteError("sealed analysis envelope is unsupported")
+    if str(document.get("commit", "")).casefold() != expected_commit.casefold():
+        raise ScanIncompleteError("sealed analysis commit does not match the requested commit")
+    if not isinstance(document.get("complete"), bool):
+        raise ScanIncompleteError("sealed analysis completeness is invalid")
+    for field in ("candidate_count", "analyzed_count", "analyzed_bytes"):
+        value = document.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ScanIncompleteError(f"sealed analysis field is invalid: {field}")
+    if cast(int, document["analyzed_count"]) > cast(int, document["candidate_count"]):
+        raise ScanIncompleteError("sealed analysis counts do not reconcile")
+    coverage = document.get("coverage_by_suffix")
+    if not isinstance(coverage, dict) or len(coverage) > 32:
+        raise ScanIncompleteError("sealed analysis coverage is invalid")
+    for suffix, raw_counts in coverage.items():
+        if not isinstance(suffix, str) or not re.fullmatch(r"\.[a-z0-9]{1,16}", suffix):
+            raise ScanIncompleteError("sealed analysis coverage suffix is invalid")
+        if not isinstance(raw_counts, dict) or set(raw_counts) != {"total", "analyzed", "incomplete"}:
+            raise ScanIncompleteError("sealed analysis coverage counters are invalid")
+        values = list(raw_counts.values())
+        if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values):
+            raise ScanIncompleteError("sealed analysis coverage count is invalid")
+        if cast(int, raw_counts["analyzed"]) > cast(int, raw_counts["total"]):
+            raise ScanIncompleteError("sealed analysis suffix counts do not reconcile")
+    findings = document.get("findings")
+    limitations = document.get("limitations")
+    if not isinstance(findings, list) or len(findings) > 2_000:
+        raise ScanIncompleteError("sealed analysis findings are invalid")
+    if not isinstance(limitations, list) or len(limitations) > 2_000:
+        raise ScanIncompleteError("sealed analysis limitations are invalid")
+    artifact_pattern = re.compile(r"sealed-artifact-sha256:[0-9a-f]{64}")
+    allowed_rules = {"DF-FONT-001", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"}
+    for finding in findings:
+        if not isinstance(finding, dict) or set(finding) != {
+            "artifact_id", "suffix", "rule_id", "severity", "confidence", "evidence_class"
+        }:
+            raise ScanIncompleteError("sealed analysis finding shape is invalid")
+        confidence = finding.get("confidence")
+        if (
+            not artifact_pattern.fullmatch(str(finding.get("artifact_id", "")))
+            or finding.get("rule_id") not in allowed_rules
+            or finding.get("severity") != "medium"
+            or not isinstance(confidence, (int, float))
+            or isinstance(confidence, bool)
+            or not 0 <= float(confidence) <= 1
+        ):
+            raise ScanIncompleteError("sealed analysis finding value is invalid")
+    allowed_limitations = {
+        "artifact_budget_exceeded", "artifact_size_exceeded", "analysis_byte_budget_exceeded",
+        "blob_read_failed", "deep_analysis_required", "font_sanitizer_unavailable",
+        "font_sanitization_failed", "font_collection_limit", "font_collection_unsupported",
+    }
+    for limitation in limitations:
+        if not isinstance(limitation, dict) or set(limitation) != {"artifact_id", "suffix", "code"}:
+            raise ScanIncompleteError("sealed analysis limitation shape is invalid")
+        if (
+            not artifact_pattern.fullmatch(str(limitation.get("artifact_id", "")))
+            or limitation.get("code") not in allowed_limitations
+        ):
+            raise ScanIncompleteError("sealed analysis limitation is invalid")
+    toolchain = document.get("toolchain")
+    if not isinstance(toolchain, dict) or set(toolchain) != {"depfence"} or not isinstance(toolchain["depfence"], str):
+        raise ScanIncompleteError("sealed analysis toolchain is invalid")
+    if bool(limitations) == bool(document["complete"]):
+        raise ScanIncompleteError("sealed analysis completeness contradicts limitations")
+    return document
+
+
+def inspect_source_sealed(
+    source: str,
+    commit: str,
+    *,
+    state: PrivateState,
+    config: SealedIntakeConfig,
+    file_budget: int = DEFAULT_FILE_BUDGET,
+    byte_budget: int = DEFAULT_BYTE_BUDGET,
+) -> dict[str, object]:
+    """Acquire and inventory an exact Git commit without host materialization."""
+
+    host = config.validate(source, commit)
+    if file_budget <= 0 or byte_budget <= 0:
+        raise ValueError("sealed intake budgets must be positive")
+    intake_id = str(uuid.uuid4())
+    volume = "depfence-intake-" + intake_id
+    acquire_name = "depfence-acquire-" + intake_id
+    inventory_name = "depfence-inventory-" + intake_id
+    analysis_name = "depfence-analysis-" + intake_id
+    environment = {"PATH": os.environ.get("PATH", "")}
+
+    verify_image_signature(
+        config.image,
+        config.certificate_identity,
+        config.certificate_oidc_issuer,
+    )
+    verify_image_signature(
+        config.analyzer_image,
+        config.certificate_identity,
+        config.certificate_oidc_issuer,
+    )
+
+    create = [
+        config.engine,
+        "volume",
+        "create",
+        "--label",
+        "dev.depfence.purpose=sealed-intake",
+        "--label",
+        f"dev.depfence.intake-id={intake_id}",
+        volume,
+    ]
+    return_code, _stdout, _stderr = _run_command(
+        create, environment, min(config.timeout_seconds, 30.0)
+    )
+    if return_code:
+        raise ScanIncompleteError(f"sealed intake volume creation failed with exit {return_code}")
+
+    inventory: dict[str, object] | None = None
+    analysis: dict[str, object] | None = None
+    cleanup_failed = False
+    failure: ScanIncompleteError | None = None
+    try:
+        acquire = [value.replace("{volume}", volume) for value in _base_run(
+            config,
+            network=config.acquisition_network,
+            read_only_volume=False,
+            container_name=acquire_name,
+        )]
+        acquire.extend([
+            "--env",
+            f"HTTPS_PROXY={config.https_proxy}",
+            "--env",
+            "NO_PROXY=",
+            config.image,
+            "depfence-sealed-git-acquire",
+            "--source",
+            source,
+            "--commit",
+            commit,
+            "--allowed-host",
+            host,
+            "--no-redirects",
+            "--no-checkout",
+            "--no-submodules",
+            "--no-lfs",
+            "--destination",
+            "/quarantine/repository",
+        ])
+        return_code, _stdout, _stderr = _run_command(
+            acquire, environment, config.timeout_seconds
+        )
+        if return_code:
+            raise ScanIncompleteError(f"sealed Git acquisition failed with exit {return_code}")
+
+        analyze = [value.replace("{volume}", volume) for value in _base_run(
+            config,
+            network="none",
+            read_only_volume=True,
+            container_name=inventory_name,
+        )]
+        analyze.extend([
+            config.image,
+            "depfence-sealed-git-inventory",
+            "--repository",
+            "/quarantine/repository",
+            "--commit",
+            commit,
+            "--format",
+            "json",
+        ])
+        return_code, stdout, _stderr = _run_command(
+            analyze, environment, config.timeout_seconds
+        )
+        if return_code:
+            raise ScanIncompleteError(f"sealed Git inventory failed with exit {return_code}")
+        inventory = _validated_inventory(stdout, commit)
+
+        static_analysis = [value.replace("{volume}", volume) for value in _base_run(
+            config,
+            network="none",
+            read_only_volume=True,
+            container_name=analysis_name,
+        )]
+        static_analysis.extend([
+            config.analyzer_image,
+            "depfence-sealed-git-analyze",
+            "--repository",
+            "/quarantine/repository",
+            "--commit",
+            commit,
+            "--format",
+            "json",
+            "--artifact-budget",
+            "2000",
+            "--byte-budget",
+            str(min(byte_budget, 256 * 1024 * 1024)),
+        ])
+        return_code, stdout, _stderr = _run_command(
+            static_analysis, environment, config.timeout_seconds
+        )
+        if return_code:
+            raise ScanIncompleteError(f"sealed artifact analysis failed with exit {return_code}")
+        analysis = _validated_analysis(stdout, commit)
+    except ScanIncompleteError as exc:
+        failure = exc
+    finally:
+        for container_name in (acquire_name, inventory_name, analysis_name):
+            try:
+                _run_command(
+                    [config.engine, "rm", "--force", container_name],
+                    environment,
+                    30.0,
+                )
+            except (OSError, ScanIncompleteError):
+                cleanup_failed = True
+        remove = [config.engine, "volume", "rm", volume]
+        try:
+            remove_code, _stdout, _stderr = _run_command(
+                remove, environment, 30.0
+            )
+            if remove_code:
+                cleanup_failed = True
+        except (OSError, ScanIncompleteError):
+            # The generated volume name is returned below as a cleanup error;
+            # never broaden deletion to a prefix or workspace path.
+            cleanup_failed = True
+
+    if failure is not None:
+        failure_record = {
+            "schema_version": "depfence.sealed-intake-failure/v1",
+            "intake_id": intake_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "source_id": state.opaque_id("source", source),
+            "source_host": host,
+            "commit": commit.casefold(),
+            "status": ScanState.INDETERMINATE.value,
+            "reason_code": "sealed_worker_failed",
+            "cleanup_failed": cleanup_failed,
+            "cleanup_resource": (
+                {"engine": config.engine, "kind": "volume", "name": volume}
+                if cleanup_failed
+                else None
+            ),
+            "materialized_on_host": False,
+        }
+        state.write_text(
+            Path("intake") / "sealed-records" / f"{intake_id}.failure.json",
+            json.dumps(failure_record, sort_keys=True, indent=2, allow_nan=False) + "\n",
+        )
+        raise failure
+
+    assert inventory is not None
+    assert analysis is not None
+    warnings = list(cast(list[str], inventory.get("warning_codes", [])))
+    if inventory["symlink_count"]:
+        warnings.append("symlink_present")
+    if inventory["submodule_count"]:
+        warnings.append("submodule_present")
+    if inventory["non_regular_count"]:
+        warnings.append("non_regular_entry")
+    if cast(int, inventory["file_count"]) > file_budget:
+        warnings.append("file_budget_exceeded")
+    if cast(int, inventory["byte_count"]) > byte_budget:
+        warnings.append("byte_budget_exceeded")
+    if cleanup_failed:
+        warnings.append("volume_cleanup_failed")
+        state.write_text(
+            Path("intake") / "cleanup" / f"{intake_id}.json",
+            json.dumps(
+                {
+                    "schema_version": "depfence.oci-cleanup/v1",
+                    "intake_id": intake_id,
+                    "engine": config.engine,
+                    "resources": [{"kind": "volume", "name": volume}],
+                    "apply_required": True,
+                },
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
+        )
+    if not cast(bool, analysis["complete"]):
+        warnings.append("artifact_analysis_incomplete")
+    status = (
+        ScanState.UNPROVEN
+        if warnings
+        else ScanState.FAIL
+        if cast(list[object], analysis["findings"])
+        else ScanState.PASS
+    )
+    result = {
+        "schema_version": "depfence.sealed-intake/v1",
+        "intake_id": intake_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_id": state.opaque_id("source", source),
+        "source_host": host,
+        "commit": commit.casefold(),
+        "tree_sha256": inventory["tree_sha256"],
+        "status": status.value,
+        "counts": {
+            "files": inventory["file_count"],
+            "bytes": inventory["byte_count"],
+            "regular_files": inventory["regular_files"],
+            "symlinks": inventory["symlink_count"],
+            "submodules": inventory["submodule_count"],
+            "non_regular": inventory["non_regular_count"],
+        },
+        "suffix_counts": inventory["suffix_counts"],
+        "analysis": {
+            "complete": analysis["complete"],
+            "candidate_count": analysis["candidate_count"],
+            "analyzed_count": analysis["analyzed_count"],
+            "analyzed_bytes": analysis["analyzed_bytes"],
+            "coverage_by_suffix": analysis["coverage_by_suffix"],
+            "findings": analysis["findings"],
+            "limitations": analysis["limitations"],
+            "toolchain": analysis["toolchain"],
+        },
+        "warning_codes": sorted(set(warnings)),
+        "approved": False,
+        "materialized_on_host": False,
+    }
+    state.write_text(
+        Path("intake") / "sealed-records" / f"{intake_id}.json",
+        json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + "\n",
+    )
+    return result
+
+
+__all__ = [
+    "SealedIntakeConfig",
+    "SealedResolutionConfig",
+    "inspect_source_sealed",
+    "resolve_source_sealed",
+]

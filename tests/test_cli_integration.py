@@ -3,11 +3,13 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from depfence.cli.main import cli
+from depfence.core.models import ScanResult
 
 
 @pytest.fixture
@@ -44,6 +46,20 @@ def test_version(runner):
     assert "depfence" in result.output
 
 
+def test_remediate_refuses_false_apply_claim(runner, tmp_path):
+    result = runner.invoke(cli, ["remediate", str(tmp_path), "--no-dry-run"])
+    assert result.exit_code == 2
+    assert "not implemented" in result.output
+
+
+def test_alerts_reports_unproven_instead_of_false_clean(runner):
+    result = runner.invoke(cli, ["alerts", "--format", "json"])
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "UNPROVEN"
+    assert payload["available"] is False
+
+
 def test_lockinfo_pypi(runner, project_with_lockfile):
     result = runner.invoke(cli, ["lockinfo", str(project_with_lockfile)])
     assert result.exit_code == 0
@@ -64,7 +80,9 @@ def test_lockinfo_no_lockfiles(runner, tmp_path):
 
 
 def test_sbom_json(runner, project_with_lockfile):
-    result = runner.invoke(cli, ["sbom", str(project_with_lockfile)])
+    clean = ScanResult(target=str(project_with_lockfile), ecosystem="multi")
+    with patch("depfence.core.engine.scan_directory", new=AsyncMock(return_value=clean)):
+        result = runner.invoke(cli, ["sbom", str(project_with_lockfile)])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["bomFormat"] == "CycloneDX"
@@ -74,7 +92,9 @@ def test_sbom_json(runner, project_with_lockfile):
 def test_sbom_output_file(runner, project_with_lockfile):
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         out_path = f.name
-    result = runner.invoke(cli, ["sbom", str(project_with_lockfile), "-o", out_path])
+    clean = ScanResult(target=str(project_with_lockfile), ecosystem="multi")
+    with patch("depfence.core.engine.scan_directory", new=AsyncMock(return_value=clean)):
+        result = runner.invoke(cli, ["sbom", str(project_with_lockfile), "-o", out_path])
     assert result.exit_code == 0
     data = json.loads(Path(out_path).read_text())
     assert "components" in data
@@ -94,13 +114,17 @@ def test_plugins(runner):
 
 
 def test_fix_no_vulns(runner, project_with_lockfile):
-    result = runner.invoke(cli, ["fix", str(project_with_lockfile)])
+    clean = ScanResult(target=str(project_with_lockfile), ecosystem="multi")
+    with patch("depfence.core.engine.scan_directory", new=AsyncMock(return_value=clean)):
+        result = runner.invoke(cli, ["fix", str(project_with_lockfile)])
     # fix runs scan_directory which may hit scanner interface issues
     assert result.exit_code in (0, 1) or "No vulnerabilities" in (result.output or "")
 
 
 def test_diff_first_run(runner, project_with_lockfile):
-    result = runner.invoke(cli, ["diff", str(project_with_lockfile)])
+    clean = ScanResult(target=str(project_with_lockfile), ecosystem="multi")
+    with patch("depfence.core.engine.scan_directory", new=AsyncMock(return_value=clean)):
+        result = runner.invoke(cli, ["diff", str(project_with_lockfile)])
     # diff first run does full scan, may hit scanner interface issues
     assert "cache" in result.output.lower() or "scan" in result.output.lower() or "packages" in result.output.lower() or result.exit_code in (0, 1)
 
@@ -172,8 +196,22 @@ def test_sbom_diff(runner, tmp_path):
 
 
 def test_scan_json_format(runner, project_with_lockfile):
-    result = runner.invoke(cli, ["scan", str(project_with_lockfile), "--format", "json", "--no-fetch", "--no-advisory", "--no-behavioral", "--no-reputation"])
+    result = runner.invoke(cli, ["scan", str(project_with_lockfile), "--format", "json", "--no-fetch", "--no-advisory", "--no-behavioral", "--no-reputation", "--allow-incomplete"])
     assert result.exit_code == 0
+
+
+def test_scan_named_profile_uses_catalog_subset(runner, tmp_path):
+    result = runner.invoke(cli, [
+        "scan", str(tmp_path), "--profile", "ci", "--format", "json",
+        "--no-fetch", "--no-enrich", "--allow-incomplete",
+    ])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert set(payload["coverage"]["scanners"]) <= {
+        "ci_ai_bot", "ci_secrets", "gha_scanner", "gha_workflow", "pinning", "secrets",
+        "suppression_controls",
+    }
+    assert "model_scanner" not in payload["coverage"]["scanners"]
 
 
 def test_scan_with_policy(runner, project_with_lockfile):
@@ -185,7 +223,7 @@ rules:
     action: warn
     severity: low
 """)
-    result = runner.invoke(cli, ["scan", str(project_with_lockfile), "--no-fetch", "--no-advisory", "--no-behavioral", "--no-reputation"])
+    result = runner.invoke(cli, ["scan", str(project_with_lockfile), "--no-fetch", "--no-advisory", "--no-behavioral", "--no-reputation", "--allow-incomplete"])
     assert result.exit_code == 0
 
 

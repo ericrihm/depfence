@@ -26,15 +26,12 @@ import json
 import os
 import re
 import sys
-import time
+
+from depfence.core.signal_bus import emit_signal
 
 _DISABLE = {"0", "false", "no", "off"}
 _BLOCK_VALUES = {"1", "true", "yes", "on"}
 _FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
-
-_SIGNAL_BUS_PENDING = os.environ.get(
-    "DEPFENCE_SIGNAL_BUS", os.path.expanduser("~/.depfence/signals/pending.jsonl")
-)
 
 # Flag matches above this confidence threshold.
 # check_against_popular internally filters at > 0.7, so this is a belt-and-
@@ -252,23 +249,14 @@ def _new_content(tool_name: str, tool_input: dict) -> str:
 # Signal bus
 # ---------------------------------------------------------------------------
 
-def _emit_signal(findings: list[dict], file_path: str) -> None:
-    """Best-effort write a depfence_typosquat_manifest signal to the signal bus."""
-    try:
-        sig = json.dumps({
-            "name": "depfence_typosquat_manifest",
-            "value": {
-                "findings": findings,
-                "file": file_path,
-                "count": len(findings),
-            },
-            "source": "depfence_manifest_edit_gate",
-            "timestamp": time.time(),
-        })
-        with open(_SIGNAL_BUS_PENDING, "a") as f:
-            f.write(sig + "\n")
-    except OSError:
-        pass  # best-effort — never crash the hook
+def _emit_signal(findings: list[dict], file_path: str) -> str | None:
+    """Write a bounded private signal and report degraded observability."""
+    return emit_signal(
+        name="depfence_typosquat_manifest",
+        value={"findings": findings, "count": len(findings)},
+        source="depfence_manifest_edit_gate",
+        file_path=file_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +323,9 @@ def main(data: dict) -> dict:
         "\nVerify these package names are correct before proceeding."
     )
 
-    _emit_signal(findings, file_path)
+    signal_error = _emit_signal(findings, file_path)
+    if signal_error:
+        detail += f"\nLocal observability: {signal_error}."
 
     if os.environ.get("DEPFENCE_MANIFEST_GATE_BLOCK", "").lower() in _BLOCK_VALUES:
         return {"hookSpecificOutput": {

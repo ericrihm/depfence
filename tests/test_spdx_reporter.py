@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+from depfence import __version__
 from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 from depfence.reporters.spdx_out import generate_spdx, generate_spdx_with_packages
 
@@ -95,7 +96,7 @@ def test_creation_info_has_tool():
 def test_creation_info_tool_version():
     doc = generate_spdx(_make_result())
     creators = doc["creationInfo"]["creators"]
-    assert any("0.4.0" in c for c in creators)
+    assert any(__version__ in c for c in creators)
 
 
 def test_creation_info_timestamp_format():
@@ -178,7 +179,7 @@ def test_generate_spdx_with_packages_all_ecosystems():
     (_PYPI_PKG,  "pkg:pypi/requests@2.31.0"),
     (_CARGO_PKG, "pkg:cargo/serde@1.0.0"),
     (_GO_PKG,    "pkg:golang/github.com/gin-gonic/gin@1.9.1"),
-    (_MAVEN_PKG, "pkg:maven/com.google.guava:guava@32.1.2"),
+    (_MAVEN_PKG, "pkg:maven/com.google.guava/guava@32.1.2"),
     (_NUGET_PKG, "pkg:nuget/Newtonsoft.Json@13.0.3"),
 ])
 def test_purl_in_external_refs(pkg: PackageId, expected_purl: str):

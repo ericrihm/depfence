@@ -162,6 +162,7 @@ class ProtestwareScanner:
     name = "protestware"
 
     async def scan_project(self, root: Path) -> list[Finding]:
+        root = Path(root)
         findings: list[Finding] = []
         for path in self._walk(root):
             try:

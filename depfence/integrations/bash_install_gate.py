@@ -21,11 +21,9 @@ import os
 import re
 import sys
 
-_DISABLE_VALUES = {"0", "false", "no", "off"}
+from depfence.core.signal_bus import emit_signal
 
-_SIGNAL_BUS_PENDING = os.environ.get(
-    "DEPFENCE_SIGNAL_BUS", os.path.expanduser("~/.depfence/signals/pending.jsonl")
-)
+_DISABLE_VALUES = {"0", "false", "no", "off"}
 
 # ---------------------------------------------------------------------------
 # Fast pre-check: exit early when there is clearly no install invocation.
@@ -202,24 +200,13 @@ def _scan_command(command: str) -> list[tuple[str, str]]:
     return results
 
 
-def _emit_signal(findings: list[dict]) -> None:
-    """Best-effort write a depfence_typosquat_install signal to the signal bus."""
-    import time as _time
-    try:
-        sig = json.dumps({
-            "name": "depfence_typosquat_install",
-            "value": {
-                "findings": findings,
-                "count": len(findings),
-            },
-            "source": "depfence_bash_install_gate",
-            "timestamp": _time.time(),
-        })
-        os.makedirs(os.path.dirname(_SIGNAL_BUS_PENDING), exist_ok=True)
-        with open(_SIGNAL_BUS_PENDING, "a") as f:
-            f.write(sig + "\n")
-    except OSError:
-        pass  # best-effort — never crash the hook
+def _emit_signal(findings: list[dict]) -> str | None:
+    """Write a bounded private signal and report degraded observability."""
+    return emit_signal(
+        name="depfence_typosquat_install",
+        value={"findings": findings, "count": len(findings)},
+        source="depfence_bash_install_gate",
+    )
 
 
 def main(data: dict) -> dict:
@@ -278,7 +265,7 @@ def main(data: dict) -> dict:
     if not flagged:
         return {}
 
-    _emit_signal(flagged)
+    signal_error = _emit_signal(flagged)
 
     lines = [
         "depfence install-gate: possible typosquat package(s) detected in install command:"
@@ -289,6 +276,8 @@ def main(data: dict) -> dict:
             f"(confidence {f['confidence']:.0%}, attack: {f['attack_type']})"
         )
     lines.append("Verify the package name before installing.")
+    if signal_error:
+        lines.append(f"Local observability: {signal_error}.")
     detail = "\n".join(lines)
 
     if os.environ.get("DEPFENCE_INSTALL_GATE_BLOCK", "").lower() in ("1", "true", "yes", "on"):

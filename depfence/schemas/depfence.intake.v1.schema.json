@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.intake/v1.json",
+  "type": "object",
+  "required": ["schema_version", "intake_id", "created_at", "source_id", "source_host", "commit", "tree_digest", "status", "counts", "coverage", "approved"],
+  "properties": {
+    "schema_version": {"const": "depfence.intake/v1"},
+    "intake_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source_id": {"type": "string", "pattern": "^source-hmac-sha256:[0-9a-f]{64}$"},
+    "source_host": {"type": "string"},
+    "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
+    "tree_digest": {"type": ["string", "null"], "pattern": "^git:[0-9a-f]{40,64}$"},
+    "status": {"enum": ["PASS", "FAIL", "INDETERMINATE", "UNPROVEN"]},
+    "counts": {"type": "object", "required": ["files", "bytes"], "properties": {"files": {"type": "integer", "minimum": 0}, "bytes": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+    "coverage": {"type": "object", "required": ["complete", "errors"], "properties": {"complete": {"type": "boolean"}, "errors": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+    "approved": {"const": false}
+  },
+  "additionalProperties": false
+}

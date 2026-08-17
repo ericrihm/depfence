@@ -72,11 +72,14 @@ class DockerLayerScanner:
         return await self._scan_local_images()
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
-        """Scan Dockerfiles in project_dir, then inspect local Docker images."""
-        findings: list[Finding] = []
-        findings.extend(self._scan_dockerfiles(project_dir))
-        findings.extend(await self._scan_local_images())
-        return findings
+        """Scan Dockerfiles contained in ``project_dir``.
+
+        Host image inventory is deliberately excluded from repository scans.
+        It is unrelated to the requested project scope, can contact a local
+        daemon, and would otherwise be repeated for every fleet member.  The
+        package-scanner/explicit Docker surfaces retain image inspection.
+        """
+        return self._scan_dockerfiles(project_dir)
 
     # ------------------------------------------------------------------
     # Dockerfile scanning
@@ -183,7 +186,10 @@ class DockerLayerScanner:
         )
         if result.returncode != 0:
             return []
-        return json.loads(result.stdout)
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+            return []
+        return payload
 
     def _scan_image_inspect(self, inspect_data: list[dict], image_id: str) -> list[Finding]:
         """Extract and scan metadata fields from docker inspect output."""

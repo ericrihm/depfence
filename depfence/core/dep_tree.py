@@ -81,7 +81,7 @@ def build_tree_from_package_lock(lockfile_path: Path) -> list[DepNode]:
         if name:
             pkg_by_name[name] = info
 
-    def _resolve_pkg(name: str, context_path: str = "") -> PackageId | None:
+    def _resolve_pkg(name: str, context_path: str = "") -> PackageId:
         """Resolve package name to a PackageId, preferring context-local nesting."""
         # Try context-local nested first (e.g. "node_modules/foo/node_modules/bar")
         if context_path:
@@ -99,9 +99,9 @@ def build_tree_from_package_lock(lockfile_path: Path) -> list[DepNode]:
             return PackageId("npm", name, version or None)
 
         # Use pkg_by_name as last resort
-        info = pkg_by_name.get(name)
-        if info is not None:
-            version = info.get("version", "")
+        fallback_info = pkg_by_name.get(name)
+        if fallback_info is not None:
+            version = fallback_info.get("version", "")
             return PackageId("npm", name, version or None)
 
         return PackageId("npm", name, None)
@@ -276,8 +276,8 @@ def build_tree_from_poetry_lock(lockfile_path: Path) -> list[DepNode]:
 
     roots: list[DepNode] = []
     for norm_name in root_names:
-        info = packages[norm_name]
-        node = _build_node(norm_name, 0, info["is_dev"], frozenset())
+        root_info = packages[norm_name]
+        node = _build_node(norm_name, 0, bool(root_info["is_dev"]), frozenset())
         roots.append(node)
 
     return roots

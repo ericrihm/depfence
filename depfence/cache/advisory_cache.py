@@ -10,10 +10,12 @@ import json
 import logging
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
@@ -107,8 +109,18 @@ class AdvisoryCache:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Commit or roll back a transaction, then always release its handle."""
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _init_db(self) -> None:
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             for stmt in _SCHEMA.strip().split(";"):
                 stmt = stmt.strip()
                 if stmt:
@@ -147,7 +159,7 @@ class AdvisoryCache:
             The cached response dict, or ``None`` on a cache miss / expiry.
         """
         now = self._now_iso()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             row = conn.execute(
                 """
                 SELECT response FROM advisories
@@ -163,7 +175,7 @@ class AdvisoryCache:
 
         self._hits += 1
         try:
-            return json.loads(row["response"])
+            return cast(dict[str, Any], json.loads(row["response"]))
         except (json.JSONDecodeError, TypeError) as exc:
             log.warning("AdvisoryCache: corrupt entry for %s/%s@%s — %s", ecosystem, package, version, exc)
             return None
@@ -200,7 +212,7 @@ class AdvisoryCache:
         expires = self._expires_iso(ttl)
         blob = json.dumps(response, separators=(",", ":"))
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO advisories (ecosystem, package, version, response, fetched_at, expires_at)
@@ -227,7 +239,7 @@ class AdvisoryCache:
         int
             Number of rows deleted.
         """
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             if package is None:
                 cur = conn.execute(
                     "DELETE FROM advisories WHERE ecosystem = ?", (ecosystem,)
@@ -252,7 +264,7 @@ class AdvisoryCache:
         """
         from datetime import timedelta
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)).isoformat()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             cur = conn.execute(
                 "DELETE FROM advisories WHERE fetched_at < ?", (cutoff,)
             )
@@ -263,7 +275,7 @@ class AdvisoryCache:
         total = self._hits + self._misses
         hit_rate = self._hits / total if total > 0 else 0.0
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             count_row = conn.execute("SELECT COUNT(*) AS cnt FROM advisories").fetchone()
             oldest_row = conn.execute(
                 "SELECT MIN(fetched_at) AS oldest FROM advisories"
@@ -299,6 +311,6 @@ class AdvisoryCache:
         int
             Number of rows deleted.
         """
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             cur = conn.execute("DELETE FROM advisories")
             return cur.rowcount

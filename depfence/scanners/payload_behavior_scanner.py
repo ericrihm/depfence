@@ -115,6 +115,7 @@ class PayloadBehaviorScanner:
         return []
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
+        project_dir = Path(project_dir)
         findings: list[Finding] = []
         files = self._collect_files(project_dir)
         for fpath in files:

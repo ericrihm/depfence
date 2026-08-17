@@ -5,27 +5,80 @@ on:
     branches: [main, master]
     paths:
       - "**/package-lock.json"
+      - "**/npm-shrinkwrap.json"
       - "**/yarn.lock"
       - "**/pnpm-lock.yaml"
+      - "**/bun.lock"
+      - "**/deno.lock"
       - "**/requirements*.txt"
       - "**/poetry.lock"
+      - "**/pylock*.toml"
       - "**/Cargo.lock"
       - "**/go.sum"
+      - "**/composer.lock"
+      - "**/Gemfile.lock"
+      - "**/Package.resolved"
+      - "**/pubspec.lock"
+      - "**/*.ttf"
+      - "**/*.otf"
+      - "**/*.woff"
+      - "**/*.woff2"
+      - "**/*.ttc"
+      - "**/*.html"
+      - "**/*.htm"
+      - "**/*.css"
+      - "**/*.docx"
+      - "**/*.pdf"
+      - "depfence/**"
+      - "pyproject.toml"
+      - "action.yml"
+      - "SECURITY.md"
+      - "Dockerfile"
+      - ".depfence-hooks/**"
+      - ".github/workflows/**"
+      - "scripts/**"
   pull_request:
     paths:
       - "**/package-lock.json"
+      - "**/npm-shrinkwrap.json"
       - "**/yarn.lock"
       - "**/pnpm-lock.yaml"
+      - "**/bun.lock"
+      - "**/deno.lock"
       - "**/requirements*.txt"
       - "**/poetry.lock"
+      - "**/pylock*.toml"
       - "**/Cargo.lock"
       - "**/go.sum"
+      - "**/composer.lock"
+      - "**/Gemfile.lock"
+      - "**/Package.resolved"
+      - "**/pubspec.lock"
+      - "**/*.ttf"
+      - "**/*.otf"
+      - "**/*.woff"
+      - "**/*.woff2"
+      - "**/*.ttc"
+      - "**/*.html"
+      - "**/*.htm"
+      - "**/*.css"
+      - "**/*.docx"
+      - "**/*.pdf"
+      - "depfence/**"
+      - "pyproject.toml"
+      - "action.yml"
+      - "SECURITY.md"
+      - "Dockerfile"
+      - ".depfence-hooks/**"
+      - ".github/workflows/**"
+      - "scripts/**"
   schedule:
     # Weekly scan every Monday at 06:00 UTC
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
-# Default to read-only; the scan job escalates to security-events: write below.
+# Pull-request code is untrusted, so the scan job remains read-only.  SARIF is
+# uploaded by a separate privileged job only for trusted events.
 permissions:
   contents: read
 
@@ -33,12 +86,6 @@ jobs:
   depfence:
     name: depfence scan
     runs-on: ubuntu-latest
-
-    permissions:
-      # Required to upload SARIF to GitHub Code Scanning
-      security-events: write
-      # Required to check out private repos
-      contents: read
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -51,13 +98,42 @@ jobs:
         run: pip install .
 
       - name: Run dependency security scan
-        run: depfence scan . --format sarif -o results.sarif
-        # Continue so the SARIF upload step always runs, even on findings
-        continue-on-error: true
+        id: scan
+        run: |
+          set +e
+          depfence scan . --format sarif -o results.sarif --fail-on high
+          status=$?
+          echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
 
+      - name: Retain SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: depfence-sarif
+          path: results.sarif
+          if-no-files-found: error
+
+      - name: Enforce scan result
+        if: always()
+        env:
+          SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+        run: test "${SCAN_EXIT_CODE:-2}" -eq 0
+
+  upload-sarif:
+    if: ${{ always() && github.event_name != 'pull_request' }}
+    needs: depfence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Download SARIF
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: depfence-sarif
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3
-        if: always()
         with:
           sarif_file: results.sarif
           category: depfence

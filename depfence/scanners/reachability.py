@@ -50,6 +50,7 @@ class ReachabilityScanner:
         return await self.scan_project(Path("."))
 
     async def scan_project(self, project_dir: Path) -> list[Finding]:
+        project_dir = Path(project_dir)
         py_files = list(project_dir.rglob("*.py"))
         if not py_files:
             return []

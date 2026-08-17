@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import httpx
 
-log = logging.getLogger(__name__)
-
+from depfence.core.fetcher import fetch_enabled
 from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 from depfence.core.threat_db import ThreatDB
+
+log = logging.getLogger(__name__)
 
 _THREAT_SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
@@ -29,17 +31,28 @@ class PypiAdvisoryScanner:
 
     def __init__(self, threat_db: ThreatDB | None = None) -> None:
         self._threat_db = threat_db if threat_db is not None else ThreatDB()
+        self.last_error: str | None = None
 
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
+        self.last_error = None
         findings: list[Finding] = []
         pypi_pkgs = [p for p in packages if p.pkg.ecosystem == "pypi"]
         if not pypi_pkgs:
             return findings
 
+        # The local threat database remains usable offline; only the remote
+        # OSV query is skipped.  Coverage reporting in the engine records the
+        # network-dependent lane as INDETERMINATE rather than treating this as
+        # evidence that the packages are clean.
+        if not fetch_enabled():
+            self.last_error = "network fetching is disabled"
+            findings.extend(self._query_threat_db(pypi_pkgs))
+            return findings
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             for pkg_meta in pypi_pkgs:
                 pkg = pkg_meta.pkg
-                payload = {
+                payload: dict[str, Any] = {
                     "package": {"name": pkg.name, "ecosystem": "PyPI"},
                 }
                 if pkg.version:
@@ -52,11 +65,21 @@ class PypiAdvisoryScanner:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    self.last_error = f"OSV query failed for {pkg.name}: {exc}"
                     log.debug("pypi_advisory: OSV query failed for %s", pkg.name, exc_info=True)
                     continue
 
-                for vuln in data.get("vulns", []):
+                if not isinstance(data, dict) or not isinstance(data.get("vulns") or [], list):
+                    self.last_error = f"OSV returned a malformed response for {pkg.name}"
+                    continue
+
+                for vuln in data.get("vulns") or []:
+                    if not isinstance(vuln, dict) or not vuln.get("id"):
+                        self.last_error = f"OSV returned a malformed advisory for {pkg.name}"
+                        continue
+                    if vuln.get("withdrawn"):
+                        continue
                     severity = self._parse_severity(vuln)
                     cve = next(
                         (a for a in vuln.get("aliases", []) if a.startswith("CVE-")),
@@ -68,13 +91,26 @@ class PypiAdvisoryScanner:
                         finding_type=FindingType.KNOWN_VULN,
                         severity=severity,
                         package=pkg,
-                        title=vuln.get("summary", vuln.get("id", "")),
-                        detail=vuln.get("details", ""),
+                        title=vuln.get("summary") or vuln.get("id") or "Unknown vulnerability",
+                        detail=vuln.get("details") or "",
                         cve=cve,
                         fix_version=fix_version,
                         references=[
                             r["url"] for r in vuln.get("references", [])[:5] if "url" in r
                         ],
+                        metadata={
+                            "source": "osv",
+                            "osv_id": vuln.get("id"),
+                            "aliases": list(vuln.get("aliases") or []),
+                            "withdrawn": vuln.get("withdrawn"),
+                            "affected": list(vuln.get("affected") or []),
+                            "severity_details": list(vuln.get("severity") or []),
+                            "requested_package": {
+                                "ecosystem": pkg.ecosystem,
+                                "name": pkg.name,
+                                "version": pkg.version,
+                            },
+                        },
                     ))
 
         findings.extend(self._query_threat_db(pypi_pkgs))
@@ -149,6 +185,7 @@ class PypiAdvisoryScanner:
             if affected.get("package", {}).get("name") == name:
                 for rng in affected.get("ranges", []):
                     for ev in rng.get("events", []):
-                        if "fixed" in ev:
-                            return ev["fixed"]
+                        fixed = ev.get("fixed")
+                        if isinstance(fixed, str):
+                            return fixed
         return None

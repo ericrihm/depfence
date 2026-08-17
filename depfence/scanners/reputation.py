@@ -25,8 +25,15 @@ def _load_popular_packages() -> dict[str, list[str]]:
     data_path = Path(__file__).parent.parent / "data" / "popular_packages.json"
     try:
         with data_path.open() as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            raise ValueError("popular package registry must be an object")
+        return {
+            str(ecosystem): [str(name) for name in names]
+            for ecosystem, names in raw.items()
+            if isinstance(names, list)
+        }
+    except (OSError, ValueError, json.JSONDecodeError):
         return {"npm": [], "pypi": []}
 
 

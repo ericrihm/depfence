@@ -1,4 +1,4 @@
-"""Tests for the CycloneDX 1.5 SBOM generator."""
+"""Tests for the CycloneDX SBOM generator."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ _NON_VULN_FINDING = Finding(
 def test_sbom_format():
     sbom = generate_sbom([], [])
     assert sbom["bomFormat"] == "CycloneDX"
-    assert sbom["specVersion"] == "1.5"
+    assert sbom["specVersion"] == "1.7"
     assert sbom["version"] == 1
 
 
@@ -84,10 +84,10 @@ def test_metadata_timestamp_format():
 
 def test_metadata_tools():
     sbom = generate_sbom([], [])
-    tools = sbom["metadata"]["tools"]
+    tools = sbom["metadata"]["tools"]["components"]
     assert len(tools) >= 1
     tool = tools[0]
-    assert tool["vendor"] == "depfence"
+    assert tool["manufacturer"]["name"] == "depfence"
     assert tool["name"] == "depfence"
     assert "version" in tool
 
@@ -144,7 +144,7 @@ def test_component_name_and_version():
 
 def test_component_bom_ref():
     sbom = generate_sbom([_NPM_PKG], [])
-    assert sbom["components"][0]["bom-ref"] == "npm:lodash@4.17.21"
+    assert sbom["components"][0]["bom-ref"] == "pkg:npm/lodash@4.17.21"
 
 
 def test_component_purl_present():
@@ -164,7 +164,7 @@ def test_component_purl_present():
         (_PYPI_PKG, "pkg:pypi/requests@2.31.0"),
         (_CARGO_PKG, "pkg:cargo/serde@1.0.0"),
         (_GO_PKG, "pkg:golang/github.com/gin-gonic/gin@1.9.1"),
-        (_MAVEN_PKG, "pkg:maven/com.google.guava:guava@32.1.2"),
+        (_MAVEN_PKG, "pkg:maven/com.google.guava/guava@32.1.2"),
         (_NUGET_PKG, "pkg:nuget/Newtonsoft.Json@13.0.3"),
     ],
 )
@@ -205,7 +205,7 @@ def test_vulnerability_rating_severity():
 def test_vulnerability_affects_bom_ref():
     sbom = generate_sbom([_NPM_PKG], [_VULN_FINDING])
     affects = sbom["vulnerabilities"][0]["affects"]
-    assert affects[0]["ref"] == "npm:lodash@4.17.21"
+    assert affects[0]["ref"] == "pkg:npm/lodash@4.17.21"
 
 
 def test_non_vuln_findings_excluded():
@@ -260,7 +260,7 @@ def test_write_sbom_creates_valid_json_file():
         assert out.exists()
         loaded = json.loads(out.read_text())
         assert loaded["bomFormat"] == "CycloneDX"
-        assert loaded["specVersion"] == "1.5"
+        assert loaded["specVersion"] == "1.7"
         assert len(loaded["components"]) == 1
         assert len(loaded["vulnerabilities"]) == 1
 

@@ -494,6 +494,10 @@ def _detect_format_by_magic(path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 
 _MAX_NESTED_ARCHIVE_DEPTH = 3  # Maximum depth for recursive archive scanning
+_MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 10_000
+_MAX_DECOMPRESSED_BYTES = 1024 * 1024 * 1024
+_MAX_COMPRESSION_RATIO = 100
 
 
 def _validate_zip_strict(path: Path) -> list[dict]:
@@ -511,6 +515,12 @@ def _validate_zip_strict(path: Path) -> list[dict]:
     """
     issues: list[dict] = []
     try:
+        if path.stat().st_size > _MAX_ARCHIVE_BYTES:
+            return [{
+                "issue": "archive exceeds safe validation byte budget",
+                "member": "",
+                "severity": "high",
+            }]
         raw = path.read_bytes()
     except OSError:
         return issues
@@ -930,8 +940,25 @@ def _scan_zip_for_pickles(path: Path, *, _depth: int = 0) -> tuple[list[dict], l
     if _depth > _MAX_NESTED_ARCHIVE_DEPTH:
         return results, all_parse_errors
     try:
+        if path.stat().st_size > _MAX_ARCHIVE_BYTES:
+            return results, [{"error": "archive exceeds safe scan byte budget"}]
         with zipfile.ZipFile(path, 'r') as zf:
-            for info in zf.infolist():
+            members = zf.infolist()
+            if len(members) > _MAX_ARCHIVE_MEMBERS:
+                return results, [{"error": "archive exceeds safe member-count budget"}]
+            total_uncompressed = 0
+            for info in members:
+                total_uncompressed += info.file_size
+                ratio = info.file_size / max(info.compress_size, 1)
+                if (
+                    total_uncompressed > _MAX_DECOMPRESSED_BYTES
+                    or ratio > _MAX_COMPRESSION_RATIO
+                ):
+                    all_parse_errors.append({
+                        "error": "archive member exceeds safe decompression budget",
+                        "zip_member": info.filename,
+                    })
+                    continue
                 member_lower = info.filename.lower()
 
                 # Determine what kind of scanning this member needs

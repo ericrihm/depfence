@@ -109,6 +109,9 @@ def upload_sarif(
         )
 
     try:
-        return response.json()
+        response_data = response.json()
+        if isinstance(response_data, dict):
+            return response_data
+        return {"status": response.status_code, "response": response_data}
     except Exception:
         return {"status": response.status_code, "text": response.text}

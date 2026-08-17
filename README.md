@@ -6,7 +6,7 @@ Static analysis for dependency and CI/CD supply chain security. Catches attack c
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Scanners: 56](https://img.shields.io/badge/scanners-56-orange)](docs/site/docs.html)
-[![Tests: 3631](https://img.shields.io/badge/tests-3631-brightgreen)](tests/)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest-brightgreen)](tests/)
 
 <!-- <p align="center">
   <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
@@ -51,7 +51,7 @@ Existing dependency scanners (Snyk, Dependabot, OSV-Scanner, Grype) focus on kno
 - **Fabricated pin verification** — SHA pins and version numbers that don't exist in any registry, often hallucinated by coding assistants into CI workflows.
 - **Cordyceps-class CI/CD attacks** — `workflow_run` privilege escalation and `issue_comment` TOCTOU races in GitHub Actions.
 
-depfence operates entirely via static analysis — no package code is executed, no source code leaves the local machine. All 56 scanners run concurrently with async metadata fetching across 14 package ecosystems.
+depfence operates entirely via static analysis — no package code is executed. In offline mode, no source or metadata leaves the local machine. Its canonical catalog contains 56 scanners, including 44 project-capable scanners; applicable scanners run concurrently across 14 package ecosystems.
 
 ---
 
@@ -62,16 +62,16 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
                                             |
                               +-------------+-------------+
                      entry-point scanners      project scanners
-                     (53, via pip registry)    (32, filesystem-based)
+                     (56 registered)          (44 project-capable)
                               |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
                                                 Dockerfiles, Package.swift, etc.)
 ```
 
-1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, `libs.versions.toml`.
+1. **Lockfile detection** — auto-discovers `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `deno.lock`, `requirements*.txt`, `poetry.lock`, `Pipfile.lock`, `uv.lock`, `pylock*.toml`, `Cargo.lock`, `go.sum`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, and `libs.versions.toml`.
 2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
-3. **Scanner execution** — 53 entry-point scanners + 32 project scanners run concurrently.
+3. **Scanner execution** — applicable scanners from one 56-scanner catalog run concurrently, including 44 project-capable scanners.
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
@@ -84,10 +84,10 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-53 entry-point scanners + 32 project scanners. 56 scanner files total — many serve both roles.
+56 registered scanners + 44 project-capable scanners from one canonical catalog. Many serve both package and project roles.
 
 <details>
-<summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
+<summary><strong>Prompt injection and AI safety</strong> (8 scanners)</summary>
 
 | Scanner | What it detects |
 |---|---|
@@ -97,6 +97,8 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `mcp_scanner` | MCP config files (Claude Desktop, Cursor, VS Code, Windsurf, Zed): tool shadowing, credential leakage, missing TLS, domain spoofing, prompt injection in tool descriptions |
 | `mcp_fingerprint` | Schema fingerprinting for MCP rug-pull attacks (servers that change tool definitions after initial approval) |
 | `agent_skill` | External instruction fetch directives (NLP + URL analysis), domain spoofing via Levenshtein similarity against 50+ services, deferred payload bait-and-switch via content hash fingerprinting, suspicious hosting. Covers the [brand-landingpage](https://thehackernews.com/2026/06/fake-ai-agent-skill-passed-security.html) attack. |
+| `rag_poison` | Prompt-injection and repeated-padding poisoning in bounded RAG ingestion roots, with explicit incomplete coverage for malformed or unsupported corpus formats. |
+| `visual_text_deception` | Bounded, non-rendering analysis of OpenType/WOFF fonts, HTML/CSS font swarms, DOCX embedded-font run switching, and PDF invisible-text topology. |
 
 </details>
 
@@ -146,7 +148,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 | `scope_squatting` | npm scope typosquatting (`@angulr` vs `@angular`). Well-known unscoped packages (express, lodash, react, etc.) are allowlisted to prevent false positives. |
 | `ownership` | Maintainer takeovers and version-order anomalies |
 | `provenance` | High-value packages missing SLSA build attestations |
-| `provenance_checker` | SLSA/Sigstore attestation signature verification for npm and PyPI |
+| `provenance_checker` | npm/PyPI provenance-state inspection: `not_present`, `unavailable`, or `present_unverified`; 0.8 does not claim cryptographic verification from registry metadata alone |
 | `behavioral` | Runtime red flags: `eval`, `exec`, `child_process`, DNS resolve, exfiltration endpoints |
 | `obfuscation` | Base64-exec, hex/charcode encoding, high-entropy strings, ANSI content hiding, large (>4MB) staged decryption (ROT/charcode + AES-128-GCM) |
 | `network` | Hardcoded IPs, mining pool domains, webhook exfiltration URLs, DNS tunneling indicators |
@@ -202,7 +204,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 - **EPSS** — Exploit Prediction Scoring System probability on every CVE finding
 - **CISA KEV** — Known Exploited Vulnerabilities catalog flag
 - **Risk scoring** — composite A-F grades from EPSS + KEV + CVSS + reachability + Scorecard
-- **SBOM** — CycloneDX 1.5 and SPDX 2.3
+- **SBOM** — CycloneDX 1.7 by default (1.5 compatibility) and SPDX 2.3
 
 </details>
 
@@ -276,6 +278,91 @@ depfence fix . --apply           # auto-fix vulnerable dependencies
 depfence init .                  # generate CI workflow + pre-commit hook + policy config
 ```
 
+For a directory containing many independently cloned repositories, use the
+privacy-preserving fleet workflow. Discovery never executes Git, and audits use
+one global worker budget with a per-project deadline. Offline is the default.
+
+```bash
+depfence fleet inventory ~/dev -o fleet.json
+depfence fleet audit ~/dev --offline -j 4 --project-deadline 300 --fleet-deadline 1800 -o audit.json
+depfence fleet audit ~/dev --offline --resume -o resumed-audit.json
+# Use opaque IDs from inventory/checkpoints to bound a review tranche:
+depfence fleet audit ~/dev --offline --project-id project-hmac-sha256:... -o selected.json
+# Queue and inspect findings, then preview a review before explicit append:
+depfence fleet triage ~/dev --severity critical --rule secret_exposed
+depfence fleet evidence df-0123456789abcdef0123 --show-snippet
+depfence fleet review df-0123456789abcdef0123 --decision confirmed
+depfence fleet review df-0123456789abcdef0123 --decision confirmed --apply
+```
+
+Fleet audits checkpoint each redacted project result under private local state.
+`--resume` validates the latest manifest and its project checkpoints, skips
+completed projects, and refuses to resume if the discovered candidate set or
+fleet root changed. Offline policy exclusions, timeouts, and scanner failures
+remain distinct coverage reasons; none is reported as clean evaluation.
+`fleet evidence` emits only opaque project/finding IDs and checkpoint digests.
+Applied finding reviews are separate, append-only HMAC-chained private records;
+they never change scan assurance or authorize remediation. Evidence v1 can add
+bounded redacted snippets, digests, opaque locations, confidence, and evidence
+class while older v1 documents without those optional fields remain valid.
+Generated snippets carry explicit availability/redaction status, a three-line
+and 320-byte UTF-8 ceiling, plus separate snippet and metadata digests.
+
+Treat newly downloaded repositories as untrusted input. Intake clones without
+checkout, disables hooks, filters, global Git configuration, and submodules,
+verifies object connectivity, enforces tree budgets, then materializes only
+regular files into a private quarantine. Approval records a human decision; it
+does not move, execute, or promote the tree.
+
+```bash
+depfence intake inspect SOURCE
+depfence intake approve INTAKE_ID --reason "reviewed evidence" --yes
+```
+
+For repositories containing parser-hostile fonts or documents, keep the Git
+objects off the host entirely. Sealed intake requires an exact commit and a
+preloaded, digest-pinned OCI images; acquisition, inventory, and offline static
+artifact analysis run in separate containers over a disposable named volume,
+and only a bounded redacted manifest is retained. Native Linux additionally
+requires gVisor or Kata. Acquisition must use an internal network whose only
+egress path is the configured allowlisting proxy.
+
+If an operator initially has only a URL, resolve its remote `HEAD` first. This
+metadata-only operation runs `git ls-remote` in the signed intake sandbox and
+fetches no Git objects. Review and approve the returned exact commit before
+using `inspect-sealed`.
+
+```bash
+depfence intake resolve-sealed https://example.invalid/research.git \
+  --allow-host example.invalid \
+  --image registry.example/depfence-intake@sha256:DIGEST \
+  --acquisition-network depfence-intake-internal \
+  --https-proxy http://depfence-egress-proxy:3128 \
+  --certificate-identity 'https://github.com/OWNER/REPO/.github/workflows/publish-analysis-images.yml@refs/tags/VERSION' \
+  --runtime runsc
+
+depfence intake inspect-sealed https://example.invalid/research.git \
+  --commit EXACT_40_OR_64_HEX_COMMIT \
+  --allow-host example.invalid \
+  --image registry.example/depfence-intake@sha256:DIGEST \
+  --analyzer-image registry.example/depfence-static@sha256:DIGEST \
+  --acquisition-network depfence-intake-internal \
+  --https-proxy http://depfence-egress-proxy:3128 \
+  --certificate-identity 'https://github.com/OWNER/REPO/.github/workflows/publish-analysis-images.yml@refs/tags/VERSION' \
+  --runtime runsc
+```
+
+Local state lifecycle commands are dry-run by default. They report logical
+removal honestly; filesystem backups and copy-on-write snapshots mean secure
+erasure is not claimed.
+
+```bash
+depfence privacy status
+depfence privacy migrate          # preview legacy-state migration
+depfence privacy prune            # preview 30d detail / 365d summary retention
+depfence privacy migrate --apply  # explicit mutation
+```
+
 <details>
 <summary><strong>Targeted scans</strong></summary>
 
@@ -283,23 +370,58 @@ depfence init .                  # generate CI workflow + pre-commit hook + poli
 depfence ai-scan .               # prompt injection + slopsquatting + model threats
 depfence model-scan .            # ML model file supply chain risks
 depfence mcp-scan .              # MCP server configuration audit
-depfence mcp-fingerprint .       # MCP rug-pull fingerprinting
+depfence mcp-fingerprint .       # observe MCP schemas (first sight is UNPROVEN)
+depfence mcp-fingerprint . --show
+# Review one subject, then approve exactly the displayed digest:
+depfence mcp-fingerprint . --approve SUBJECT_ID --digest SHA256
 depfence gha-scan .              # GitHub Actions: permissions, injection, unpinned actions
 depfence scan-docker .           # Dockerfile security audit
 depfence scan-workflows .        # workflow security audit
 depfence ci-audit .              # CI secret exposure audit
 depfence secrets scan .          # secrets scanning
 depfence secrets scan . --history  # including git history
+# Quarantine and statically inspect one hostile document or font:
+depfence artifact inspect suspicious.docx --analysis static
+# Verify that a digest-pinned analyzer and VM-grade runtime are locally ready:
+depfence artifact doctor --image registry.example/depfence-artifact@sha256:DIGEST \
+  --runtime runsc --format json
+# Rendering/OCR is never automatic; it requires a digest-pinned isolated image:
+depfence artifact inspect suspicious.pdf --analysis sandboxed \
+  --image registry.example/depfence-artifact@sha256:DIGEST --runtime runsc \
+  --certificate-identity 'https://github.com/OWNER/REPO/.github/workflows/publish-analysis-images.yml@refs/tags/VERSION'
+```
+
+Artifact bytes are removed from private state after analysis by default; the
+redacted intake record reports that this is logical deletion, not secure
+erasure. Use the explicit bounded retention option only for an approved
+forensic workflow.
+
+```bash
+depfence artifact inspect suspicious.pdf --retain-for 2  # private state; max 30 days
+depfence privacy prune --apply                           # enforce expired TTLs
 ```
 
 </details>
+
+MCP fingerprints keep observations separate from trust. A first observation and
+every unapproved observation return exit code 2 (`UNPROVEN`); observing a schema
+never approves it. After reviewing the schema, approve the exact subject and
+SHA-256 printed by `--show`. A later mismatch is reported on every scan until a
+human approves the new exact digest. State is scoped to the project and stored in
+the private local state directory. User-global MCP configuration is excluded
+unless `--global` is supplied.
 
 <details>
 <summary><strong>SBOM and compliance</strong></summary>
 
 ```bash
-depfence sbom . -o sbom.json                       # CycloneDX 1.5
+depfence sbom . -o sbom.json                       # CycloneDX 1.7
 depfence sbom . --format spdx -o sbom.spdx.json    # SPDX 2.3
+
+# Capability profiles use the same canonical scanner catalog
+depfence scan . --profile ci
+depfence scan . --profile ai
+depfence scan . --profile mcp
 depfence sbom-diff before.json after.json           # compare SBOMs
 depfence license-scan .                             # license compliance
 depfence compliance . -o compliance.html            # full compliance report
@@ -315,7 +437,7 @@ depfence risk-score .            # composite A-F risk grades
 depfence epss .                  # EPSS exploit probability ranking
 depfence kev .                   # CISA Known Exploited Vulnerabilities
 depfence scorecard .             # OpenSSF Scorecard integration
-depfence graph . -o deps.dot     # dependency graph (Graphviz)
+depfence graph . --format dot -o deps.dot  # dependency graph (Graphviz)
 depfence trust lodash npm        # package trust score
 depfence why lodash              # dependency path trace
 depfence threat-brief .          # threat landscape summary
@@ -353,7 +475,8 @@ depfence plugins                 # list loaded scanners
 ## Output formats
 
 ```bash
-depfence scan . --format json | jq '.findings[] | select(.severity == "CRITICAL")'
+depfence scan . --format json | jq '.findings[] | select(.severity == "critical")'
+depfence scan . --format json | jq '.summary.severity.critical'
 depfence scan . --format sarif -o results.sarif
 depfence scan . --format html -o report.html
 depfence scan . --top 10                       # show only the 10 most severe findings
@@ -362,11 +485,19 @@ depfence scan . --top 10                       # show only the 10 most severe fi
 | Format | Use case |
 |---|---|
 | `table` (default) | Terminal |
-| `json` | Scripting, `jq` |
+| `json` | Versioned `depfence.scan/v1` output for scripting and `jq` |
+| `json-legacy` | Pre-v1 dataclass JSON retained for 0.8 migration compatibility |
 | `html` | Shareable reports |
 | `sarif` | GitHub Code Scanning, Azure DevOps, VS Code |
-| `cyclonedx` | CycloneDX 1.5 SBOM |
+| `cyclonedx` | CycloneDX 1.7 SBOM (`--cyclonedx-version 1.5` for compatibility) |
 | `spdx` | SPDX 2.3 SBOM |
+
+CycloneDX 1.7 is the 0.8 default. Consumers pinned to the 1.5 schema can use
+`depfence sbom . --cyclonedx-version 1.5` (or the same flag with
+`scan --format cyclonedx`) during migration. In 1.7 output,
+`metadata.tools` uses the component-based object form; validate against the
+schema named by the document's `$schema` field rather than assuming the 1.5
+array shape.
 
 ---
 
@@ -570,7 +701,10 @@ depfence mcp serve
 
 ## Plugin system
 
-Custom scanners are discovered via pip entry points, `DEPFENCE_PLUGIN_PATH`, or `~/.depfence/plugins/`.
+Normal CLI execution loads only scanners shipped with depfence. Third-party
+plugins are a fingerprint-approved Python API in 0.8; the CLI does not
+automatically execute pip entry points, `DEPFENCE_PLUGIN_PATH`, or
+`~/.depfence/plugins/`.
 
 ```python
 from depfence.core.models import Finding, PackageMeta, Severity
@@ -589,6 +723,23 @@ my_scanner = "my_package.scanner:MyScanner"
 ```
 
 Project-level scanners use `async def scan_project(self, project_dir: Path) -> list[Finding]` instead.
+An embedding application must opt in and approve the exact entry-point identity:
+
+```python
+from depfence.core.registry import PluginRegistry, plugin_fingerprint
+
+identity = "depfence.scanners:my_scanner:my_package.scanner:MyScanner"
+registry = PluginRegistry(
+    enable_third_party=True,
+    trusted_plugin_fingerprints={plugin_fingerprint(identity)},
+)
+registry.discover()
+```
+
+For a path plugin, approve `plugin_fingerprint(Path("/absolute/plugin.py"))`
+and pass its parent directory through `plugin_paths`. Fingerprints change when
+the entry-point identity or file contents change, so approvals are explicit
+and fail closed.
 
 ---
 
@@ -600,7 +751,9 @@ Project-level scanners use `async def scan_project(self, project_dir: Path) -> l
 - EPSS and KEV enrichment require network access to FIRST.org and CISA APIs.
 - `reachability` performs static import tracing only. Dynamic imports (`importlib`, `__import__`) are not resolved.
 - Heuristic scanners (`behavioral`, `reputation`, `obfuscation`, `payload_behavior`) produce false positives. Use `depfence:ignore` or baselines to suppress known-good patterns.
-- All detection is static. No dynamic analysis, sandboxed execution, or runtime monitoring.
+- Normal project scans are static. Explicit artifact and sealed-intake workflows
+  can invoke digest-pinned, signed OCI workers; DepFence does not provide
+  continuous runtime monitoring.
 - Not yet published on PyPI. Install from source until the first release is published.
 - The GitHub Action (`action.yml`) will be available as `uses: ericrihm/depfence@v1` after the first release tag.
 
@@ -644,7 +797,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3537 test functions across 136 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+The pytest suite is the source of truth for test coverage; parametrization and security regression cases make static counts misleading. Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
@@ -652,8 +805,8 @@ pytest
 depfence/          ~46K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        56 scanner modules (53 entry-point, 32 project)
-  reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
+  scanners/        56 registered scanners (44 project-capable)
+  reporters/       SARIF, CycloneDX, SPDX, HTML, JSON, knowledge-graph formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook
   mcp/             MCP server (JSON-RPC over stdio)

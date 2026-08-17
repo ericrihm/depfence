@@ -33,6 +33,41 @@ def _download_cache(tmp_path: Path, **kwargs) -> DownloadCache:
     return DownloadCache(cache_dir=tmp_path / "cache", **kwargs)
 
 
+@pytest.mark.parametrize("cache_cls", [AdvisoryCache, DownloadCache])
+def test_cache_operations_close_every_sqlite_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_cls,
+) -> None:
+    """The sqlite context manager commits but does not close connections."""
+    real_connect = sqlite3.connect
+    connections: list[sqlite3.Connection] = []
+    closed: set[int] = set()
+
+    class TrackingConnection(sqlite3.Connection):
+        def close(self) -> None:
+            closed.add(id(self))
+            super().close()
+
+    def tracked_connect(*args, **kwargs):
+        kwargs["factory"] = TrackingConnection
+        connection = real_connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    cache = cache_cls(cache_dir=tmp_path / "cache")
+    if isinstance(cache, AdvisoryCache):
+        cache.put("npm", "example", "1.0.0", {"vulns": []})
+        assert cache.get("npm", "example", "1.0.0") == {"vulns": []}
+    else:
+        cache.put("npm", "example", {"name": "example"})
+        assert cache.get("npm", "example") == {"name": "example"}
+
+    assert connections
+    assert len(closed) == len(connections)
+
+
 _SAMPLE_RESPONSE = {
     "vulns": [
         {
@@ -643,6 +678,7 @@ class TestOsvScannerCacheIntegration:
         assert cached is not None
         assert len(cached["vulns"]) == 1
         assert cached["vulns"][0]["id"] == "GHSA-net-test-0001"
+        assert "raw" in cached["vulns"][0]
 
 
 # ===========================================================================

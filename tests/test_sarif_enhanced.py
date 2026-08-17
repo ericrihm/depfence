@@ -315,14 +315,13 @@ def test_partial_fingerprint_none_cve_stable():
 
 
 def test_sarif_fingerprint_matches_helper():
-    """Fingerprint in rendered SARIF must match _partial_fingerprint directly."""
+    """Rendered SARIF uses the canonical cross-reporter finding identity."""
+    from depfence.core.finding_identity import finding_id
+
     finding = _vuln_finding()
     sarif = _render(findings=[finding])
     fp_in_sarif = sarif["runs"][0]["results"][0]["partialFingerprints"]["primaryLocationLineHash/v1"]
-    expected = _partial_fingerprint(
-        str(finding.package), finding.cve, finding.finding_type.value
-    )
-    assert fp_in_sarif == expected
+    assert fp_in_sarif == finding_id(finding)
 
 
 # ---------------------------------------------------------------------------

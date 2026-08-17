@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.triage-queue/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "filters", "findings", "errors"],
+  "properties": {
+    "schema_version": {"const": "depfence.triage-queue/v1"},
+    "status": {"enum": ["PASS", "INDETERMINATE"]},
+    "filters": {
+      "type": "object",
+      "required": ["severity", "rule"],
+      "properties": {
+        "severity": {"type": ["string", "null"], "enum": ["critical", "high", "medium", "low", "info", null]},
+        "rule": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_.:-]{1,128}$"}
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": ["project_id", "finding_id"],
+        "properties": {
+          "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+          "finding_id": {"type": "string", "pattern": "^df-[0-9a-f]{20}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "errors": {"type": "array", "items": {"type": "string", "maxLength": 240}}
+  },
+  "additionalProperties": false
+}

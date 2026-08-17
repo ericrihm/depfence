@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
 _HIGH_VALUE_PACKAGES = {
@@ -41,17 +42,32 @@ class ProvenanceScanner:
         return findings
 
     async def _check_provenance(self, meta: PackageMeta) -> Finding | None:
-        if meta.has_provenance:
-            return None
-
         pkg = meta.pkg
         is_high_value = pkg.name in _HIGH_VALUE_PACKAGES.get(pkg.ecosystem, set())
+
+        if is_high_value and meta.has_provenance:
+            return Finding(
+                finding_type=FindingType.PROVENANCE,
+                severity=Severity.MEDIUM,
+                package=pkg,
+                title=f"Build provenance present but unverified: {pkg.name}",
+                detail=(
+                    f"Registry metadata advertises provenance for {pkg.name}, but DepFence "
+                    "has not verified the signature, artifact digest, signer identity and "
+                    "issuer, transparency evidence, source revision, or build parameters."
+                ),
+                metadata={
+                    "check": "provenance",
+                    "high_value": True,
+                    "provenance_status": "present_unverified",
+                },
+            )
 
         if is_high_value:
             return Finding(
                 finding_type=FindingType.PROVENANCE,
                 severity=Severity.MEDIUM,
-                package=str(pkg),
+                package=pkg,
                 title=f"High-value package without build provenance: {pkg.name}",
                 detail=(
                     f"{pkg.name} is a critical infrastructure package but lacks SLSA "
@@ -65,6 +81,8 @@ class ProvenanceScanner:
 
     async def verify_npm_provenance(self, pkg: PackageId) -> dict:
         """Check npm registry for sigstore provenance attestation."""
+        if not fetch_enabled():
+            return {"verified": False, "reason": "offline"}
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
                 url = f"https://registry.npmjs.org/{pkg.name}/{pkg.version or 'latest'}"
@@ -74,15 +92,29 @@ class ProvenanceScanner:
                 data = resp.json()
                 dist = data.get("dist", {})
                 if dist.get("attestations"):
-                    return {"verified": True, "attestations": dist["attestations"]}
+                    return {
+                        "verified": False,
+                        "present": True,
+                        "status": "present_unverified",
+                        "attestations": dist["attestations"],
+                        "reason": "attestation bundle was not cryptographically verified",
+                    }
                 if dist.get("signatures"):
-                    return {"verified": True, "signatures": len(dist["signatures"])}
+                    return {
+                        "verified": False,
+                        "present": True,
+                        "status": "present_unverified",
+                        "signatures": len(dist["signatures"]),
+                        "reason": "signature metadata was not cryptographically verified",
+                    }
                 return {"verified": False, "reason": "no_attestation"}
             except Exception:
                 return {"verified": False, "reason": "error"}
 
     async def verify_pypi_provenance(self, pkg: PackageId) -> dict:
         """Check PyPI for PEP 740 attestations."""
+        if not fetch_enabled():
+            return {"verified": False, "reason": "offline"}
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
                 url = f"https://pypi.org/pypi/{pkg.name}/{pkg.version or ''}/json"
@@ -93,10 +125,22 @@ class ProvenanceScanner:
                 urls = data.get("urls", [])
                 for release_file in urls:
                     if release_file.get("provenance"):
-                        return {"verified": True, "provenance": release_file["provenance"]}
+                        return {
+                            "verified": False,
+                            "present": True,
+                            "status": "present_unverified",
+                            "provenance": release_file["provenance"],
+                            "reason": "attestation bundle was not cryptographically verified",
+                        }
                 info = data.get("info", {})
                 if info.get("attestation_url"):
-                    return {"verified": True, "attestation_url": info["attestation_url"]}
+                    return {
+                        "verified": False,
+                        "present": True,
+                        "status": "present_unverified",
+                        "attestation_url": info["attestation_url"],
+                        "reason": "attestation URL was not fetched or cryptographically verified",
+                    }
                 return {"verified": False, "reason": "no_attestation"}
             except Exception:
                 return {"verified": False, "reason": "error"}

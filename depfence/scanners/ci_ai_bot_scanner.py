@@ -58,6 +58,17 @@ _UNTRUSTED_ACTOR = re.compile(
     re.IGNORECASE,
 )
 
+_EVENT_FILE = re.compile(r"(?:\$GITHUB_EVENT_PATH|github\.event_path)", re.IGNORECASE)
+_ARTIFACT_DOWNLOAD = re.compile(r"actions/download-artifact|gh\s+run\s+download", re.IGNORECASE)
+_RETRIEVAL_SOURCE = re.compile(
+    r"(?:curl|wget|gh\s+api|vector|embed(?:ding)?|retriev|memory|tool[_ -]?output)",
+    re.IGNORECASE,
+)
+_SECRET_OR_WRITE = re.compile(
+    r"\$\{\{\s*secrets\.|permissions\s*:\s*(?:write-all|[^\n]*write)|id-token\s*:\s*write",
+    re.IGNORECASE,
+)
+
 # AI agent config files that grant broad tool access
 _AI_CONFIG_FILES = [
     ".cline", ".cline.json", ".cline.yaml",
@@ -120,48 +131,10 @@ class CiAiBotScanner:
             rel = str(wf_path.relative_to(project_dir))
             has_ai_bot = bool(_AI_BOT_PATTERN.search(content))
 
-            # Check for untrusted input flowing into AI-aware workflows
+            # Correlate within a step/job. Mere co-occurrence in different,
+            # unconnected steps is not a source-to-sink flow.
             if has_ai_bot:
-                for m in _UNTRUSTED_INPUTS.finditer(content):
-                    line_num = content[:m.start()].count("\n") + 1
-                    findings.append(Finding(
-                        finding_type=FindingType.PROMPT_INJECTION,
-                        severity=Severity.CRITICAL,
-                        package=PackageId(ecosystem="github", name=rel),
-                        title="Clinejection risk: untrusted input to AI bot",
-                        detail=(
-                            f"Line {line_num}: AI bot workflow interpolates "
-                            f"untrusted input '{m.group()}' — an attacker can "
-                            f"craft issue/PR text to manipulate the AI agent."
-                        ),
-                        cwe="CWE-77",
-                        confidence=0.90,
-                        references=[
-                            "https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/",
-                        ],
-                        metadata={
-                            "file": rel,
-                            "line": line_num,
-                            "input_source": m.group(),
-                            "pattern": "clinejection",
-                        },
-                    ))
-
-                for m in _UNTRUSTED_ACTOR.finditer(content):
-                    line_num = content[:m.start()].count("\n") + 1
-                    findings.append(Finding(
-                        finding_type=FindingType.PROMPT_INJECTION,
-                        severity=Severity.HIGH,
-                        package=PackageId(ecosystem="github", name=rel),
-                        title="AI bot uses attacker-controlled ref/actor",
-                        detail=(
-                            f"Line {line_num}: '{m.group()}' is attacker-controlled "
-                            f"and used in an AI-aware workflow."
-                        ),
-                        cwe="CWE-77",
-                        confidence=0.75,
-                        metadata={"file": rel, "line": line_num},
-                    ))
+                findings.extend(self._workflow_flows(content, rel))
 
             # Even without AI bot indicators, flag broad ${{ github.event }}
             # usage that could become dangerous if an AI bot is added later
@@ -197,6 +170,79 @@ class CiAiBotScanner:
                     except (yaml.YAMLError, AttributeError):
                         pass
 
+        return findings
+
+    def _workflow_flows(self, content: str, rel: str) -> list[Finding]:
+        """Find bounded source→AI-sink→capability paths inside workflow jobs."""
+        try:
+            workflow = yaml.safe_load(content)
+        except yaml.YAMLError:
+            return []
+        if not isinstance(workflow, dict) or not isinstance(workflow.get("jobs"), dict):
+            return []
+
+        findings: list[Finding] = []
+        workflow_permissions = workflow.get("permissions")
+        for job_id, job in workflow["jobs"].items():
+            if not isinstance(job, dict):
+                continue
+            artifact_available = False
+            job_permissions = job.get("permissions", workflow_permissions)
+            for index, step in enumerate(job.get("steps", [])):
+                if not isinstance(step, dict):
+                    continue
+                step_text = "\n".join(_strings(step))
+                if _ARTIFACT_DOWNLOAD.search(step_text):
+                    artifact_available = True
+                if not _AI_BOT_PATTERN.search(step_text):
+                    continue
+
+                sources = [match.group() for match in _UNTRUSTED_INPUTS.finditer(step_text)]
+                sources += [match.group() for match in _UNTRUSTED_ACTOR.finditer(step_text)]
+                sources += [match.group() for match in _EVENT_FILE.finditer(step_text)]
+                if artifact_available and (
+                    _ARTIFACT_DOWNLOAD.search(step_text)
+                    or _RETRIEVAL_SOURCE.search(step_text)
+                    or "run" in step
+                    or "with" in step
+                ):
+                    sources.append("downloaded workflow artifact")
+                if not sources:
+                    continue
+
+                capability = _capability(job_permissions, step_text)
+                for source in dict.fromkeys(sources):
+                    actor_only = bool(_UNTRUSTED_ACTOR.fullmatch(source))
+                    severity = Severity.HIGH if actor_only and capability == "network" else Severity.CRITICAL
+                    title = (
+                        "AI bot uses attacker-controlled ref/actor"
+                        if actor_only
+                        else "Untrusted CI data flows into an AI agent"
+                    )
+                    findings.append(Finding(
+                        finding_type=FindingType.PROMPT_INJECTION,
+                        severity=severity,
+                        package=PackageId(ecosystem="github", name=rel),
+                        title=title,
+                        detail=(
+                            f"Job '{job_id}' step {index + 1} passes {source!r} to an AI sink "
+                            f"with {capability} capability. Review the shortest source-to-sink path."
+                        ),
+                        cwe="CWE-77",
+                        confidence=0.90 if severity == Severity.CRITICAL else 0.75,
+                        references=[
+                            "https://snyk.io/blog/cline-supply-chain-attack-prompt-injection-github-actions/",
+                        ],
+                        metadata={
+                            "file": rel,
+                            "job": str(job_id),
+                            "step": index + 1,
+                            "input_source": source,
+                            "sink": "ai_agent",
+                            "capability": capability,
+                            "pattern": "source_sink_capability",
+                        },
+                    ))
         return findings
 
     def _scan_ai_configs(self, project_dir: Path) -> list[Finding]:
@@ -248,3 +294,27 @@ class CiAiBotScanner:
                 ))
 
         return findings
+
+
+def _strings(value: object):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _capability(permissions: object, step_text: str) -> str:
+    if permissions == "write-all":
+        return "repository-write"
+    if isinstance(permissions, dict) and any(value == "write" for value in permissions.values()):
+        return "repository-write"
+    if _SECRET_OR_WRITE.search(step_text):
+        return "secret-or-identity"
+    if "run" in step_text.lower():
+        return "shell"
+    return "network"

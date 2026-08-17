@@ -7,6 +7,7 @@ Responses are cached in ~/.depfence/cache/advisories.db (metadata table) for
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _CLIENT: httpx.AsyncClient | None = None
+_BATCH_CLIENT: contextvars.ContextVar[httpx.AsyncClient | None] = contextvars.ContextVar(
+    "depfence_fetch_batch_client", default=None
+)
 
 # Lazy-initialised download cache (None when cache is unavailable or disabled)
 _DOWNLOAD_CACHE: DownloadCache | None = None
@@ -57,20 +61,28 @@ def set_cache_enabled(enabled: bool) -> None:
 
 # Network-fetch master switch (mirrors --no-fetch). Scanners that do their OWN network
 # I/O (not just the metadata pre-fetch) consult this so --no-fetch is truly offline.
-_FETCH_ENABLED: bool = True
+_FETCH_ENABLED: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "depfence_fetch_enabled", default=True
+)
 
 
 def set_fetch_enabled(enabled: bool) -> None:
-    """Enable or disable network fetching process-wide (set from --no-fetch)."""
-    global _FETCH_ENABLED
-    _FETCH_ENABLED = enabled
+    """Enable or disable network fetching for the current scan context.
+
+    A context variable is intentional: concurrent scans must not be able to
+    re-enable one another's network access.  The old process-global boolean
+    made ``--no-fetch`` race with MCP and watch-mode scans in the same process.
+    """
+    _FETCH_ENABLED.set(bool(enabled))
 
 
 def fetch_enabled() -> bool:
-    return _FETCH_ENABLED
+    return _FETCH_ENABLED.get()
 
 
-async def fetch_npm_meta(pkg: PackageId) -> PackageMeta:
+async def fetch_npm_meta(
+    pkg: PackageId, *, client: httpx.AsyncClient | None = None
+) -> PackageMeta:
     cache = _get_download_cache()
 
     # Check cache first
@@ -80,11 +92,16 @@ async def fetch_npm_meta(pkg: PackageId) -> PackageMeta:
             log.debug("fetcher: npm cache hit for %s", pkg.name)
             return _parse_npm_meta(pkg, cached)
 
-    client = _get_client()
     url = f"https://registry.npmjs.org/{pkg.name}"
-    resp = await client.get(url)
-    resp.raise_for_status()
-    data = resp.json()
+    if client is None:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as owned_client:
+            resp = await owned_client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    else:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
 
     # Store in cache
     if cache:
@@ -141,7 +158,9 @@ def _parse_npm_meta(pkg: PackageId, data: dict) -> PackageMeta:
     )
 
 
-async def fetch_pypi_meta(pkg: PackageId) -> PackageMeta:
+async def fetch_pypi_meta(
+    pkg: PackageId, *, client: httpx.AsyncClient | None = None
+) -> PackageMeta:
     cache = _get_download_cache()
 
     # Cache key uses name only (version differentiated by URL but metadata is per-package)
@@ -153,13 +172,18 @@ async def fetch_pypi_meta(pkg: PackageId) -> PackageMeta:
             log.debug("fetcher: pypi cache hit for %s", cache_key)
             return _parse_pypi_meta(pkg, cached)
 
-    client = _get_client()
     url = f"https://pypi.org/pypi/{pkg.name}/json"
     if pkg.version:
         url = f"https://pypi.org/pypi/{pkg.name}/{pkg.version}/json"
-    resp = await client.get(url)
-    resp.raise_for_status()
-    data = resp.json()
+    if client is None:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as owned_client:
+            resp = await owned_client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    else:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
 
     if cache:
         try:
@@ -195,13 +219,11 @@ def _parse_pypi_meta(pkg: PackageId, data: dict) -> PackageMeta:
 
 
 async def fetch_meta(pkg: PackageId) -> PackageMeta:
-    fetchers = {
-        "npm": fetch_npm_meta,
-        "pypi": fetch_pypi_meta,
-    }
-    fetcher = fetchers.get(pkg.ecosystem)
-    if fetcher:
-        return await fetcher(pkg)
+    client = _BATCH_CLIENT.get()
+    if pkg.ecosystem == "npm":
+        return await fetch_npm_meta(pkg, client=client)
+    if pkg.ecosystem == "pypi":
+        return await fetch_pypi_meta(pkg, client=client)
     return PackageMeta(pkg=pkg)
 
 
@@ -215,12 +237,18 @@ async def fetch_batch(packages: list[PackageId], concurrency: int = 20) -> list[
             except Exception:
                 return PackageMeta(pkg=p)
 
-    return await asyncio.gather(*[_fetch(p) for p in packages])
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        token = _BATCH_CLIENT.set(client)
+        try:
+            return await asyncio.gather(*[_fetch(p) for p in packages])
+        finally:
+            _BATCH_CLIENT.reset(token)
 
 
 def _extract_repo_url(repo: dict | str) -> str:
     if isinstance(repo, str):
         return repo
     if isinstance(repo, dict):
-        return repo.get("url", "")
+        url = repo.get("url")
+        return url if isinstance(url, str) else ""
     return ""

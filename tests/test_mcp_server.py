@@ -19,22 +19,23 @@ Covers:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from mcp import Client
 
 from depfence.core.models import Finding, FindingType, PackageId, Severity
 from depfence.mcp.server import (
     PROTOCOL_VERSION,
     SERVER_NAME,
     SERVER_VERSION,
-    TOOL_DEFINITIONS,
     DepfenceMcpServer,
-    McpError,
-    _require_str,
+    create_server,
 )
 from depfence.mcp.tools import (
+    AdvisoryResult,
     AlternativeResult,
     CheckResult,
     LicenseResult,
@@ -102,9 +103,16 @@ async def test_initialize_declares_tools_capability():
 
 @pytest.mark.asyncio
 async def test_ping_returns_empty_result():
-    server = make_server()
-    resp = await call(server, "ping")
+    resp = await call(make_server(), "ping")
     assert resp["result"] == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_official_client_supports_modern_and_legacy(mode):
+    async with Client(create_server(), mode=mode) as client:
+        result = await client.list_tools()
+    assert {tool.name for tool in result.tools} >= {"check_package", "scan_project"}
 
 
 # ---------------------------------------------------------------------------
@@ -174,48 +182,34 @@ async def test_unknown_method_returns_method_not_found():
 
 
 @pytest.mark.asyncio
-async def test_malformed_json_returns_parse_error():
-    server = make_server()
-    raw_bytes = b"not valid json{"
-    resp_bytes = await server._handle_raw(raw_bytes)
-    assert resp_bytes is not None
-    resp = json.loads(resp_bytes)
-    assert resp["error"]["code"] == -32700
-
-
-@pytest.mark.asyncio
 async def test_unknown_tool_name_returns_error():
-    server = make_server()
-    resp = await call(server, "tools/call", {"name": "does_not_exist", "arguments": {}})
-    assert "error" in resp
-    assert resp["error"]["code"] == -32602
+    async with Client(create_server(), mode="auto") as client:
+        result = await client.call_tool("does_not_exist", {})
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
 async def test_missing_required_param_returns_error():
-    server = make_server()
-    # check_package requires 'name' and 'ecosystem'
-    resp = await call(server, "tools/call", {"name": "check_package", "arguments": {"name": "requests"}})
-    assert "error" in resp
+    async with Client(create_server(), mode="auto") as client:
+        result = await client.call_tool("check_package", {"name": "requests"})
+    assert result.is_error is True
 
 
-# ---------------------------------------------------------------------------
-# 5. _require_str helper
-# ---------------------------------------------------------------------------
-
-def test_require_str_ok():
-    assert _require_str({"key": "value"}, "key") == "value"
-
-
-def test_require_str_missing_raises():
-    with pytest.raises(McpError) as exc_info:
-        _require_str({}, "key")
-    assert exc_info.value.code == -32602
-
-
-def test_require_str_empty_raises():
-    with pytest.raises(McpError):
-        _require_str({"key": "  "}, "key")
+@pytest.mark.asyncio
+async def test_tool_exception_returns_fail_closed_result(tmp_path: Path):
+    tools = McpTools(root=tmp_path)
+    with patch.object(
+        tools,
+        "check_package",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("scanner failed"),
+    ):
+        async with Client(create_server(tool_provider=tools), mode="auto") as client:
+            result = await client.call_tool(
+                "check_package", {"name": "requests", "ecosystem": "pypi"}
+            )
+    assert result.is_error is True
+    assert result.structured_content is None
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +420,7 @@ async def test_tools_call_check_package_response_shape():
     content = json.loads(resp["result"]["content"][0]["text"])
     assert content["package"] == "numpy"
     assert content["safe"] is True
+    assert resp["result"]["structuredContent"] == content
     assert resp["result"]["isError"] is False
 
 
@@ -450,18 +445,20 @@ async def test_tools_call_scan_project_response_shape():
 @pytest.mark.asyncio
 async def test_tools_call_get_advisories_response_is_list():
     server = make_server()
-    advisories = [
-        {"id": "CVE-2024-001", "summary": "Test vuln", "severity": "HIGH",
-         "fixed_version": "2.0.0", "affected_versions": [], "references": [], "published": "2024-01-01"},
-    ]
+    advisories = AdvisoryResult(
+        package="somepkg", ecosystem="pypi", version=None,
+        advisories=[
+            {"id": "CVE-2024-001", "summary": "Test vuln", "severity": "HIGH",
+             "fixed_version": "2.0.0", "affected_versions": [], "references": [], "published": "2024-01-01"},
+        ], status="FAIL",
+    )
     with patch.object(server._tools, "get_advisories", new_callable=AsyncMock, return_value=advisories):
         resp = await call(server, "tools/call", {
             "name": "get_advisories",
             "arguments": {"package": "somepkg", "ecosystem": "pypi"},
         })
     content = json.loads(resp["result"]["content"][0]["text"])
-    assert isinstance(content, list)
-    assert content[0]["id"] == "CVE-2024-001"
+    assert content["advisories"][0]["id"] == "CVE-2024-001"
 
 
 @pytest.mark.asyncio
@@ -518,14 +515,32 @@ async def test_tools_call_check_license_response_shape():
 
 
 # ---------------------------------------------------------------------------
-# 13. TOOL_DEFINITIONS completeness
+# 13. SDK schemas and project-root containment
 # ---------------------------------------------------------------------------
 
-def test_tool_definitions_have_descriptions():
-    for tool in TOOL_DEFINITIONS:
-        assert len(tool.get("description", "")) > 20, f"{tool['name']} description too short"
+@pytest.mark.asyncio
+async def test_sdk_tools_have_typed_output_schemas():
+    tools = await create_server().list_tools()
+    assert all(tool.input_schema.get("type") == "object" for tool in tools)
+    assert all(tool.output_schema is not None for tool in tools)
 
 
-def test_tool_definitions_all_have_properties():
-    for tool in TOOL_DEFINITIONS:
-        assert "properties" in tool["inputSchema"], f"{tool['name']} missing properties"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/tmp", ".."])
+async def test_scan_project_rejects_absolute_and_parent_paths(tmp_path: Path, path: str):
+    async with Client(create_server(root=tmp_path), mode="auto") as client:
+        result = await client.call_tool("scan_project", {"path": path})
+    assert result.is_error is True
+
+
+@pytest.mark.asyncio
+async def test_scan_project_rejects_symlink_escape(tmp_path: Path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (tmp_path / "escape").symlink_to(outside, target_is_directory=True)
+    try:
+        async with Client(create_server(root=tmp_path), mode="auto") as client:
+            result = await client.call_tool("scan_project", {"path": "escape"})
+        assert result.is_error is True
+    finally:
+        outside.rmdir()

@@ -31,12 +31,12 @@ _CVE = re.compile(r"CVE-\d{4}-\d+", re.I)
 
 def _first_location(result):
     """`<uri>:<startLine>` from the first physicalLocation, or None. Never raises."""
-    for loc in (result.get("locations") or []):
+    for loc in result.get("locations") or []:
         phys = (loc or {}).get("physicalLocation") or {}
-        uri = ((phys.get("artifactLocation") or {}).get("uri"))
+        uri = (phys.get("artifactLocation") or {}).get("uri")
         if uri:
-            line = ((phys.get("region") or {}).get("startLine"))
-            return "%s:%s" % (uri, line) if line is not None else uri
+            line = (phys.get("region") or {}).get("startLine")
+            return f"{uri}:{line}" if line is not None else uri
     return None
 
 
@@ -44,8 +44,11 @@ def _tag_hits(result, pattern):
     """Scan result.properties (cwe/cve fields + tags) for a pattern. SAST tools stash CWE/CVE in
     properties rather than dedicated SARIF fields, so this is where they live."""
     props = result.get("properties") or {}
-    blob = " ".join(str(props.get(k, "")) for k in ("cwe", "cve", "tags")) + " " + json.dumps(
-        props.get("tags") or [])
+    blob = (
+        " ".join(str(props.get(k, "")) for k in ("cwe", "cve", "tags"))
+        + " "
+        + json.dumps(props.get("tags") or [])
+    )
     m = pattern.search(blob)
     return m.group(0).upper() if m else None
 
@@ -55,7 +58,7 @@ def normalize_sarif(sarif):
     one unified finding record. `failures` names anything that could not be parsed."""
     records, failures = [], []
     if not isinstance(sarif, dict):
-        return [], ["sarif root is not an object (%s)" % type(sarif).__name__]
+        return [], [f"sarif root is not an object ({type(sarif).__name__})"]
     runs = sarif.get("runs")
     if not isinstance(runs, list):
         return [], ["sarif has no `runs` array"]
@@ -65,25 +68,27 @@ def normalize_sarif(sarif):
         if results is None:
             continue
         if not isinstance(results, list):
-            failures.append("run[%d].results is not a list" % ri)
+            failures.append(f"run[{ri}].results is not a list")
             continue
         for result in results:
             if not isinstance(result, dict):
-                failures.append("run[%d] has a non-object result" % ri)
+                failures.append(f"run[{ri}] has a non-object result")
                 continue
-            rule = result.get("ruleId") or ("%s-unruled" % tool)
+            rule = result.get("ruleId") or (f"{tool}-unruled")
             msg = ((result.get("message") or {}).get("text")) or rule
-            records.append({
-                "rule": str(rule),
-                "severity": _LEVEL.get(str(result.get("level") or "warning").lower(), "medium"),
-                "title": str(msg).splitlines()[0][:160] if msg else str(rule),
-                "detail": str(msg)[:500],
-                "confidence": 0.9,
-                "package": None,                 # SAST: no dependency; kg_out omits `affects`
-                "cve": _tag_hits(result, _CVE),
-                "cwe": _tag_hits(result, _CWE),
-                "location": _first_location(result),
-            })
+            records.append(
+                {
+                    "rule": str(rule),
+                    "severity": _LEVEL.get(str(result.get("level") or "warning").lower(), "medium"),
+                    "title": str(msg).splitlines()[0][:160] if msg else str(rule),
+                    "detail": str(msg)[:500],
+                    "confidence": 0.9,
+                    "package": None,  # SAST: no dependency; kg_out omits `affects`
+                    "cve": _tag_hits(result, _CVE),
+                    "cwe": _tag_hits(result, _CWE),
+                    "location": _first_location(result),
+                }
+            )
     return records, failures
 
 
@@ -97,21 +102,23 @@ def load_sarif(path_or_text):
             with open(path_or_text) as fh:
                 data = json.load(fh)
     except (OSError, ValueError) as e:
-        return [], ["could not read SARIF: %s" % e]
+        return [], [f"could not read SARIF: {e}"]
     return normalize_sarif(data)
 
 
 if __name__ == "__main__":  # `semgrep scan --sarif ... | python -m depfence.parsers.sarif_in`
     import sys
+
     from depfence.reporters import kg_out
+
     raw = sys.stdin.read()
     recs, fails = load_sarif(raw)
     if fails:
-        sys.stderr.write("SARIF NOT PROVEN: %s\n" % "; ".join(fails[:3]))
+        sys.stderr.write("SARIF NOT PROVEN: {}\n".format("; ".join(fails[:3])))
         sys.exit(3)
     nodes = kg_out.build_nodes(recs)
     gate_fails = kg_out.gate(nodes)
     if gate_fails:
-        sys.stderr.write("KG NOT PROVEN: %s\n" % "; ".join(gate_fails[:3]))
+        sys.stderr.write("KG NOT PROVEN: {}\n".format("; ".join(gate_fails[:3])))
         sys.exit(3)
     sys.stdout.write(kg_out.render(nodes))

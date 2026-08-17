@@ -1,7 +1,7 @@
 # depfence Gap Analysis: Simply Cyber x June 2026 Threat Landscape
 
 **Date**: 2026-07-01
-**Source**: Simply Cyber Daily Cyber Threat Brief Ep 1143-1164 (Jun 1-30, 2026) cross-referenced against depfence v0.8.0 (56 scanners)
+**Source**: Simply Cyber Daily Cyber Threat Brief Ep 1143-1164 (Jun 1-30, 2026) cross-referenced against depfence v0.8.0 (55 registered scanners)
 **Method**: Threat stories from 22 episodes + independent research on AI agent attack vectors, verified against depfence source code
 
 ---
@@ -9,6 +9,52 @@
 ## Executive Summary
 
 depfence has strong coverage of traditional supply chain attacks (typosquatting, dep confusion, CI injection) and emerging AI threats (prompt injection, MCP tool poisoning, Gaslight-style anti-analysis). However, the June 2026 threat landscape reveals **10 verified gaps** where real-world attacks succeed against patterns depfence does not yet detect. The single biggest opportunity: **agent instruction file content analysis** — VentureBeat confirms "no supply chain scanner has a detection category for it." depfence can be first.
+
+## Implementation ledger — 2026-08-16
+
+This ledger supersedes the historical "what depfence has" and "what's missing"
+snapshots below. Those sections preserve the original research record; they are
+not current product claims.
+
+This ledger is evidence-oriented: “partial” means at least one firing case exists, not that the broader claim is proven.
+
+| Gap | State | Current evidence | Next proof required |
+|---|---|---|---|
+| 1. Agent instructions | Covered for static text inputs | Nested Cursor, Roo, Windsurf, Continue, GitHub instruction roots and arbitrary AGENTS/CLAUDE/GEMINI/SKILL files are scanned; malicious, benign, oversized, file-budget, and symlink cases are exercised in `tests/test_prompt_injection_scanner.py` and `tests/test_security_contracts_v08.py` | External-reference reputation is a separate, network-backed claim and remains deferred |
+| 2. Documentation payloads | Partial | Markdown/text, invisible Unicode, ANSI hiding, padding/tail analysis, size and file budgets are bounded; skipped candidates are named incomplete | Add explicit PDF/image/vector-store coverage |
+| 3. RAG poisoning | Partial | Bounded Markdown/text/JSON/JSONL/CSV corpora detect instruction payloads and padding; unsupported media is `UNPROVEN` | Add corpus provenance, cross-document anomaly scoring, and retrieval-pipeline correlation |
+| 4. AI advisories | Partial | Placeholder CVEs were removed; normal package scans now correlate exact PyPI package versions instead of limiting checks to `ai-scan`; failed remote lookups remain incomplete coverage | Replace the bundled list with a signed, freshness-checked feed before making current-intelligence claims |
+| 5. Fictional framing | Covered for the declared English correlation | Narrative framing only fires when correlated with a sensitive action and target; a benign-story counter-case is in `tests/test_prompt_injection_scanner.py` | Multilingual and semantic variants remain explicitly outside the 0.8 claim |
+| 6. AI VEX | Partial | CycloneDX 1.7 output no longer equates EPSS with exploitable | Require explicit exploitability evidence and define an AI inventory before an AI VEX claim |
+| 7. Least privilege | Partial | CI source→sink→capability paths and MCP root/network/tool assurance now fire | Add cross-agent identity, OAuth audience, memory, and deployment authority graphs |
+| 8. MCP CVE/runtime correlation | Partial | MCP launchers, pins, malicious packages, tool schemas, and authority declarations are checked | Add optional fingerprinted runtime inventory replay and drift correlation |
+| 9. Build payloads | Partial | Language build-hook scanners and bounded project workers exist | Correlate generated instructions/artifacts into downstream agent sinks |
+| 10. Agent-targeted activation | Open | Environment and CI patterns exist independently | Add condition/data-flow analysis for agent-only activation and benign feature gates |
+
+The continuous gate is: every new claim needs a firing case, a benign counter-case, named incomplete coverage, and a stable machine-readable result before this table can move to “covered.”
+
+### Current truth-to-release checkpoint — 2026-08-16
+
+- The dirty-tree suite passes 3,717 tests with warnings treated as errors. Five user-deleted test files are intentionally
+  excluded locally and must remain present in clean-checkout release validation.
+- Ruff and full-package mypy were clean at the checkpoint.
+- Python 3.14 project workers now use forkserver/spawn only; non-importable targets are
+  named `UNPROVEN`. SQLite and HTTP-client owners close deterministically, and the complete
+  suite passes with warnings treated as errors.
+- The latest private fleet audit completed 316 opaque candidates: 115 valid worktrees and
+  201 malformed recovery placeholders. All results remain triage evidence, not proof that
+  the host is clean.
+- Provenance remains `not_present`, `unavailable`, or `present_unverified`; no code path may
+  emit `verified` until cryptographic digest, signature, identity, issuer, source, and time
+  evidence are actually checked.
+
+### DepFence 0.8 release-candidate evidence — 2026-08-15
+
+- A reconstructed detached worktree retained the five tests deleted only in the developer's working tree; the current Python 3.14 strict suite passes 3,878 tests with warnings treated as errors. The earlier cross-version gate passed on every declared interpreter from CPython 3.10 through 3.14 and must be rerun before publication.
+- Full-package mypy passed 168 source files, full Ruff passed `depfence` and `tests`, and the documentation, Action, schema, and whitespace gates passed.
+- The wheel and sdist passed strict Twine validation. The sdist contains the five retained HEAD tests, and a clean Python 3.12 wheel install loaded both commands, both schemas, the standalone dashboard, 55 scanner, 2 analyzer, and 8 reporter entry points.
+- The intermittent SQLite failure was reproduced as descriptor growth above 200 handles. Explicit transaction closure reduced a 500-cache stress test from unbounded growth to a zero-descriptor delta.
+- External TestPyPI upload, consumer-canary execution, tagging, and Trusted Publishing remain release gates; none is represented here as completed.
 
 ---
 

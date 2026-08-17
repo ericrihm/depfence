@@ -27,6 +27,55 @@ def _write_mcp_config(project_dir: Path, config: dict, filename: str = ".mcp.jso
 
 
 class TestCommandDetection:
+    def test_declared_read_only_authority_is_proven(self, scanner, tmp_path):
+        _write_mcp_config(tmp_path, {
+            "mcpServers": {
+                "reader": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "roots": ["./docs"],
+                    "network": False,
+                    "tools": [{
+                        "name": "read_file",
+                        "annotations": {"readOnlyHint": True},
+                    }],
+                }
+            }
+        })
+        findings = _run(scanner.scan_project(tmp_path))
+        assert not any(f.metadata.get("assurance") == "unproven" for f in findings)
+
+    def test_missing_runtime_inventory_is_explicitly_unproven(self, scanner, tmp_path):
+        _write_mcp_config(tmp_path, {
+            "mcpServers": {"unknown": {"command": "trusted-server"}}
+        })
+        findings = _run(scanner.scan_project(tmp_path))
+        assert any(f.metadata.get("assurance") == "unproven" for f in findings)
+
+    def test_destructive_tools_plus_credentials_fire_without_annotation_downgrade(
+        self, scanner, tmp_path
+    ):
+        _write_mcp_config(tmp_path, {
+            "mcpServers": {
+                "publisher": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "roots": ["./release"],
+                    "network": {"domains": ["registry.example"]},
+                    "env": {"PUBLISH_TOKEN": "${PUBLISH_TOKEN}"},
+                    "tools": [{
+                        "name": "publish_package",
+                        "annotations": {"readOnlyHint": True},
+                    }],
+                }
+            }
+        })
+        findings = _run(scanner.scan_project(tmp_path))
+        assert any(
+            f.severity == Severity.CRITICAL and "destructive tools" in f.title
+            for f in findings
+        )
+
     def test_clean_config(self, scanner, tmp_path):
         _write_mcp_config(tmp_path, {
             "mcpServers": {

@@ -31,7 +31,7 @@ import httpx
 from packaging.version import InvalidVersion, Version
 
 from depfence.core.fetcher import _get_client, fetch_enabled
-from depfence.core.models import Finding, FindingType, PackageMeta, Severity
+from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
 _DISABLE = {"0", "false", "no", "off"}
 # Characters / prefixes that mean "not a single exact version".
@@ -138,18 +138,19 @@ class VersionExistenceScanner:
             return []
 
         # Unique exact pins only — skip ranges/wildcards/aliases/urls/None (no network).
-        targets = {
-            (m.pkg.ecosystem, m.pkg.name, m.pkg.version)
-            for m in packages
-            if m.pkg.ecosystem in ("npm", "pypi") and _is_exact(m.pkg.version)
-        }
+        targets: set[tuple[str, str, str]] = set()
+        for package_meta in packages:
+            version = package_meta.pkg.version
+            if package_meta.pkg.ecosystem in ("npm", "pypi") and _is_exact(version):
+                assert version is not None
+                targets.add((package_meta.pkg.ecosystem, package_meta.pkg.name, version))
         if not targets:
             return []
 
         client = _get_client()
         sem = asyncio.Semaphore(10)
 
-        async def _one(eco: str, name: str, ver: str):
+        async def _one(eco: str, name: str, ver: str) -> tuple[tuple[str, str, str], str]:
             async with sem:
                 if eco == "npm":
                     kind = await _resolve_npm(client, name, ver)
@@ -162,7 +163,10 @@ class VersionExistenceScanner:
         findings: list[Finding] = []
         unverified: list[str] = []
         for m in packages:
-            key = (m.pkg.ecosystem, m.pkg.name, m.pkg.version)
+            version = m.pkg.version
+            if version is None:
+                continue
+            key = (m.pkg.ecosystem, m.pkg.name, version)
             kind = resolved.get(key)
             if kind is None:
                 continue
@@ -202,10 +206,20 @@ class VersionExistenceScanner:
                 ))
 
         # De-duplicate identical findings (same pin in multiple manifests).
-        seen = set()
-        deduped = []
+        seen: set[tuple[str, str, str | None, object]] = set()
+        deduped: list[Finding] = []
         for f in findings:
-            k = (f.package.ecosystem, f.package.name, f.package.version, f.metadata.get("fault"))
+            finding_package = f.package
+            k: tuple[str, str, str | None, object]
+            if isinstance(finding_package, str):
+                k = ("", finding_package, None, f.metadata.get("fault"))
+            else:
+                k = (
+                    finding_package.ecosystem,
+                    finding_package.name,
+                    finding_package.version,
+                    f.metadata.get("fault"),
+                )
             if k not in seen:
                 seen.add(k)
                 deduped.append(f)
@@ -233,6 +247,5 @@ def _registry_url(eco: str, name: str) -> str:
     return f"https://pypi.org/project/{name}/"
 
 
-def _anon_pkg():
-    from depfence.core.models import PackageId
+def _anon_pkg() -> PackageId:
     return PackageId("multi", "(dependencies)")

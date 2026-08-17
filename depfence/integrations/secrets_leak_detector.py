@@ -9,7 +9,7 @@ redacted hint (e.g. ``AWS access key AKIAIOSF****MPLE``). Any full scan hits
 are also forwarded to the depfence signal bus for fleet-wide observability.
 
 Disable: ``DEPFENCE_SECRETS_LEAK=0``  (also accepts ``false`` / ``no`` / ``off``)
-Signal bus: ``~/.depfence/signals/pending.jsonl``
+Signal bus: ``~/.depfence/private/v1/signals/pending.jsonl``
 """
 
 from __future__ import annotations
@@ -18,14 +18,11 @@ import json
 import os
 import re
 import sys
-import time as _time
+
+from depfence.core.signal_bus import emit_signal
 
 _DISABLE = {"0", "false", "no", "off"}
 _FILE_TOOLS = {"Write", "Edit", "MultiEdit"}
-
-_SIGNAL_BUS_PENDING = os.environ.get(
-    "DEPFENCE_SIGNAL_BUS", os.path.expanduser("~/.depfence/signals/pending.jsonl")
-)
 
 # ---------------------------------------------------------------------------
 # Exempt file types — expected to hold secrets intentionally.
@@ -175,24 +172,14 @@ def _scan(content: str) -> list[str]:
 # Signal bus
 # ---------------------------------------------------------------------------
 
-def _emit_signal(findings: list[str], file_path: str) -> None:
-    """Best-effort write a depfence_secrets_leak signal to the signal bus."""
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(_SIGNAL_BUS_PENDING)), exist_ok=True)
-        sig = json.dumps({
-            "name": "depfence_secrets_leak",
-            "value": {
-                "findings": findings,
-                "file": file_path,
-                "count": len(findings),
-            },
-            "source": "depfence_secrets_leak_detector",
-            "timestamp": _time.time(),
-        })
-        with open(_SIGNAL_BUS_PENDING, "a") as f:
-            f.write(sig + "\n")
-    except OSError:
-        pass  # best-effort — a hook must never crash the tool call
+def _emit_signal(findings: list[str], file_path: str) -> str | None:
+    """Write a bounded private signal and report degraded observability."""
+    return emit_signal(
+        name="depfence_secrets_leak",
+        value={"findings": findings, "count": len(findings)},
+        source="depfence_secrets_leak_detector",
+        file_path=file_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +213,7 @@ def main(data: dict) -> dict:
     if not findings:
         return {}
 
-    _emit_signal(findings, file_path)
+    signal_error = _emit_signal(findings, file_path)
 
     bullet_list = "\n  - ".join(findings)
     msg = (
@@ -235,6 +222,8 @@ def main(data: dict) -> dict:
         "Rotate any exposed credentials immediately. "
         "If these are test/placeholder values, use non-secret-pattern names or move them to a .env file."
     )
+    if signal_error:
+        msg += f"\nLocal observability: {signal_error}."
     return {"systemMessage": msg}
 
 

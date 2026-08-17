@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from depfence import __version__
 from depfence.integrations.ci_generator import (
     generate_bitbucket_pipelines,
     generate_github_actions,
@@ -26,6 +27,10 @@ class TestGitHubActions:
         output = generate_github_actions(fail_on="critical")
         assert "fail-on critical" in output
 
+    def test_invalid_fail_on_rejected(self):
+        with pytest.raises(ValueError, match="Unsupported failure threshold"):
+            generate_github_actions(fail_on="high\nrun: echo injected")
+
     def test_docker_scan_included(self):
         output = generate_github_actions(scan_docker=True)
         assert "scan-docker" in output
@@ -35,12 +40,29 @@ class TestGitHubActions:
         assert "compliance" in output
         assert "upload-artifact" in output
 
+    def test_generated_workflow_is_pinned_and_fail_closed(self):
+        output = generate_github_actions()
+        assert f'pip install "depfence=={__version__}"' in output
+        assert "actions/checkout@v" not in output
+        assert "actions/setup-python@v" not in output
+        assert "github/codeql-action/upload-sarif@v" not in output
+        assert "Enforce scan result" in output
+        assert "SCAN_EXIT_CODE" in output
+
+    def test_privileged_sarif_upload_is_not_in_pull_request_job(self):
+        output = generate_github_actions()
+        scan_job, upload_job = output.split("  upload-sarif:", 1)
+        assert "security-events: write" not in scan_job
+        assert "github.event_name != 'pull_request'" in upload_job
+        assert "security-events: write" in upload_job
+
 
 class TestGitLabCI:
     def test_basic_config(self):
         output = generate_gitlab_ci()
         assert "depfence-scan" in output
-        assert "dependency_scanning" in output
+        assert "dependency_scanning" not in output
+        assert "depfence-results.json" in output
         assert "pip install depfence" in output
 
     def test_custom_fail_on(self):

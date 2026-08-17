@@ -160,12 +160,48 @@ class TestProvenanceStatusDataclass:
             source_repo="https://github.com/lodash/lodash",
             transparency_log=True,
             verified=True,
+            status="verified",
+            signature_verified=True,
+            artifact_digest_verified=True,
+            signer_identity_verified=True,
+            issuer_verified=True,
+            source_verified=True,
+            builder_verified=True,
+            external_parameters_verified=True,
+            trusted_time_verified=True,
         )
         assert status.has_provenance is True
         assert status.provenance_type == "npm-attestation"
         assert status.builder == "github-actions"
         assert status.transparency_log is True
         assert status.verified is True
+        assert status.status == "verified"
+
+    def test_verified_state_without_complete_evidence_is_rejected(self):
+        with pytest.raises(ValueError, match="artifact digest"):
+            ProvenanceStatus(
+                package=PackageId("npm", "lodash", "4.17.21"),
+                has_provenance=True,
+                provenance_type="sigstore",
+                builder="github-actions",
+                source_repo="https://github.com/lodash/lodash",
+                transparency_log=True,
+                verified=True,
+                status="verified",
+            )
+
+    def test_verified_flag_and_status_cannot_disagree(self):
+        with pytest.raises(ValueError, match="disagree"):
+            ProvenanceStatus(
+                package=PackageId("npm", "lodash", "4.17.21"),
+                has_provenance=True,
+                provenance_type="sigstore",
+                builder=None,
+                source_repo=None,
+                transparency_log=False,
+                verified=True,
+                status="present_unverified",
+            )
 
     def test_unknown_status_helper(self):
         pkg = PackageId("pypi", "requests", "2.31.0")
@@ -194,8 +230,9 @@ class TestNpmProvenanceChecker:
 
         assert status.has_provenance is True
         assert status.provenance_type == "npm-attestation"
-        assert status.transparency_log is True
-        assert status.verified is True
+        assert status.transparency_log is False
+        assert status.verified is False
+        assert status.status == "present_unverified"
 
     @pytest.mark.asyncio
     async def test_no_attestations_returns_has_provenance_false(self):
@@ -227,7 +264,8 @@ class TestNpmProvenanceChecker:
 
         assert status.has_provenance is True
         assert status.provenance_type == "sigstore"
-        assert status.transparency_log is True
+        assert status.transparency_log is False
+        assert status.verified is False
 
     @pytest.mark.asyncio
     async def test_404_returns_unknown(self):
@@ -294,7 +332,9 @@ class TestPypiProvenanceChecker:
         assert status.has_provenance is True
         assert status.provenance_type == "slsa-github"
         assert status.builder == "github-actions"
-        assert status.transparency_log is True
+        assert status.transparency_log is False
+        assert status.verified is False
+        assert status.status == "present_unverified"
 
     @pytest.mark.asyncio
     async def test_attestation_url_in_info_returns_has_provenance_true(self):
@@ -452,6 +492,23 @@ class TestUnsupportedEcosystems:
 
 class TestFindingGeneration:
     @pytest.mark.asyncio
+    async def test_unavailable_lookup_marks_assurance_unproven(self, tmp_path):
+        (tmp_path / "requirements.txt").write_text("requests==2.31.0\n")
+        checker = ProvenanceChecker()
+        unavailable = _unknown_status(
+            PackageId("pypi", "requests", "2.31.0"), "request timed out"
+        )
+
+        with patch.object(
+            checker, "check_batch", AsyncMock(return_value=[unavailable])
+        ):
+            findings = await checker.scan_project(tmp_path)
+
+        assert len(findings) == 1
+        assert findings[0].metadata["provenance_status"] == "unavailable"
+        assert findings[0].metadata["assurance"] == "unproven"
+
+    @pytest.mark.asyncio
     async def test_missing_provenance_generates_medium_finding(self, tmp_path):
         """An obscure package without provenance → MEDIUM severity."""
         lock = tmp_path / "package-lock.json"
@@ -529,8 +586,8 @@ class TestFindingGeneration:
         assert f.metadata.get("popular") is True
 
     @pytest.mark.asyncio
-    async def test_package_with_provenance_generates_no_finding(self, tmp_path):
-        """A package that has attestations should not generate any finding."""
+    async def test_package_with_unverified_provenance_generates_finding(self, tmp_path):
+        """An advertised attestation is not equivalent to verified provenance."""
         lock = tmp_path / "package-lock.json"
         lock.write_text(
             json.dumps(
@@ -559,7 +616,8 @@ class TestFindingGeneration:
 
             findings = await checker.scan_project(tmp_path)
 
-        assert findings == []
+        assert len(findings) == 1
+        assert findings[0].metadata["provenance_status"] == "present_unverified"
 
     @pytest.mark.asyncio
     async def test_mixed_packages_only_flags_missing(self, tmp_path):
@@ -597,8 +655,10 @@ class TestFindingGeneration:
 
             findings = await checker.scan_project(tmp_path)
 
-        assert len(findings) == 1
-        assert findings[0].package.name == "my-pkg"
+        assert len(findings) == 2
+        by_package = {finding.package.name: finding for finding in findings}
+        assert by_package["lodash"].metadata["provenance_status"] == "present_unverified"
+        assert by_package["my-pkg"].metadata["provenance_status"] == "not_present"
 
     @pytest.mark.asyncio
     async def test_pypi_popular_package_escalated_to_high(self, tmp_path):

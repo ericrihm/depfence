@@ -137,7 +137,7 @@ class TestVulnerabilityRequiredFields:
 
     def test_affects_ref_correct_value(self):
         sbom = generate_sbom([_NPM_PKG], [_vuln_finding(pkg=_NPM_PKG)])
-        assert sbom["vulnerabilities"][0]["affects"][0]["ref"] == "npm:lodash@4.17.21"
+        assert sbom["vulnerabilities"][0]["affects"][0]["ref"] == "pkg:npm/lodash@4.17.21"
 
     def test_description_field_populated_from_detail(self):
         detail = "Specific vulnerability detail text."
@@ -229,20 +229,20 @@ class TestEpssInAnalysis:
         # 0.0 EPSS => no exploitation signal => in_triage
         assert sbom["vulnerabilities"][0]["analysis"]["state"] == "in_triage"
 
-    def test_positive_epss_score_yields_exploitable_state(self):
+    def test_positive_epss_score_does_not_claim_exploitability(self):
         finding = _vuln_finding(metadata={"epss_score": 0.75})
         sbom = generate_sbom([_NPM_PKG], [finding])
-        assert sbom["vulnerabilities"][0]["analysis"]["state"] == "exploitable"
+        assert sbom["vulnerabilities"][0]["analysis"]["state"] == "in_triage"
 
     def test_no_epss_yields_in_triage_state(self):
         finding = _vuln_finding(metadata={})
         sbom = generate_sbom([_NPM_PKG], [finding])
         assert sbom["vulnerabilities"][0]["analysis"]["state"] == "in_triage"
 
-    def test_low_epss_score_still_exploitable(self):
+    def test_low_epss_score_remains_in_triage(self):
         finding = _vuln_finding(metadata={"epss_score": 0.001})
         sbom = generate_sbom([_NPM_PKG], [finding])
-        assert sbom["vulnerabilities"][0]["analysis"]["state"] == "exploitable"
+        assert sbom["vulnerabilities"][0]["analysis"]["state"] == "in_triage"
 
     def test_epss_detail_format(self):
         finding = _vuln_finding(metadata={"epss_score": 0.123})

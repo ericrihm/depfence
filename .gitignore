@@ -40,6 +40,10 @@ plugins.local/
 *.local.yaml
 *.local.json
 .depfence.local
+# Machine-local DepFence state must never enter a project repository.
+/.depfence/
+**/.depfence/private/
+**/.depfence/signals/
 *.db
 threat_intel.db
 models/*.pkl

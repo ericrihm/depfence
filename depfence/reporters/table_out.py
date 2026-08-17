@@ -34,7 +34,8 @@ class TableReporter:
         width = max(80, min(term_width, 200))
 
         color = sys.stdout.isatty()
-        console = Console(record=True, width=width, file=io.StringIO(), force_terminal=color)
+        buffer = io.StringIO()
+        console = Console(record=True, width=width, file=buffer, force_terminal=color)
 
         console.print()
         console.print(f"[bold]depfence scan: {result.target}[/bold]")
@@ -46,9 +47,22 @@ class TableReporter:
         )
         console.print()
 
+        if result.errors or result.scanner_errors:
+            error_count = len(set(result.errors)) + len(result.scanner_errors)
+            console.print(
+                f"[bold magenta]INDETERMINATE: {error_count} scan stage error(s); "
+                "absence of findings is not a pass.[/bold magenta]"
+            )
+            for error in result.errors[:5]:
+                console.print(Text(f"  - {error}", style="magenta"))
+            for scanner, error in list(sorted(result.scanner_errors.items()))[:5]:
+                console.print(Text(f"  - {scanner}: {error}", style="magenta"))
+            console.print()
+
         if not result.findings:
-            console.print("[green]No issues found.[/green]")
-            return console.export_text()
+            if not result.errors and not result.scanner_errors:
+                console.print("[green]No issues found in the evaluated corpus.[/green]")
+            return str(console.export_text())
 
         table = Table(show_header=True, header_style="bold", expand=True)
         table.add_column("Severity", width=10)
@@ -97,5 +111,5 @@ class TableReporter:
             console.print("[bold red]BLOCKED: Critical issues or malicious packages detected.[/bold red]")
 
         if color:
-            return console.file.getvalue()
-        return console.export_text()
+            return buffer.getvalue()
+        return str(console.export_text())

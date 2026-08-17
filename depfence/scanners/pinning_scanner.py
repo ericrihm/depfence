@@ -98,7 +98,7 @@ class PinningScanner:
     # ------------------------------------------------------------------
 
     def _check_requirements(self, project_dir: Path) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         for req_file in project_dir.glob("requirements*.txt"):
             try:
                 content = req_file.read_text()
@@ -148,7 +148,7 @@ class PinningScanner:
     # ------------------------------------------------------------------
 
     def _check_package_json(self, project_dir: Path) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         pkg_json = project_dir / "package.json"
         if not pkg_json.exists():
             return findings
@@ -212,7 +212,7 @@ class PinningScanner:
     # ------------------------------------------------------------------
 
     def _check_cargo(self, project_dir: Path) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         cargo_toml = project_dir / "Cargo.toml"
         if not cargo_toml.exists():
             return findings
@@ -270,7 +270,7 @@ class PinningScanner:
 
     def _check_cargo_regex(self, cargo_toml: Path, project_dir: Path) -> list[Finding]:
         """Regex fallback when tomllib is unavailable."""
-        findings = []
+        findings: list[Finding] = []
         rel_path = str(cargo_toml.relative_to(project_dir))
         try:
             content = cargo_toml.read_text()
@@ -316,7 +316,7 @@ class PinningScanner:
     # ------------------------------------------------------------------
 
     def _check_lockfiles(self, project_dir: Path) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
 
         # --- npm ---
         has_pkg_json = (project_dir / "package.json").exists()

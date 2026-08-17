@@ -40,7 +40,7 @@ class DockerfileScanner:
         return findings
 
     def _find_dockerfiles(self, project_dir: Path) -> list[Path]:
-        files = []
+        files: list[Path] = []
         patterns = ["Dockerfile", "Dockerfile.*", "*.dockerfile", "docker/Dockerfile*"]
         for pattern in patterns:
             files.extend(project_dir.glob(pattern))

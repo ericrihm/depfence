@@ -36,6 +36,8 @@ class SecretMatch:
 
     def to_finding(self) -> Finding:
         preview = self.masked_preview or _mask(self.matched_text)
+        safe_before = [_redact_context(line) for line in self.context_before]
+        safe_after = [_redact_context(line) for line in self.context_after]
         return Finding(
             finding_type=FindingType.SECRET_EXPOSED,
             severity=self.severity,
@@ -51,8 +53,8 @@ class SecretMatch:
                 "line": self.line_num,
                 "secret_type": self.secret_type,
                 "masked_preview": preview,
-                "context_before": self.context_before,
-                "context_after": self.context_after,
+                "context_before": safe_before,
+                "context_after": safe_after,
             },
         )
 
@@ -186,6 +188,25 @@ _SECRET_PATTERNS: list[tuple[str, str, Severity, int]] = [
         0,
     ),
 ]
+
+
+def _redact_context(line: str) -> str:
+    """Mask every known secret in a context line before it reaches a report."""
+    redacted = line
+    for pattern, _label, _severity, group_index in _SECRET_PATTERNS:
+        regex = re.compile(pattern)
+
+        def replace(match: re.Match[str], selected_group: int = group_index) -> str:
+            if selected_group and match.lastindex and selected_group <= match.lastindex:
+                start, end = match.span(selected_group)
+                relative_start = start - match.start()
+                relative_end = end - match.start()
+                value = match.group(0)
+                return value[:relative_start] + _mask(match.group(selected_group)) + value[relative_end:]
+            return _mask(match.group(0))
+
+        redacted = regex.sub(replace, redacted)
+    return redacted
 
 # Files/dirs to skip entirely
 _SKIP_DIRS = frozenset({

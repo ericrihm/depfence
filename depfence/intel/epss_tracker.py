@@ -84,9 +84,13 @@ class EPSSTracker:
             return self._conn
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.row_factory = sqlite3.Row
-        self._ensure_schema(conn)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.row_factory = sqlite3.Row
+            self._ensure_schema(conn)
+        except BaseException:
+            conn.close()
+            raise
         self._conn = conn
         return conn
 
@@ -111,6 +115,12 @@ class EPSSTracker:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def __enter__(self) -> EPSSTracker:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()

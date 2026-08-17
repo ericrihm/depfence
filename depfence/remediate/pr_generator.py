@@ -325,7 +325,7 @@ class RemediationPR:
 
     def _infer_files(
         self,
-        items: list[tuple[Finding, AnyStrategy]],
+        items: Sequence[tuple[Finding, AnyStrategy]],
         project_dir: Path,
     ) -> list[str]:
         """Return manifest paths that would be modified for the given items."""

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.fleet-checkpoint-manifest/v1.json",
+  "title": "DepFence fleet checkpoint manifest v1",
+  "type": "object",
+  "required": ["schema_version", "audit_id", "root_id", "created_at", "lifecycle", "completed", "unfinished"],
+  "properties": {
+    "schema_version": {"const": "depfence.fleet-checkpoint-manifest/v1"},
+    "audit_id": {"type": "string", "pattern": "^fleet_audit-hmac-sha256:[0-9a-f]{64}$"},
+    "root_id": {"type": "string", "pattern": "^fleet-hmac-sha256:[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "lifecycle": {"enum": ["ACTIVE", "COMPLETE", "INTERRUPTED"]},
+    "completed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["project_id", "checkpoint"],
+        "properties": {
+          "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+          "checkpoint": {"type": "string", "pattern": "^evidence/fleet-audit/[0-9a-f]{64}/projects/[0-9a-f]{64}\\.json$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "unfinished": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["project_id", "status", "cause"],
+        "properties": {
+          "project_id": {"type": "string", "pattern": "^project-hmac-sha256:[0-9a-f]{64}$"},
+          "status": {"const": "INDETERMINATE"},
+          "cause": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf '%s\n' "depfence worker: $1" >&2
+    exit 64
+}
+
+self_test() {
+    test "$(id -u)" = "65532" || fail "worker must run as uid 65532"
+    test "$(id -g)" = "65532" || fail "worker must run as gid 65532"
+    case "${DEPFENCE_WORKER_ROLE:-}" in
+        intake)
+            command -v git >/dev/null
+            command -v depfence-sealed-git-resolve >/dev/null
+            command -v depfence-sealed-git-acquire >/dev/null
+            command -v depfence-sealed-git-inventory >/dev/null
+            ;;
+        static)
+            command -v git >/dev/null
+            command -v ots-sanitize >/dev/null
+            command -v woff2_decompress >/dev/null
+            command -v depfence-sealed-git-inventory >/dev/null
+            command -v depfence-sealed-git-analyze >/dev/null
+            ;;
+        render)
+            command -v chromium >/dev/null
+            command -v pdftoppm >/dev/null
+            command -v pdftotext >/dev/null
+            command -v soffice >/dev/null
+            command -v tesseract >/dev/null
+            command -v depfence-artifact-analyzer >/dev/null
+            ;;
+        *) fail "unknown worker role" ;;
+    esac
+    printf '{"protocol":1,"role":"%s","uid":65532}\n' "$DEPFENCE_WORKER_ROLE"
+}
+
+if [ "$#" -eq 1 ] && [ "$1" = "--self-test" ]; then
+    self_test
+    exit 0
+fi
+
+test "$#" -gt 0 || fail "a worker command is required"
+case "${DEPFENCE_WORKER_ROLE:-}:$1" in
+    intake:depfence-sealed-git-resolve|intake:depfence-sealed-git-acquire|intake:depfence-sealed-git-inventory|static:depfence-sealed-git-inventory|static:depfence-sealed-git-analyze|render:depfence-artifact-analyzer)
+        command="$1"
+        shift
+        exec "$command" "$@"
+        ;;
+    *) fail "command is not permitted for this worker role" ;;
+esac

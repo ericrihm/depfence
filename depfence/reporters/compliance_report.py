@@ -20,6 +20,7 @@ from depfence import __version__
 from depfence.core.license_compat import check_license_compatibility, detect_project_license
 from depfence.core.models import Finding, ScanResult, Severity
 from depfence.core.risk_scorer import risk_summary, score_all_packages
+from depfence.reporters.package_id import coerce_package_id
 
 
 def generate_compliance_report(
@@ -177,7 +178,7 @@ def _findings_by_type(findings: list[Finding]) -> dict[str, int]:
 def _findings_by_ecosystem(findings: list[Finding]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for f in findings:
-        eco = f.package.split(":")[0] if ":" in f.package else "unknown"
+        eco = coerce_package_id(f.package).ecosystem
         counts[eco] = counts.get(eco, 0) + 1
     return counts
 

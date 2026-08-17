@@ -42,6 +42,54 @@ def _write_ai_config(project_dir: Path, rel: str, content: str) -> Path:
 # ---------------------------------------------------------------------------
 
 class TestWorkflowClinejection:
+    def test_github_event_path_to_ai_prompt_fires(self, scanner, tmp_path):
+        _write_workflow(tmp_path, "event-file.yml", """
+on: issues
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - run: openai-agent --prompt "$(jq -r .issue.body \"$GITHUB_EVENT_PATH\")"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+""")
+        findings = _run(scanner.scan_project(tmp_path))
+        assert any("GITHUB_EVENT_PATH" in f.metadata.get("input_source", "") for f in findings)
+
+    def test_downloaded_artifact_to_ai_prompt_fires(self, scanner, tmp_path):
+        _write_workflow(tmp_path, "artifact.yml", """
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: claude --prompt "$(cat artifact/summary.md)"
+""")
+        findings = _run(scanner.scan_project(tmp_path))
+        assert any(f.metadata.get("input_source") == "downloaded workflow artifact" for f in findings)
+        assert any(f.severity == Severity.CRITICAL for f in findings)
+
+    def test_unrelated_interpolation_and_static_ai_are_not_correlated(self, scanner, tmp_path):
+        _write_workflow(tmp_path, "unrelated.yml", """
+on: issues
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.issue.body }}" > /dev/null
+      - uses: anthropic/claude-action@v1
+        with:
+          prompt: "Summarize these trusted static release notes"
+""")
+        findings = _run(scanner.scan_project(tmp_path))
+        assert not any(f.severity == Severity.CRITICAL for f in findings)
+
     def test_ai_bot_with_issue_title_injection(self, scanner, tmp_path):
         """AI workflow interpolating github.event.issue.title → CRITICAL."""
         _write_workflow(tmp_path, "review.yml", """

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
 from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
@@ -49,7 +50,13 @@ class AstAnalyzer:
         findings: list[Finding] = []
         try:
             source = filepath.read_text(errors="replace")
-            tree = ast.parse(source)
+            # Repository source is untrusted input. Python 3.12+ can emit an
+            # unbounded SyntaxWarning stream for invalid escape sequences even
+            # when the file parses successfully. Those diagnostics neither
+            # establish nor negate scanner coverage, so contain them locally.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(source)
         except (SyntaxError, UnicodeDecodeError):
             return findings
 
@@ -119,7 +126,7 @@ class AstAnalyzer:
             return node.func.id
         if isinstance(node.func, ast.Attribute):
             parts = []
-            current = node.func
+            current: ast.expr = node.func
             while isinstance(current, ast.Attribute):
                 parts.append(current.attr)
                 current = current.value

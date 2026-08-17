@@ -13,7 +13,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from depfence.core.models import Finding, FindingType, Severity
+from depfence.core.models import Finding, FindingType, PackageMeta, Severity
+from depfence.core.scan_scope import PartialScanError, ScanIncompleteError, ScanScope
+
+_MAX_PYTHON_FILES = 200
+_MAX_PYTHON_BYTES = 1_000_000
+_EXCLUDED_PARTS = frozenset({".venv", "venv", "node_modules", "site-packages"})
 
 _KNOWN_VULNS: list[dict] = [
     {
@@ -122,20 +127,6 @@ _KNOWN_VULNS: list[dict] = [
         "cve": "CVE-2025-47250",
     },
     {
-        "package": "pytorch-lightning",
-        "versions": ["<2.5.0"],
-        "severity": Severity.CRITICAL,
-        "title": "Supply chain compromise via malicious checkpoint loading",
-        "cve": "CVE-2026-XXXXX",
-    },
-    {
-        "package": "litellm",
-        "versions": ["<1.55.0"],
-        "severity": Severity.HIGH,
-        "title": "SSRF and credential exposure in proxy endpoint",
-        "cve": "CVE-2026-XXXXX",
-    },
-    {
         "package": "gradio",
         "versions": ["<5.0.0"],
         "severity": Severity.HIGH,
@@ -181,7 +172,10 @@ _UNSAFE_PATTERNS: list[dict] = [
         "severity": Severity.CRITICAL,
     },
     {
-        "pattern": re.compile(r"subprocess\.(?:run|call|Popen)\s*\([^)]*(?:response|output|result|completion)"),
+        "pattern": re.compile(
+            r"subprocess\.(?:run|call|Popen)\s*\([^)]*"
+            r"(?<![A-Za-z0-9_])(?:response|output|result|completion)(?![A-Za-z0-9_])"
+        ),
         "title": "LLM output passed to subprocess",
         "detail": "Passing LLM-generated content to subprocess enables command injection via prompt injection.",
         "severity": Severity.CRITICAL,
@@ -198,15 +192,26 @@ _UNSAFE_PATTERNS: list[dict] = [
 class AiVulnScanner:
     ecosystems = ["pypi"]
 
-    async def scan(self, packages: list) -> list:
-        """Standard interface — this scanner uses scan_project() instead."""
-        return []
+    async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
+        """Correlate resolved package identities with the bundled advisory set.
 
-    async def scan_project(self, project_dir: Path) -> list[Finding]:
-        """Scan project for AI-specific vulnerabilities."""
+        Project scanning and package scanning are separate registry contracts.
+        Returning an empty result here previously meant normal ``scan`` runs
+        silently skipped the version checks that were only wired into the
+        dedicated ``ai-scan`` command.
+        """
         findings: list[Finding] = []
-        findings.extend(self._scan_patterns(project_dir))
+        for package in packages:
+            if package.pkg.ecosystem == "pypi" and package.pkg.version:
+                findings.extend(
+                    self.check_package_version(package.pkg.name, package.pkg.version)
+                )
         return findings
+
+    async def scan_project(self, project_dir: Path | ScanScope) -> list[Finding]:
+        """Scan project for AI-specific vulnerabilities."""
+        scope = project_dir if isinstance(project_dir, ScanScope) else ScanScope(project_dir)
+        return self._scan_patterns(scope)
 
     def check_package_version(self, name: str, version: str) -> list[Finding]:
         """Check if a specific AI package version has known vulns."""
@@ -225,16 +230,32 @@ class AiVulnScanner:
                     ))
         return findings
 
-    def _scan_patterns(self, project_dir: Path) -> list[Finding]:
+    def _scan_patterns(self, scope: ScanScope) -> list[Finding]:
         """Scan Python files for unsafe AI patterns."""
-        findings = []
-        py_files = list(project_dir.rglob("*.py"))
-        py_files = [f for f in py_files if ".venv" not in str(f) and "node_modules" not in str(f)]
+        project_dir = scope.root
+        findings: list[Finding] = []
+        issues: list[str] = []
+        py_files: list[Path] = []
+        try:
+            for path in scope.walk_files():
+                if path.suffix == ".py" and not (
+                    _EXCLUDED_PARTS & set(path.relative_to(project_dir).parts)
+                ):
+                    py_files.append(path)
+        except ScanIncompleteError as exc:
+            issues.append(str(exc))
+        py_files.sort(key=lambda path: path.relative_to(project_dir).as_posix())
+        if len(py_files) > _MAX_PYTHON_FILES:
+            issues.append(
+                f"AI vulnerability scan reached {_MAX_PYTHON_FILES} Python files; "
+                f"{len(py_files) - _MAX_PYTHON_FILES} candidates are unproven"
+            )
 
-        for fpath in py_files[:200]:
+        for fpath in py_files[:_MAX_PYTHON_FILES]:
             try:
-                content = fpath.read_text(errors="ignore")
-            except OSError:
+                content = scope.read_text(fpath, max_bytes=_MAX_PYTHON_BYTES)
+            except ScanIncompleteError as exc:
+                issues.append(str(exc))
                 continue
 
             rel_path = str(fpath.relative_to(project_dir))
@@ -248,6 +269,12 @@ class AiVulnScanner:
                         detail=pattern_info["detail"],
                     ))
 
+        if issues:
+            raise PartialScanError(
+                "AI vulnerability scan coverage incomplete: "
+                + "; ".join(sorted(set(issues))[:5]),
+                findings,
+            )
         return findings
 
     @staticmethod

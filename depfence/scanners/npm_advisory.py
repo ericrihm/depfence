@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import httpx
 
-log = logging.getLogger(__name__)
-
+from depfence.core.fetcher import fetch_enabled
 from depfence.core.models import Finding, FindingType, PackageMeta, Severity
 from depfence.core.threat_db import ThreatDB
+
+log = logging.getLogger(__name__)
 
 _SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
@@ -37,14 +39,19 @@ class NpmAdvisoryScanner:
 
     def __init__(self, threat_db: ThreatDB | None = None) -> None:
         self._threat_db = threat_db if threat_db is not None else ThreatDB()
+        self.last_error: str | None = None
 
     async def scan(self, packages: list[PackageMeta]) -> list[Finding]:
+        self.last_error = None
         findings: list[Finding] = []
         npm_pkgs = [p for p in packages if p.pkg.ecosystem == "npm"]
         if not npm_pkgs:
             return findings
 
-        findings.extend(await self._query_osv(npm_pkgs))
+        if fetch_enabled():
+            findings.extend(await self._query_osv(npm_pkgs))
+        else:
+            self.last_error = "network fetching is disabled"
         findings.extend(self._query_threat_db(npm_pkgs))
         return findings
 
@@ -101,7 +108,7 @@ class NpmAdvisoryScanner:
         async with httpx.AsyncClient(timeout=30.0) as client:
             for pkg_meta in packages:
                 pkg = pkg_meta.pkg
-                payload = {
+                payload: dict[str, Any] = {
                     "package": {"name": pkg.name, "ecosystem": "npm"},
                 }
                 if pkg.version:
@@ -114,11 +121,21 @@ class NpmAdvisoryScanner:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    self.last_error = f"OSV query failed for {pkg.name}: {exc}"
                     log.debug("npm_advisory: OSV query failed for %s", pkg.name, exc_info=True)
                     continue
 
-                for vuln in data.get("vulns", []):
+                if not isinstance(data, dict) or not isinstance(data.get("vulns") or [], list):
+                    self.last_error = f"OSV returned a malformed response for {pkg.name}"
+                    continue
+
+                for vuln in data.get("vulns") or []:
+                    if not isinstance(vuln, dict) or not vuln.get("id"):
+                        self.last_error = f"OSV returned a malformed advisory for {pkg.name}"
+                        continue
+                    if vuln.get("withdrawn"):
+                        continue
                     severity = self._extract_severity(vuln)
                     cve = None
                     for alias in vuln.get("aliases", []):
@@ -133,11 +150,24 @@ class NpmAdvisoryScanner:
                         finding_type=FindingType.KNOWN_VULN,
                         severity=severity,
                         package=pkg,
-                        title=vuln.get("summary", vuln.get("id", "Unknown vulnerability")),
-                        detail=vuln.get("details", ""),
+                        title=vuln.get("summary") or vuln.get("id") or "Unknown vulnerability",
+                        detail=vuln.get("details") or "",
                         cve=cve,
                         fix_version=fix_version,
                         references=refs[:5],
+                        metadata={
+                            "source": "osv",
+                            "osv_id": vuln.get("id"),
+                            "aliases": list(vuln.get("aliases") or []),
+                            "withdrawn": vuln.get("withdrawn"),
+                            "affected": list(vuln.get("affected") or []),
+                            "severity_details": list(vuln.get("severity") or []),
+                            "requested_package": {
+                                "ecosystem": pkg.ecosystem,
+                                "name": pkg.name,
+                                "version": pkg.version,
+                            },
+                        },
                     ))
 
         return findings
@@ -166,6 +196,7 @@ class NpmAdvisoryScanner:
             if affected.get("package", {}).get("name") == pkg_name:
                 for rng in affected.get("ranges", []):
                     for event in rng.get("events", []):
-                        if "fixed" in event:
-                            return event["fixed"]
+                        fixed = event.get("fixed")
+                        if isinstance(fixed, str):
+                            return fixed
         return None

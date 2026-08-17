@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from depfence.core.epss_client import EpssClient
+from depfence.core.fetcher import fetch_enabled
 from depfence.core.models import Finding, Severity
 
 log = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ async def enrich_findings(findings: list[Finding]) -> list[Finding]:
     list[Finding]
         The same list passed in, with EPSS metadata populated where available.
     """
-    if not findings:
+    if not findings or not fetch_enabled():
         return findings
 
     # Collect unique CVE IDs from findings that have one

@@ -6,7 +6,7 @@ import html
 from datetime import datetime, timezone
 
 from depfence import __version__
-from depfence.core.models import Finding, FindingType, ScanResult, Severity
+from depfence.core.models import Finding, FindingType, PackageId, ScanResult, Severity
 
 # ---------------------------------------------------------------------------
 # Display configuration
@@ -55,9 +55,16 @@ _SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
 # Utilities
 # ---------------------------------------------------------------------------
 
-def _h(text: str) -> str:
+def _h(text: object) -> str:
     """HTML-escape a string."""
     return html.escape(str(text), quote=True)
+
+
+def _package_parts(finding: Finding) -> tuple[str, str, str]:
+    """Return display name, version, and ecosystem for either package form."""
+    if isinstance(finding.package, PackageId):
+        return finding.package.name, finding.package.version or "", finding.package.ecosystem
+    return finding.package, "", ""
 
 
 def _count_by_severity(findings: list[Finding]) -> dict[str, int]:
@@ -229,10 +236,11 @@ def _build_findings_table(sorted_findings: list[Finding]) -> str:
     rows = []
     for f in sorted_findings:
         sev = f.severity.name.upper()
-        pkg_name = _h(f.package.name)
-        pkg_ver = _h(f.package.version or "")
+        raw_pkg_name, raw_pkg_ver, raw_eco = _package_parts(f)
+        pkg_name = _h(raw_pkg_name)
+        pkg_ver = _h(raw_pkg_ver)
         pkg_display = f"{pkg_name}@{pkg_ver}" if pkg_ver else pkg_name
-        eco = _h(f.package.ecosystem)
+        eco = _h(raw_eco)
         cve = _h(f.cve or "")
         cve_cell = (
             f'<span class="cve-tag">{cve}</span>' if cve
@@ -248,7 +256,7 @@ def _build_findings_table(sorted_findings: list[Finding]) -> str:
         epss = f.metadata.get("epss_score")
         if epss is not None:
             try:
-                epss_val = float(epss)
+                epss_val = float(str(epss))
                 epss_cls = "epss-high" if epss_val >= 0.5 else "epss-med" if epss_val >= 0.1 else ""
                 epss_cell = f'<span class="epss-score {epss_cls}">{epss_val:.3f}</span>'
             except (TypeError, ValueError):
@@ -269,7 +277,13 @@ def _build_findings_table(sorted_findings: list[Finding]) -> str:
             f'</tr>'
         )
 
-    ecosystems = sorted({f.package.ecosystem for f in sorted_findings})
+    ecosystems = sorted(
+        {
+            f.package.ecosystem
+            for f in sorted_findings
+            if isinstance(f.package, PackageId)
+        }
+    )
     eco_options = '<option value="all">All Ecosystems</option>' + "".join(
         f'<option value="{_h(e.lower())}">{_h(e)}</option>' for e in ecosystems
     )
@@ -396,7 +410,7 @@ def _rec_fixable_packages(findings: list[Finding]) -> str | None:
     if not fixable:
         return None
     names = ", ".join(
-        f"<code>{_h(f.package.name)}</code> &#8594; <code>{_h(f.fix_version)}</code>"
+        f"<code>{_h(_package_parts(f)[0])}</code> &#8594; <code>{_h(f.fix_version)}</code>"
         for f in sorted(fixable, key=lambda x: _SEV_ORDER.get(x.severity.name.upper(), 9))[:3]
     )
     return (
@@ -418,7 +432,7 @@ def _rec_malicious_packages(findings: list[Finding]) -> str | None:
     malicious = [f for f in findings if f.finding_type == FindingType.MALICIOUS]
     if not malicious:
         return None
-    pkgs = ", ".join(f"<code>{_h(f.package.name)}</code>" for f in malicious[:3])
+    pkgs = ", ".join(f"<code>{_h(_package_parts(f)[0])}</code>" for f in malicious[:3])
     return (
         f"<strong>Remove malicious package(s) immediately: {pkgs}.</strong> "
         "Treat the environment as potentially compromised."
@@ -1033,10 +1047,13 @@ def generate_html_report(
         all_findings, key=lambda f: _SEV_ORDER.get(f.severity.name.upper(), 5)
     )
 
-    epss_high_count = sum(
-        1 for f in all_findings
-        if isinstance(f.metadata.get("epss_score"), (int, float))
-        and float(f.metadata["epss_score"]) >= 0.5
+    epss_high_count = len(
+        [
+            f
+            for f in all_findings
+            if isinstance(f.metadata.get("epss_score"), (int, float))
+            and float(str(f.metadata["epss_score"])) >= 0.5
+        ]
     )
     kev_count = sum(1 for f in all_findings if f.metadata.get("in_kev"))
 

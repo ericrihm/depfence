@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-from depfence.core.models import Finding, FindingType, PackageId, Severity
+from depfence.core.models import Finding, FindingType, PackageId, PackageMeta, Severity
 
 _ABANDONED_THRESHOLD_DAYS = 730  # 2 years
 
@@ -39,9 +40,10 @@ class FreshnessScanner:
     def __init__(self, registry_cache_path: Path | None = None) -> None:
         self._cache_path = registry_cache_path or Path.home() / ".depfence" / "registry_cache.db"
 
-    async def scan(self, packages: list[PackageId]) -> list[Finding]:
+    async def scan(self, packages: list[PackageId | PackageMeta]) -> list[Finding]:
         findings: list[Finding] = []
-        for pkg in packages:
+        for value in packages:
+            pkg = value.pkg if isinstance(value, PackageMeta) else value
             findings.extend(self._check_deprecated(pkg))
             findings.extend(self._check_freshness(pkg))
             findings.extend(self._check_pre_release(pkg))
@@ -51,7 +53,7 @@ class FreshnessScanner:
         return []
 
     def _check_deprecated(self, pkg: PackageId) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         eco_deprecated = _KNOWN_DEPRECATED.get(pkg.ecosystem, set())
         if pkg.name in eco_deprecated:
             replacement = _KNOWN_REPLACEMENTS.get(f"{pkg.ecosystem}:{pkg.name}", "a maintained alternative")
@@ -65,7 +67,7 @@ class FreshnessScanner:
         return findings
 
     def _check_freshness(self, pkg: PackageId) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         last_release = self._get_last_release_date(pkg)
         if last_release is None:
             return findings
@@ -86,7 +88,7 @@ class FreshnessScanner:
         return findings
 
     def _check_pre_release(self, pkg: PackageId) -> list[Finding]:
-        findings = []
+        findings: list[Finding] = []
         if not pkg.version:
             return findings
 
@@ -106,15 +108,16 @@ class FreshnessScanner:
         if not self._cache_path.exists():
             return None
         try:
-            conn = sqlite3.connect(f"file:{self._cache_path}?mode=ro", uri=True)
-            conn.row_factory = sqlite3.Row
-            cur = conn.execute(
-                """SELECT last_release_date FROM package_metadata
-                   WHERE ecosystem = ? AND name = ?""",
-                (pkg.ecosystem, pkg.name),
-            )
-            row = cur.fetchone()
-            conn.close()
+            with closing(
+                sqlite3.connect(f"file:{self._cache_path}?mode=ro", uri=True)
+            ) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.execute(
+                    """SELECT last_release_date FROM package_metadata
+                       WHERE ecosystem = ? AND name = ?""",
+                    (pkg.ecosystem, pkg.name),
+                )
+                row = cur.fetchone()
             if row and row["last_release_date"]:
                 return datetime.fromisoformat(row["last_release_date"])
         except (sqlite3.OperationalError, ValueError):

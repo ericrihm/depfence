@@ -32,6 +32,20 @@ class Advisory:
 
 
 @dataclass
+class AdvisoryResult:
+    """Advisories plus explicit coverage state for a registry query."""
+    package: str
+    ecosystem: str
+    version: str | None
+    advisories: list[dict[str, Any]] = field(default_factory=list)
+    status: str = "PASS"
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class CheckResult:
     """Structured result returned by check_package and similar tools."""
     package: str
@@ -43,6 +57,10 @@ class CheckResult:
     advisories: list[dict[str, Any]] = field(default_factory=list)
     recommendation: str = ""
     cached: bool = False
+    status: str = "UNPROVEN"
+    is_typosquat: bool | None = None
+    coverage: dict[str, str] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,6 +78,7 @@ class ProjectScanResult:
     low_count: int
     findings: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    status: str = "UNPROVEN"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -70,11 +89,13 @@ class TyposquatResult:
     """Result of a typosquat check."""
     package: str
     ecosystem: str
-    is_typosquat: bool
+    is_typosquat: bool | None
     confidence: float
     similar_to: str | None
     reason: str
     severity: str
+    status: str = "UNPROVEN"
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -90,6 +111,8 @@ class LicenseResult:
     severity: str | None
     commercial_use_ok: bool
     detail: str
+    status: str = "UNPROVEN"
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -204,6 +227,25 @@ class McpTools:
     minimal network I/O where possible.
     """
 
+    def __init__(self, *, root: Path | None = None) -> None:
+        self._root = (root or Path.cwd()).resolve(strict=True)
+        if not self._root.is_dir():
+            raise ValueError(f"MCP project root is not a directory: {self._root}")
+
+    def _project_path(self, path: str | None) -> Path:
+        """Resolve a relative project path without permitting root escapes."""
+        requested = Path(path or ".")
+        if requested.is_absolute():
+            raise ValueError("Project path must be relative to the configured MCP root")
+        try:
+            resolved = (self._root / requested).resolve(strict=True)
+            resolved.relative_to(self._root)
+        except (OSError, ValueError) as exc:
+            raise ValueError("Project path must stay within the configured MCP root") from exc
+        if not resolved.is_dir():
+            raise ValueError(f"Project path is not a directory: {path}")
+        return resolved
+
     # ------------------------------------------------------------------
     # check_package
     # ------------------------------------------------------------------
@@ -225,6 +267,8 @@ class McpTools:
         findings: list[Finding] = []
         advisories: list[Advisory] = []
         cached = False
+        errors: list[str] = []
+        coverage: dict[str, str] = {}
 
         # 1. Reputation + typosquat (synchronous, no network)
         try:
@@ -235,6 +279,10 @@ class McpTools:
             findings.extend(rep_findings)
         except Exception as exc:  # noqa: BLE001
             log.debug("reputation scan error for %s: %s", name, exc)
+            errors.append(f"reputation: {exc}")
+            coverage["reputation"] = "INDETERMINATE"
+        else:
+            coverage["reputation"] = "PASS"
 
         # 2. Dep-confusion (synchronous analysis, no network needed for basic check)
         try:
@@ -245,6 +293,10 @@ class McpTools:
             findings.extend(dc_findings)
         except Exception as exc:  # noqa: BLE001
             log.debug("depconfusion scan error for %s: %s", name, exc)
+            errors.append(f"dependency-confusion: {exc}")
+            coverage["dependency-confusion"] = "INDETERMINATE"
+        else:
+            coverage["dependency-confusion"] = "PASS"
 
         # 3. OSV advisories (network, but uses cache)
         try:
@@ -255,6 +307,12 @@ class McpTools:
                     ecosystem=ecosystem,
                     version=version,
                 )
+                osv_error = client.last_error
+            if osv_error:
+                errors.append(f"osv: {osv_error}")
+                coverage["osv"] = "INDETERMINATE"
+            else:
+                coverage["osv"] = "PASS"
             for vuln in result:
                 advisories.append(Advisory(
                     id=vuln.id,
@@ -270,9 +328,18 @@ class McpTools:
             cached = False  # OSV client caches internally; we can't easily tell
         except Exception as exc:  # noqa: BLE001
             log.debug("OSV query error for %s: %s", name, exc)
+            errors.append(f"osv: {exc}")
+            coverage["osv"] = "INDETERMINATE"
 
         risk_score = _compute_risk_score(findings)
-        safe = risk_score == 0
+        is_typosquat = any(f.finding_type is FindingType.TYPOSQUAT for f in findings)
+        status = "INDETERMINATE" if errors else ("FAIL" if findings else "PASS")
+        safe = status == "PASS"
+        recommendation = (
+            "Do not install until incomplete security checks can be evaluated."
+            if errors
+            else _build_recommendation(findings, safe)
+        )
 
         return CheckResult(
             package=name,
@@ -289,8 +356,12 @@ class McpTools:
                 "references": a.references,
                 "published": a.published,
             } for a in advisories],
-            recommendation=_build_recommendation(findings, safe),
+            recommendation=recommendation,
             cached=cached,
+            status=status,
+            is_typosquat=is_typosquat,
+            coverage=coverage,
+            errors=errors,
         )
 
     # ------------------------------------------------------------------
@@ -302,7 +373,7 @@ class McpTools:
         from depfence.core.engine import scan_directory
         from depfence.core.models import Severity as Sev
 
-        project_dir = Path(path or ".").resolve()
+        project_dir = self._project_path(path)
 
         try:
             result = await scan_directory(
@@ -325,6 +396,7 @@ class McpTools:
                 medium_count=0,
                 low_count=0,
                 errors=[str(exc)],
+                status="INDETERMINATE",
             )
 
         return ProjectScanResult(
@@ -337,6 +409,11 @@ class McpTools:
             low_count=sum(1 for f in result.findings if f.severity == Sev.LOW),
             findings=[_finding_to_dict(f) for f in result.findings],
             errors=result.errors,
+            status=(
+                "INDETERMINATE"
+                if result.errors
+                else ("FAIL" if result.findings else "PASS")
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -355,7 +432,17 @@ class McpTools:
             findings = rep._check_typosquat(meta)
         except Exception as exc:  # noqa: BLE001
             log.debug("typosquat check error: %s", exc)
-            findings = []
+            return TyposquatResult(
+                package=name,
+                ecosystem=ecosystem,
+                is_typosquat=None,
+                confidence=0.0,
+                similar_to=None,
+                reason="Typosquat analysis could not be completed.",
+                severity="unknown",
+                status="INDETERMINATE",
+                errors=[str(exc)],
+            )
 
         if findings:
             f = findings[0]
@@ -367,6 +454,7 @@ class McpTools:
                 similar_to=str(f.metadata.get("similar_to", "")),
                 reason=str(f.metadata.get("reason", f.detail)),
                 severity=f.severity.value,
+                status="FAIL",
             )
 
         return TyposquatResult(
@@ -377,6 +465,7 @@ class McpTools:
             similar_to=None,
             reason="No similar popular packages found.",
             severity="none",
+            status="PASS",
         )
 
     # ------------------------------------------------------------------
@@ -388,10 +477,11 @@ class McpTools:
         package: str,
         ecosystem: str,
         version: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> AdvisoryResult:
         """Get known CVEs / advisories for a package from OSV.dev."""
         ecosystem = ecosystem.lower()
         advisories: list[dict[str, Any]] = []
+        errors: list[str] = []
 
         try:
             from depfence.core.osv_client import OsvClient
@@ -401,6 +491,8 @@ class McpTools:
                     ecosystem=ecosystem,
                     version=version,
                 )
+                if client.last_error:
+                    errors.append(f"osv: {client.last_error}")
             for v in vulns:
                 advisories.append({
                     "id": v.id,
@@ -413,8 +505,16 @@ class McpTools:
                 })
         except Exception as exc:  # noqa: BLE001
             log.debug("get_advisories error for %s/%s: %s", ecosystem, package, exc)
+            errors.append(f"osv: {exc}")
 
-        return advisories
+        return AdvisoryResult(
+            package=package,
+            ecosystem=ecosystem,
+            version=version,
+            advisories=advisories,
+            status="INDETERMINATE" if errors else ("FAIL" if advisories else "PASS"),
+            errors=errors,
+        )
 
     # ------------------------------------------------------------------
     # suggest_alternative
@@ -461,12 +561,14 @@ class McpTools:
 
         # Try to fetch real license from registry
         license_str = ""
+        errors: list[str] = []
         try:
             from depfence.core.fetcher import fetch_meta
             meta = await fetch_meta(pkg)
             license_str = meta.license or ""
         except Exception as exc:  # noqa: BLE001
             log.debug("fetch_meta error for license check %s: %s", package, exc)
+            errors.append(f"registry: {exc}")
             meta = PackageMeta(pkg=pkg)
 
         if not license_str:
@@ -479,6 +581,7 @@ class McpTools:
             tier, severity = ls.classify_license(license_str)
         except Exception as exc:  # noqa: BLE001
             log.debug("license classify error: %s", exc)
+            errors.append(f"license-classification: {exc}")
             tier = "UNKNOWN"
             severity = Severity.MEDIUM
 
@@ -501,4 +604,10 @@ class McpTools:
             severity=severity.value if severity else None,
             commercial_use_ok=commercial_ok,
             detail=detail,
+            status=(
+                "INDETERMINATE"
+                if errors or tier == "UNKNOWN"
+                else ("PASS" if commercial_ok else "FAIL")
+            ),
+            errors=errors,
         )

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from depfence.core.fetcher import fetch_enabled
+
 log = logging.getLogger(__name__)
 
 
@@ -43,6 +45,8 @@ class RegistryClient:
 
     async def get_npm_metadata(self, package_name: str) -> PackageMetadata | None:
         """Query npm registry for package metadata."""
+        if not fetch_enabled():
+            return None
         url = f"https://registry.npmjs.org/{package_name}"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -81,6 +85,8 @@ class RegistryClient:
 
     async def get_pypi_metadata(self, package_name: str) -> PackageMetadata | None:
         """Query PyPI for package metadata."""
+        if not fetch_enabled():
+            return None
         url = f"https://pypi.org/pypi/{package_name}/json"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -119,7 +125,11 @@ class RegistryClient:
                 license=info.get("license"),
                 maintainers=maintainers,
                 versions_count=len(releases),
-                has_types=any("py3" in (info.get("classifiers") or [])),
+                has_types=any(
+                    "py3" in classifier.lower()
+                    for classifier in (info.get("classifiers") or [])
+                    if isinstance(classifier, str)
+                ),
             )
         except Exception as exc:
             log.warning("PyPI registry query failed for %s: %s", package_name, exc)
