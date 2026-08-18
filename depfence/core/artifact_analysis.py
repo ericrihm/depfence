@@ -445,18 +445,25 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
                 limitations.add("cmap_missing")
                 continue
             mappings: dict[int, set[str]] = {}
-            for subtable in font["cmap"].tables:
-                if not subtable.isUnicode():
-                    continue
-                subtables += 1
-                cmap = subtable.cmap or {}
-                if len(cmap) > MAX_CMAP_ENTRIES:
-                    raise InputLimitError("font cmap exceeds its entry budget")
-                for codepoint, glyph in cmap.items():
-                    if not 0 <= int(codepoint) <= 0x10FFFF:
-                        raise MalformedInputError("font cmap contains an invalid codepoint")
-                    codepoints.add(int(codepoint))
-                    mappings.setdefault(int(codepoint), set()).add(str(glyph))
+            try:
+                for subtable in font["cmap"].tables:
+                    if not subtable.isUnicode():
+                        continue
+                    subtables += 1
+                    cmap = subtable.cmap or {}
+                    if len(cmap) > MAX_CMAP_ENTRIES:
+                        raise InputLimitError("font cmap exceeds its entry budget")
+                    for codepoint, glyph in cmap.items():
+                        if not 0 <= int(codepoint) <= 0x10FFFF:
+                            raise MalformedInputError("font cmap contains an invalid codepoint")
+                        codepoints.add(int(codepoint))
+                        mappings.setdefault(int(codepoint), set()).add(str(glyph))
+            except (InputLimitError, MalformedInputError):
+                raise
+            except Exception:
+                # FontTools lazy-load can raise TTLibError, struct.error, zlib.error,
+                # or other decoding failures during cmap traversal.
+                limitations.add("cmap_decode_incomplete")
             conflicts += sum(len(values) > 1 for values in mappings.values())
             for table, label in {
                 "GSUB": "gsub", "fvar": "variations", "gvar": "variations",
@@ -554,8 +561,18 @@ def _bounded_zip_member(handle: zipfile.ZipFile, info: zipfile.ZipInfo, limit: i
 
 
 def _parse_bounded_xml(data: bytes) -> ElementTree.Element:
+    # Check raw bytes for UTF-8/ASCII DTD, then probe for UTF-16 variants
+    # so <!DOCTYPE/<!ENTITY cannot slip past via alternate encodings.
     if re.search(br"<!DOCTYPE|<!ENTITY", data, re.IGNORECASE):
         raise MalformedInputError("DOCX XML declarations are unsafe")
+    head = data[:4096]
+    for encoding in ("utf-16-le", "utf-16-be"):
+        try:
+            decoded = head.decode(encoding, errors="ignore")
+        except Exception:
+            continue
+        if re.search(r"<!DOCTYPE|<!ENTITY", decoded, re.IGNORECASE):
+            raise MalformedInputError("DOCX XML declarations are unsafe")
     depth = nodes = 0
     root: ElementTree.Element | None = None
     try:
@@ -623,7 +640,13 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
         hidden_runs = revision_nodes = field_nodes = text_box_nodes = 0
         font_classes: set[str] = set()
         for story_info in story_infos:
-            root = _parse_bounded_xml(_bounded_zip_member(archive, story_info, MAX_XML_BYTES))
+            try:
+                raw = _bounded_zip_member(archive, story_info, MAX_XML_BYTES)
+            except (InputLimitError, MalformedInputError):
+                raise
+            except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError) as exc:
+                raise MalformedInputError(f"DOCX member unreadable: {story_info.filename}") from exc
+            root = _parse_bounded_xml(raw)
             for node in root.iter():
                 local = node.tag.rsplit("}", 1)[-1]
                 revision_nodes += local in {"ins", "del", "moveFrom", "moveTo"}

@@ -36,41 +36,44 @@ class VisualTextDeceptionScanner:
         font_groups: dict[str, list[tuple[str, int]]] = defaultdict(list)
         candidates = 0
 
-        for path in scope.walk_files():
-            suffix = path.suffix.lower()
-            if suffix not in SUPPORTED_SUFFIXES:
-                continue
-            candidates += 1
-            if candidates > MAX_PROJECT_ARTIFACTS:
-                errors.append(
-                    f"visual text artifact count exceeds {MAX_PROJECT_ARTIFACTS}"
-                )
-                break
-            relative = path.relative_to(scope.root)
-            try:
-                data = scope.read_bytes(path, max_bytes=MAX_ARTIFACT_BYTES)
-                artifact_findings, limitations = scan_artifact_bytes(relative, data)
-                errors.extend(
-                    f"{relative.as_posix()}: {limitation}"
-                    for limitation in limitations
-                )
-                if _RAG_ROOTS.intersection(relative.parts):
-                    for finding in artifact_findings:
-                        finding.metadata["ingestion_context"] = "rag"
-                findings.extend(artifact_findings)
-                if suffix in FONT_SUFFIXES:
-                    summary = summarize_font(data)
-                    if (
-                        summary.complete
-                        and summary.family
-                        and summary.cmap_entries is not None
-                        and summary.cmap_entries <= 8
-                    ):
-                        font_groups[summary.family.casefold()].append(
-                            (relative.as_posix(), summary.cmap_entries)
-                        )
-            except ScanIncompleteError as exc:
-                errors.append(f"{relative.as_posix()}: {exc}")
+        try:
+            for path in scope.walk_files():
+                suffix = path.suffix.lower()
+                if suffix not in SUPPORTED_SUFFIXES:
+                    continue
+                candidates += 1
+                if candidates > MAX_PROJECT_ARTIFACTS:
+                    errors.append(
+                        f"visual text artifact count exceeds {MAX_PROJECT_ARTIFACTS}"
+                    )
+                    break
+                relative = path.relative_to(scope.root)
+                try:
+                    data = scope.read_bytes(path, max_bytes=MAX_ARTIFACT_BYTES)
+                    artifact_findings, limitations = scan_artifact_bytes(relative, data)
+                    errors.extend(
+                        f"{relative.as_posix()}: {limitation}"
+                        for limitation in limitations
+                    )
+                    if _RAG_ROOTS.intersection(relative.parts):
+                        for finding in artifact_findings:
+                            finding.metadata["ingestion_context"] = "rag"
+                    findings.extend(artifact_findings)
+                    if suffix in FONT_SUFFIXES:
+                        summary = summarize_font(data)
+                        if (
+                            summary.complete
+                            and summary.family
+                            and summary.cmap_entries is not None
+                            and summary.cmap_entries <= 8
+                        ):
+                            font_groups[summary.family.casefold()].append(
+                                (relative.as_posix(), summary.cmap_entries)
+                            )
+                except ScanIncompleteError as exc:
+                    errors.append(f"{relative.as_posix()}: {exc}")
+        except ScanIncompleteError as exc:
+            errors.append(f"traversal: {exc}")
 
         for family, members in sorted(font_groups.items()):
             if len(members) < 8:

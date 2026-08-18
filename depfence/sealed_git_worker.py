@@ -49,9 +49,15 @@ def _environment() -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_PAGER": "cat",
     }
-    for key in ("HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"):
-        if key in os.environ:
-            environment[key] = os.environ[key]
+    # Set both casings to the approved URL so Git/libcurl cannot
+    # honour a lowercase value baked into the image while the host
+    # sets only uppercase (or vice-versa).
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy", "")
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")
+    environment["HTTPS_PROXY"] = proxy
+    environment["https_proxy"] = proxy
+    environment["NO_PROXY"] = no_proxy
+    environment["no_proxy"] = no_proxy
     return environment
 
 
