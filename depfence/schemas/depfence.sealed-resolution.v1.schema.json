@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.sealed-resolution/v1.json",
+  "type": "object",
+  "required": ["schema_version", "resolution_id", "created_at", "source_id", "source_host", "symbolic_ref", "exact_commit", "status", "complete", "limitations", "materialized_on_host", "objects_fetched", "approved"],
+  "properties": {
+    "schema_version": {"const": "depfence.sealed-resolution/v1"},
+    "resolution_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source_id": {"type": "string", "pattern": "^source-hmac-sha256:[0-9a-f]{64}$"},
+    "source_host": {"type": "string", "minLength": 1, "maxLength": 253},
+    "symbolic_ref": {"type": "string", "maxLength": 256, "pattern": "^(?:|refs/heads/[A-Za-z0-9._/+\\-]{1,244})$"},
+    "exact_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "status": {"const": "PASS"},
+    "complete": {"const": true},
+    "limitations": {"type": "array", "maxItems": 0},
+    "materialized_on_host": {"const": false},
+    "objects_fetched": {"const": false},
+    "approved": {"const": false}
+  },
+  "additionalProperties": false
+}
+

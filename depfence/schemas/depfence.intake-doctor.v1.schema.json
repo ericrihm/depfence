@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.intake-doctor/v1.json",
+  "type": "object",
+  "required": ["schema_version", "status", "engine", "runtime", "intake_image", "analyzer_image", "acquisition_network", "proxy_host", "checks", "limitation_codes"],
+  "properties": {
+    "schema_version": {"const": "depfence.intake-doctor/v1"},
+    "status": {"enum": ["PASS", "UNPROVEN"]},
+    "engine": {"enum": ["docker", "podman"]},
+    "runtime": {"enum": ["runsc", "kata", "kata-runtime"]},
+    "intake_image": {"type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-fA-F]{64}$"},
+    "analyzer_image": {"type": "string", "pattern": "^[^\\s]+@sha256:[0-9a-fA-F]{64}$"},
+    "acquisition_network": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "proxy_host": {"type": "string", "maxLength": 253},
+    "checks": {
+      "type": "object",
+      "required": ["native_linux", "engine_available", "intake_image_available", "analyzer_image_available", "runtime_configured", "acquisition_network_internal", "proxy_configuration_valid", "images_digest_pinned"],
+      "additionalProperties": {"type": "boolean"}
+    },
+    "limitation_codes": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z0-9_]+$"},
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}
+
