@@ -1,0 +1,116 @@
+name: Publish isolated analysis images
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: analysis-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [intake, static, render]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+
+      - name: Derive immutable image coordinates
+        id: coordinates
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/depfence-${TARGET}"
+          version="sha-${GITHUB_SHA}"
+          tags="${image}:${version}"
+          test -n "${version}"
+          {
+            echo "image=${image}"
+            echo "version=${version}"
+            echo "tags=${tags}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build, attach SBOM and provenance, and publish
+        env:
+          IMAGE_TAGS: ${{ steps.coordinates.outputs.tags }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ steps.coordinates.outputs.version }}
+        run: |
+          set -euo pipefail
+          tags=()
+          IFS=',' read -ra values <<< "${IMAGE_TAGS}"
+          for value in "${values[@]}"; do
+            tags+=(--tag "${value}")
+          done
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --target "${TARGET}" \
+            --build-arg "DEPFENCE_VERSION=${VERSION}" \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --provenance mode=max \
+            --sbom true \
+            --metadata-file image-metadata.json \
+            "${tags[@]}" \
+            --push \
+            --file containers/Dockerfile .
+
+      - name: Sign and verify the published digest
+        env:
+          IMAGE: ${{ steps.coordinates.outputs.image }}
+        run: |
+          set -euo pipefail
+          digest="$(jq -er '."containerimage.digest"' image-metadata.json)"
+          case "${digest}" in sha256:[0-9a-f][0-9a-f]*) ;; *) exit 1 ;; esac
+          reference="${IMAGE}@${digest}"
+          cosign sign --yes "${reference}"
+          cosign verify \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-analysis-images.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${reference}" > cosign-verification.json
+          cosign verify-attestation --type slsaprovenance \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-analysis-images.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${reference}" > provenance-verification.json
+          cosign verify-attestation --type spdxjson \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-analysis-images.yml@refs/heads/main" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${reference}" > sbom-verification.json
+          {
+            echo "### ${{ matrix.target }} worker"
+            echo '```text'
+            echo "${reference}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Retain digest and signature verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: depfence-${{ matrix.target }}-image-evidence
+          path: |
+            image-metadata.json
+            cosign-verification.json
+            provenance-verification.json
+            sbom-verification.json
+          if-no-files-found: error
