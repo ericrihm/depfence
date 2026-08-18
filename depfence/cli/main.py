@@ -17,6 +17,13 @@ def cli() -> None:
     """AI-aware dependency security scanner."""
 
 
+from depfence.cli.artifact_commands import register_artifact_commands
+from depfence.cli.fleet_commands import register_intake_commands
+
+register_artifact_commands(cli)
+register_intake_commands(cli)
+
+
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("--format", "-f", "fmt", default="table", type=click.Choice(["table", "json", "sarif", "html", "cyclonedx"]))
