@@ -33,7 +33,7 @@ class VisualTextDeceptionScanner:
         scope = project_dir if isinstance(project_dir, ScanScope) else ScanScope(project_dir)
         findings: list[Finding] = []
         errors: list[str] = []
-        font_groups: dict[str, list[tuple[str, int]]] = defaultdict(list)
+        font_groups: dict[str, list[tuple[str, int, str]]] = defaultdict(list)
         candidates = 0
 
         try:
@@ -67,8 +67,9 @@ class VisualTextDeceptionScanner:
                             and summary.cmap_entries is not None
                             and summary.cmap_entries <= 8
                         ):
+                            content_digest = hashlib.sha256(data).hexdigest()
                             font_groups[summary.family.casefold()].append(
-                                (relative.as_posix(), summary.cmap_entries)
+                                (relative.as_posix(), summary.cmap_entries, content_digest)
                             )
                 except ScanIncompleteError as exc:
                     errors.append(f"{relative.as_posix()}: {exc}")
@@ -76,7 +77,10 @@ class VisualTextDeceptionScanner:
             errors.append(f"traversal: {exc}")
 
         for family, members in sorted(font_groups.items()):
-            if len(members) < 8:
+            # Require unique payloads — identical copies or vendored duplicates
+            # sharing a family name should not inflate the cluster count.
+            unique_digests = {digest for _path, _count, digest in members}
+            if len(unique_digests) < 8:
                 continue
             findings.append(Finding(
                 finding_type=FindingType.VISUAL_TEXT_DECEPTION,
@@ -97,8 +101,9 @@ class VisualTextDeceptionScanner:
                     "evidence_class": "sparse_font_cluster",
                     "family_digest": hashlib.sha256(family.encode()).hexdigest(),
                     "font_count": len(members),
-                    "max_cmap_entries": max(count for _path, count in members),
-                    "sample_files": [path for path, _count in members[:5]],
+                    "unique_payloads": len(unique_digests),
+                    "max_cmap_entries": max(count for _path, count, _digest in members),
+                    "sample_files": [path for path, _count, _digest in members[:5]],
                 },
             ))
 

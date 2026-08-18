@@ -103,8 +103,11 @@ class SandboxConfig:
             raise ValueError("sandbox runtime must be runsc or Kata")
         if platform.system() == "Linux" and self.runtime is None:
             raise ValueError("native Linux sandbox analysis requires gVisor (runsc) or Kata")
-        profile = Path(self.seccomp_profile).expanduser().resolve(strict=True)
-        if profile.is_symlink() or not profile.is_file():
+        raw_profile = Path(self.seccomp_profile).expanduser()
+        if raw_profile.is_symlink():
+            raise ValueError("sandbox seccomp profile must not be a symlink")
+        profile = raw_profile.resolve(strict=True)
+        if not profile.is_file():
             raise ValueError("sandbox seccomp profile must be a regular file")
         raw = profile.read_bytes()
         if hashlib.sha256(raw).hexdigest() != self.seccomp_sha256:
@@ -982,8 +985,9 @@ def _sandbox_findings(document: object, artifact_name: str) -> list[Finding]:
             or any(isinstance(value, (dict, list)) for value in metrics.values())
         ):
             raise ScanIncompleteError("sandbox metrics do not match the required contract")
+        allowed_string_keys = {"region_type"}
         for key, value in metrics.items():
-            if isinstance(value, str) and (
+            if isinstance(value, str) and key not in allowed_string_keys and (
                 not key.endswith("_sha256") or not re.fullmatch(r"[0-9a-f]{64}", value)
             ):
                 raise ScanIncompleteError("sandbox metric strings must be SHA-256 digests")

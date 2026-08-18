@@ -205,12 +205,17 @@ def test_oversized_artifact_is_rejected_before_parsing() -> None:
 
 @pytest.mark.asyncio
 async def test_project_scanner_correlates_sparse_companion_fonts(tmp_path: Path) -> None:
+    # Each font must have unique content (different cmap entry counts) so the
+    # unique-payload deduplication doesn't collapse them.
     for index in range(8):
-        (tmp_path / f"font{index}.ttf").write_bytes(_table_font(cmap_entries=1))
+        (tmp_path / f"font{index}.ttf").write_bytes(
+            _table_font(cmap_entries=index + 1)
+        )
     findings = await VisualTextDeceptionScanner().scan_project(tmp_path)
     assert len(findings) == 1
     assert findings[0].metadata["rule_id"] == "DF-FONT-001"
     assert findings[0].metadata["font_count"] == 8
+    assert findings[0].metadata["unique_payloads"] == 8
 
 
 @pytest.mark.asyncio

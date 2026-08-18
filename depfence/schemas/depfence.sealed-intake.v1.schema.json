@@ -69,11 +69,11 @@
               "suffix": {"type": "string", "pattern": "^\\.[a-z0-9]{1,16}$"},
               "rule_id": {"enum": ["DF-FONT-001", "DF-FONT-002", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"]},
               "rule_version": {"const": "2026-08-17"},
-              "artifact_type": {"type": "string", "maxLength": 32},
+              "artifact_type": {"enum": ["font/otf", "font/ttf", "font/woff", "font/woff2", "font/collection", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/html", "text/css"]},
               "carrier_type": {"const": "git_blob"},
               "severity": {"const": "medium"},
               "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-              "evidence_class": {"type": "string", "maxLength": 64}
+              "evidence_class": {"enum": ["sparse_font_cluster", "conflicting_cmap", "per_character_webfont", "embedded_font_switching", "structural_correlation"]}
             },
             "additionalProperties": false
           }
@@ -87,7 +87,7 @@
             "properties": {
               "artifact_id": {"type": "string", "pattern": "^sealed-artifact-sha256:[0-9a-f]{64}$"},
               "suffix": {"type": "string", "pattern": "^\\.[a-z0-9]{1,16}$"},
-              "code": {"enum": ["artifact_budget_exceeded", "artifact_size_exceeded", "analysis_byte_budget_exceeded", "blob_read_failed", "deep_analysis_required", "font_sanitizer_unavailable", "font_sanitization_failed", "font_collection_limit", "font_collection_unsupported"]}
+              "code": {"enum": ["artifact_budget_exceeded", "artifact_size_exceeded", "analysis_byte_budget_exceeded", "blob_read_failed", "deep_analysis_required", "font_sanitizer_unavailable", "font_sanitization_failed", "font_collection_limit", "font_collection_unsupported", "font_collection_decompression_failed"]}
             },
             "additionalProperties": false
           }

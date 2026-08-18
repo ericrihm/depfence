@@ -377,7 +377,16 @@ def resolve_source_sealed(
                 environment,
                 30.0,
             )
-        except (OSError, ScanIncompleteError):
+            # Verify the container is actually gone.
+            inspect_result = subprocess.run(
+                [config.engine, "inspect", container_name],
+                capture_output=True, timeout=10,
+            )
+            if inspect_result.returncode == 0:
+                raise ScanIncompleteError("sealed resolution cleanup was indeterminate")
+        except ScanIncompleteError:
+            raise
+        except (OSError, subprocess.TimeoutExpired):
             raise ScanIncompleteError("sealed resolution cleanup was indeterminate") from None
     result = {
         "schema_version": "depfence.sealed-resolution/v1",
@@ -401,15 +410,28 @@ def resolve_source_sealed(
     return result
 
 
-def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
-    if len(raw) > MAX_INTAKE_MANIFEST_BYTES:
-        raise InputLimitError("sealed intake manifest exceeded its byte budget")
+def _strict_json_object(raw: bytes) -> dict[str, object]:
+    """Parse JSON rejecting duplicate keys (last-key-wins is unsafe for IPC)."""
+    def _reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        seen: dict[str, object] = {}
+        for key, value in pairs:
+            if key in seen:
+                raise ScanIncompleteError(f"sealed intake JSON contains duplicate key: {key}")
+            seen[key] = value
+        return seen
     try:
-        document = json.loads(raw)
+        document = json.loads(raw, object_pairs_hook=_reject_duplicates)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ScanIncompleteError("sealed intake returned malformed JSON") from exc
     if not isinstance(document, dict):
         raise ScanIncompleteError("sealed intake manifest must be an object")
+    return document
+
+
+def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
+    if len(raw) > MAX_INTAKE_MANIFEST_BYTES:
+        raise InputLimitError("sealed intake manifest exceeded its byte budget")
+    document = _strict_json_object(raw)
     allowed = {
         "commit", "tree_sha256", "file_count", "byte_count", "regular_files",
         "symlink_count", "submodule_count", "non_regular_count", "suffix_counts",
@@ -455,12 +477,7 @@ def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
 def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
     if len(raw) > MAX_ANALYSIS_MANIFEST_BYTES:
         raise InputLimitError("sealed analysis manifest exceeded its byte budget")
-    try:
-        document = json.loads(raw)
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise ScanIncompleteError("sealed analysis returned malformed JSON") from exc
-    if not isinstance(document, dict):
-        raise ScanIncompleteError("sealed analysis manifest must be an object")
+    document = _strict_json_object(raw)
     allowed = {
         "schema_version", "commit", "complete", "candidate_count", "analyzed_count",
         "analyzed_bytes", "coverage_by_suffix", "findings", "limitations", "toolchain",
@@ -498,12 +515,19 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
         raise ScanIncompleteError("sealed analysis limitations are invalid")
     artifact_pattern = re.compile(r"sealed-artifact-sha256:[0-9a-f]{64}")
     allowed_rules = {"DF-FONT-001", "DF-FONT-002", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"}
+    allowed_evidence_classes = {
+        "sparse_font_cluster", "conflicting_cmap", "per_character_webfont",
+        "embedded_font_switching", "structural_correlation",
+    }
+    suffix_pattern = re.compile(r"^\.[a-z0-9]{1,16}$")
     for finding in findings:
         if not isinstance(finding, dict) or set(finding) != {
             "artifact_id", "suffix", "rule_id", "severity", "confidence", "evidence_class"
         }:
             raise ScanIncompleteError("sealed analysis finding shape is invalid")
         confidence = finding.get("confidence")
+        suffix_val = str(finding.get("suffix", ""))
+        evidence_val = str(finding.get("evidence_class", ""))
         if (
             not artifact_pattern.fullmatch(str(finding.get("artifact_id", "")))
             or finding.get("rule_id") not in allowed_rules
@@ -511,12 +535,15 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
             or not isinstance(confidence, (int, float))
             or isinstance(confidence, bool)
             or not 0 <= float(confidence) <= 1
+            or not suffix_pattern.fullmatch(suffix_val)
+            or evidence_val not in allowed_evidence_classes
         ):
             raise ScanIncompleteError("sealed analysis finding value is invalid")
     allowed_limitations = {
         "artifact_budget_exceeded", "artifact_size_exceeded", "analysis_byte_budget_exceeded",
         "blob_read_failed", "deep_analysis_required", "font_sanitizer_unavailable",
         "font_sanitization_failed", "font_collection_limit", "font_collection_unsupported",
+        "font_collection_decompression_failed",
     }
     for limitation in limitations:
         if not isinstance(limitation, dict) or set(limitation) != {"artifact_id", "suffix", "code"}:
@@ -529,6 +556,9 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
     toolchain = document.get("toolchain")
     if not isinstance(toolchain, dict) or set(toolchain) != {"depfence"} or not isinstance(toolchain["depfence"], str):
         raise ScanIncompleteError("sealed analysis toolchain is invalid")
+    version = str(toolchain["depfence"])
+    if not re.fullmatch(r"[0-9a-zA-Z._\-+]{1,64}", version):
+        raise ScanIncompleteError("sealed analysis toolchain version is invalid")
     if bool(limitations) == bool(document["complete"]):
         raise ScanIncompleteError("sealed analysis completeness contradicts limitations")
     return document
