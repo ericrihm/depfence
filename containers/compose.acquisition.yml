@@ -1,0 +1,41 @@
+name: depfence-acquisition
+
+services:
+  allowlist-proxy:
+    build:
+      context: ..
+      dockerfile: containers/egress-proxy/Dockerfile
+    image: depfence-egress-proxy:local
+    container_name: depfence-egress-proxy
+    runtime: runsc
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /run/squid:rw,noexec,nosuid,nodev,size=4m
+      - /var/log/squid:rw,noexec,nosuid,nodev,size=16m
+      - /var/spool/squid:rw,noexec,nosuid,nodev,size=16m
+    volumes:
+      - type: bind
+        source: ${DEPFENCE_PROXY_ALLOWLIST:?set DEPFENCE_PROXY_ALLOWLIST to an absolute allowlist file}
+        target: /etc/squid/allowed-domains.txt
+        read_only: true
+    networks:
+      acquisition:
+        aliases: [allowlist-proxy]
+      proxy-egress: {}
+    restart: unless-stopped
+
+networks:
+  acquisition:
+    name: depfence-acquisition
+    internal: true
+    attachable: true
+  proxy-egress:
+    name: depfence-proxy-egress
+
