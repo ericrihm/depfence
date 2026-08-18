@@ -32,6 +32,9 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
     "packaging>=24.0",
     "pyyaml>=6.0",
+    "fonttools[woff]>=4.59",
+    "pypdf>=5.9",
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +53,11 @@ all = ["depfence[dev,ml]"]
 [project.scripts]
 depfence = "depfence.cli.main:cli"
 depfence-mcp = "depfence.mcp.server:main"
+depfence-artifact-analyzer = "depfence.artifact_worker:main"
+depfence-sealed-git-resolve = "depfence.sealed_git_worker:resolve_main"
+depfence-sealed-git-acquire = "depfence.sealed_git_worker:acquire_main"
+depfence-sealed-git-inventory = "depfence.sealed_git_worker:inventory_main"
+depfence-sealed-git-analyze = "depfence.sealed_git_worker:analyze_main"
 
 [project.entry-points."depfence.scanners"]
 npm_advisory = "depfence.scanners.npm_advisory:NpmAdvisoryScanner"
@@ -105,6 +113,7 @@ go_generate = "depfence.scanners.go_generate_scanner:GoGenerateScanner"
 composer_script = "depfence.scanners.composer_script_scanner:ComposerScriptScanner"
 python_build = "depfence.scanners.python_build_scanner:PythonBuildScanner"
 maven_plugin = "depfence.scanners.maven_plugin_scanner:MavenPluginScanner"
+visual_text_deception = "depfence.scanners.visual_text_deception_scanner:VisualTextDeceptionScanner"
 
 [project.entry-points."depfence.analyzers"]
 ast_analyzer = "depfence.analyzers.ast_analysis:AstAnalyzer"
@@ -130,7 +139,7 @@ include = ["depfence*"]
 exclude = ["depfence._private*", "tests*"]
 
 [tool.setuptools.package-data]
-depfence = ["data/*.json"]
+depfence = ["data/*.json", "schemas/*.json"]
 
 [tool.ruff]
 target-version = "py310"
