@@ -15,6 +15,15 @@ class Severity(str, enum.Enum):
     INFO = "info"
 
 
+class ScanState(str, enum.Enum):
+    """Evidence coverage state; incomplete analysis is never a clean pass."""
+
+    PASS = "PASS"
+    FAIL = "FAIL"
+    INDETERMINATE = "INDETERMINATE"
+    UNPROVEN = "UNPROVEN"
+
+
 class FindingType(str, enum.Enum):
     KNOWN_VULN = "known_vulnerability"
     MALICIOUS = "malicious_package"
@@ -39,6 +48,7 @@ class FindingType(str, enum.Enum):
     DEP_CONFUSION = "dependency_confusion"
     PROMPT_INJECTION = "prompt_injection"
     ANSI_HIDING = "ansi_content_hiding"
+    VISUAL_TEXT_DECEPTION = "visual_text_deception"
     FABRICATED_REF = "fabricated_reference"  # pinned SHA/version that resolves to no real upstream object
     MUTABLE_TAG = "mutable_tag_masquerade"  # # vX comment disagrees with the SHA it labels
     UNVERIFIED_REF = "unverified_reference"  # could not resolve (no token / rate-limited) — never a silent pass
@@ -91,7 +101,7 @@ class PackageMeta:
 class Finding:
     finding_type: FindingType
     severity: Severity
-    package: PackageId
+    package: PackageId | str
     title: str
     detail: str
     cve: str | None = None
@@ -112,6 +122,8 @@ class ScanResult:
     findings: list[Finding] = field(default_factory=list)
     suppressed_findings: list[Finding] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    scanner_coverage: dict[str, ScanState] = field(default_factory=dict)
+    scanner_errors: dict[str, str] = field(default_factory=dict)
 
     @property
     def critical_count(self) -> int:
