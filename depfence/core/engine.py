@@ -101,6 +101,7 @@ async def _run_analyzers(registry: object, metas: list) -> tuple[list[Finding], 
 
 
 async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[str]]:
+    from depfence.core.scan_scope import PartialScanError
     from depfence.scanners.agent_skill_scanner import AgentSkillScanner
     from depfence.scanners.ai_bom_generator import AiBomGenerator
     from depfence.scanners.android_manifest_scanner import AndroidManifestScanner
@@ -134,8 +135,6 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.spm_plugin_scanner import SpmPluginScanner
     from depfence.scanners.terraform_scanner import TerraformScanner
     from depfence.scanners.visual_text_deception_scanner import VisualTextDeceptionScanner
-
-    from depfence.core.scan_scope import PartialScanError
 
     instances = [
         DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
