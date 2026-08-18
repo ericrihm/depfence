@@ -65,3 +65,31 @@ consented calibration corpus and are not currently made.
 The independent article, neutral live demo, and any sample publication remain gated on a
 completed exact-commit review, licensing review, claim audit, and independent technical and
 editorial sign-off.
+
+## Tracked architectural findings
+
+These were identified by cross-family code review and are not addressable without design
+work. Each is defense-in-depth — the current code fails closed via `unproven` or
+`ScanIncompleteError` rather than silently permitting.
+
+- **Platform isolation**: `artifact_analysis.py` and `sealed_intake.py` require gVisor/Kata
+  only on Linux. A macOS/OrbStack host running Linux containers via `runc` bypasses the
+  requirement. Fix requires runtime capability attestation independent of host OS.
+- **TTC pre-validation**: `TTCollection` is constructed before member-count limits validate.
+  Hostile fonts can trigger FontTools parsing before the limit fires. Fix requires
+  validating collection headers before FontTools construction.
+- **PDF form recursion**: Only a 500,000-operation limit bounds decoded PDF form traversal.
+  Deep forms or compressed streams can exhaust the host before the check. Fix requires
+  depth, object, and decoded-byte budgets enforced before recursion.
+- **Container stderr boundary**: Worker tracebacks and OCI diagnostics are piped into host
+  memory, bypassing the validated-metrics-only boundary. Fix requires a worker mode with
+  stderr to DEVNULL and error reporting via the JSON channel.
+- **Network validation**: `acquisition_network` is syntax-checked but not verified as
+  internal or proxied at execution time. Fix requires runtime network/proxy identity
+  verification.
+- **Inventory/coverage cross-correlation**: A worker claiming `complete=true` with
+  `candidate_count=0` passes even when inventory reports supported suffixes. Fix requires
+  reconciling inventory suffix counts against analysis coverage.
+- **`git ls-tree -l` with `blob:none`**: Tree objects do not contain blob sizes after a
+  partial clone. Git must lazy-fetch to report sizes, defeating the selective-materialization
+  design. Fix requires a bounded batch protocol for size/OID resolution.
