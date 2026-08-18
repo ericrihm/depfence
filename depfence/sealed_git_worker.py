@@ -409,9 +409,26 @@ def _sanitized_font_payloads(data: bytes, suffix: str) -> tuple[list[bytes], lis
             return [], ["font_collection_limit"]
         indexes = list(range(count))
     elif suffix == ".woff2" and len(data) >= 8 and data[4:8] == b"ttcf":
-        # WOFF2 collection directories are variable-length. OTS validates index
-        # zero, but complete collection enumeration requires a dedicated decoder.
-        return [], ["font_collection_unsupported"]
+        # WOFF2 collection: decompress to TTC first, then enumerate members.
+        decompressor = shutil.which("woff2_decompress")
+        if not decompressor:
+            return [], ["font_collection_unsupported"]
+        with tempfile.TemporaryDirectory(prefix="depfence-woff2-") as wd:
+            src = Path(wd) / "input.woff2"
+            src.write_bytes(data)
+            code, _, _ = _run_bounded_subprocess(
+                [decompressor, str(src)],
+                b"",
+                {"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                30.0,
+            )
+            ttc = src.with_suffix(".ttc")
+            if code or not ttc.is_file():
+                return [], ["font_collection_decompression_failed"]
+            data = _read_regular_file(ttc)
+            suffix = ".ttc"
+        # Fall through to TTC handling above — re-enter.
+        return _sanitized_font_payloads(data, suffix)
 
     outputs: list[bytes] = []
     with tempfile.TemporaryDirectory(prefix="depfence-font-") as raw_directory:
@@ -541,6 +558,7 @@ def analyze_main() -> None:
                 "font_sanitization_failed",
                 "font_collection_limit",
                 "font_collection_unsupported",
+                "font_collection_decompression_failed",
             }
             limitation_code = next(
                 (value for value in artifact_limitations if value in fixed_codes),
