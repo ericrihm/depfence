@@ -491,5 +491,5 @@ class TestSandboxConfigValidate:
             image="img@sha256:" + "a" * 64,
             runtime="containerd",
         )
-        with pytest.raises(ValueError, match="runsc or Kata"):
+        with pytest.raises(ValueError, match="runtime"):
             cfg.validate()

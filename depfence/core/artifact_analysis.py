@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 import os
-import platform
 import re
 import shutil
 import stat
@@ -100,10 +99,17 @@ class SandboxConfig:
             raise ValueError("sandbox image must be pinned by an @sha256: digest")
         if self.timeout_seconds <= 0 or self.timeout_seconds > 900:
             raise ValueError("sandbox timeout must be between 0 and 900 seconds")
-        if self.runtime is not None and self.runtime not in {"runsc", "kata", "kata-runtime"}:
-            raise ValueError("sandbox runtime must be runsc or Kata")
-        if platform.system() == "Linux" and self.runtime is None:
-            raise ValueError("native Linux sandbox analysis requires gVisor (runsc) or Kata")
+        # Require explicit runtime attestation on all platforms.  "runsc"
+        # and "kata"/"kata-runtime" are passed as --runtime to the engine.
+        # "vm" is an operator attestation that the engine runs containers
+        # inside a hardware-isolated VM (e.g. Docker Desktop, Podman Machine)
+        # and is NOT passed as a --runtime flag.
+        _VALID_RUNTIMES = {"runsc", "kata", "kata-runtime", "vm"}
+        if self.runtime is None or self.runtime not in _VALID_RUNTIMES:
+            raise ValueError(
+                "sandbox runtime must be runsc, kata, kata-runtime, or vm "
+                "(operator attestation of VM-mediated isolation)"
+            )
         raw_profile = Path(self.seccomp_profile).expanduser()
         if raw_profile.is_symlink():
             raise ValueError("sandbox seccomp profile must not be a symlink")
@@ -432,9 +438,14 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
     fonts = []
     try:
         if data.startswith(b"ttcf"):
-            collection = TTCollection(stream, lazy=True)
-            if not 1 <= len(collection.fonts) <= 64:
+            # Pre-validate TTC header before passing to FontTools.
+            # TTC header: tag(4) + majorVersion(2) + minorVersion(2) + numFonts(4)
+            if len(data) < 12:
+                raise MalformedInputError("TTC header is truncated")
+            num_fonts = struct.unpack(">I", data[8:12])[0]
+            if not 1 <= num_fonts <= 64:
                 raise InputLimitError("font collection exceeds its member budget")
+            collection = TTCollection(stream, lazy=True)
             fonts = list(collection.fonts)
         else:
             fonts = [TTFont(stream, lazy=True, recalcBBoxes=False, recalcTimestamp=False)]
@@ -720,10 +731,17 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
     clipping_ops = transform_ops = alpha_states = form_xobjects = 0
     operations_seen = 0
 
-    def inspect_resources(resources: object, seen: set[int]) -> None:
+    MAX_FORM_DEPTH = 16       # form XObject nesting cap
+    MAX_PDF_OBJECTS = 10_000  # distinct-object cap before bailout
+
+    def inspect_resources(resources: object, seen: set[int], depth: int = 0) -> None:
         nonlocal images, type3_fonts, missing_tounicode, form_xobjects
         if resources is None:
             return
+        if depth > MAX_FORM_DEPTH:
+            raise InputLimitError("PDF form XObject nesting exceeds depth limit")
+        if len(seen) > MAX_PDF_OBJECTS:
+            raise InputLimitError("PDF exceeds its object budget")
         resources = resources.get_object() if hasattr(resources, "get_object") else resources
         if not isinstance(resources, DictionaryObject):
             return
@@ -750,9 +768,9 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
                     images += 1
                 elif subtype == "/Form":
                     form_xobjects += 1
-                    inspect_stream(obj, obj.get("/Resources") or resources, seen)
+                    inspect_stream(obj, obj.get("/Resources") or resources, seen, depth + 1)
 
-    def inspect_stream(stream: object, resources: object, seen: set[int]) -> None:
+    def inspect_stream(stream: object, resources: object, seen: set[int], depth: int = 0) -> None:
         nonlocal invisible, text_ops, actual_text, clipping_ops, transform_ops
         nonlocal alpha_states, operations_seen
         try:
@@ -778,16 +796,16 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
                         actual_text += 1
             elif operator == b"gs":
                 alpha_states += 1
-        inspect_resources(resources, seen)
+        inspect_resources(resources, seen, depth)
 
     seen: set[int] = set()
     for page in reader.pages:
         resources = page.get("/Resources")
         contents = page.get_contents()
         if contents is not None:
-            inspect_stream(contents, resources, seen)
+            inspect_stream(contents, resources, seen, 0)
         else:
-            inspect_resources(resources, seen)
+            inspect_resources(resources, seen, 0)
     optional_layers = int("/OCProperties" in reader.trailer.get("/Root", {}))
     suspicious = bool(
         text_ops and (invisible or actual_text or (type3_fonts and missing_tounicode))
@@ -1078,7 +1096,8 @@ def run_sandbox_analysis(data: bytes, artifact_name: str, config: SandboxConfig)
         "--ulimit", "nofile=256:256", "--ulimit", "core=0:0", "--tmpfs",
         "/tmp:rw,noexec,nosuid,nodev,size=268435456",  # noqa: S108 - container tmpfs
     ]
-    if config.runtime:
+    if config.runtime and config.runtime != "vm":
+        # "vm" is an operator attestation, not a container engine runtime flag
         command.extend(["--runtime", config.runtime])
     command.extend([
         config.image,
@@ -1096,6 +1115,7 @@ def run_sandbox_analysis(data: bytes, artifact_name: str, config: SandboxConfig)
             data,
             environment,
             config.timeout_seconds,
+            discard_stderr=True,  # worker tracebacks must not cross the IPC boundary
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         _force_remove_container(config.engine, container_name)
@@ -1153,6 +1173,8 @@ def _run_bounded_subprocess(
     stdin_value: bytes,
     environment: dict[str, str],
     timeout: float,
+    *,
+    discard_stderr: bool = False,
 ) -> tuple[int, bytes, bytes]:
     """Run a trusted pinned helper without allowing unbounded host output."""
 
@@ -1160,7 +1182,7 @@ def _run_bounded_subprocess(
         command,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL if discard_stderr else subprocess.PIPE,
         env=environment,
     )
     stdout = bytearray()
@@ -1201,11 +1223,12 @@ def _run_bounded_subprocess(
     output_thread = threading.Thread(
         target=read_bounded, args=(process.stdout, stdout), daemon=True
     )
-    error_thread = threading.Thread(
-        target=read_bounded, args=(process.stderr, stderr), daemon=True
-    )
     output_thread.start()
-    error_thread.start()
+    if not discard_stderr:
+        error_thread = threading.Thread(
+            target=read_bounded, args=(process.stderr, stderr), daemon=True
+        )
+        error_thread.start()
     input_thread = threading.Thread(
         target=write_bounded, args=(process.stdin,), daemon=True
     )
@@ -1219,7 +1242,8 @@ def _run_bounded_subprocess(
                 raise subprocess.TimeoutExpired(command, timeout)
             time.sleep(0.01)
         output_thread.join(timeout=1)
-        error_thread.join(timeout=1)
+        if not discard_stderr:
+            error_thread.join(timeout=1)
         input_thread.join(timeout=1)
         if overflow.is_set():
             raise InputLimitError("sandbox output exceeded its byte budget")

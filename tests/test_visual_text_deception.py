@@ -260,13 +260,10 @@ def test_artifact_read_refuses_symlinks(tmp_path: Path) -> None:
         inspect_artifact(link, state=state)
 
 
-def test_sandbox_config_requires_digest_and_vm_grade_linux_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sandbox_config_requires_digest_and_vm_grade_runtime() -> None:
     with pytest.raises(ValueError, match="sha256"):
         SandboxConfig("docker", "example/analyzer:latest", "runsc").validate()
-    monkeypatch.setattr("depfence.core.artifact_analysis.platform.system", lambda: "Linux")
-    with pytest.raises(ValueError, match="requires"):
+    with pytest.raises(ValueError, match="runtime"):
         SandboxConfig("docker", "example/analyzer@sha256:" + "a" * 64).validate()
     SandboxConfig(
         "docker",
@@ -304,7 +301,7 @@ def test_sandbox_protocol_withholds_returned_text_and_uses_hardened_flags(
 
     observed: dict[str, object] = {}
 
-    def fake_run(command, stdin_value, environment, timeout):
+    def fake_run(command, stdin_value, environment, timeout, **_kwargs):
         observed["command"] = command
         observed["stdin"] = stdin_value
         observed["environment"] = environment
@@ -336,7 +333,6 @@ def test_sandbox_protocol_withholds_returned_text_and_uses_hardened_flags(
         return 0, json.dumps(response).encode(), b""
 
     monkeypatch.setattr(artifact_analysis, "_run_bounded_subprocess", fake_run)
-    monkeypatch.setattr(artifact_analysis.platform, "system", lambda: "Linux")
     config = SandboxConfig(
         "docker",
         "example/analyzer@sha256:" + "b" * 64,
@@ -373,9 +369,8 @@ def test_sandbox_rejects_partial_coverage_and_worker_owned_severity(
     monkeypatch.setattr(
         artifact_analysis,
         "_run_bounded_subprocess",
-        lambda *_args: (0, json.dumps(base).encode(), b""),
+        lambda *_args, **_kw: (0, json.dumps(base).encode(), b""),
     )
-    monkeypatch.setattr(artifact_analysis.platform, "system", lambda: "Linux")
     config = SandboxConfig("docker", "x@sha256:" + "a" * 64, "runsc")
     with pytest.raises(ScanIncompleteError, match="page_limit_exceeded"):
         artifact_analysis.run_sandbox_analysis(data, "sample.pdf", config)

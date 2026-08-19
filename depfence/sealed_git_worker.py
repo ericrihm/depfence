@@ -49,6 +49,13 @@ def _environment() -> dict[str, str]:
         "GIT_OPTIONAL_LOCKS": "0",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_PAGER": "cat",
+        # Prevent automatic lazy-fetching of missing promisor objects.
+        # After a blob:none partial clone, ls-tree -l would otherwise
+        # silently fetch all blobs just to report sizes, defeating
+        # selective materialization.  Explicit fetches (cat-file blob
+        # in _materialize_blob, batch-check in _batch_check_sizes)
+        # override this with GIT_ALLOW_LAZY_FETCH=1 per call.
+        "GIT_NO_LAZY_FETCH": "1",
     }
     # Set both casings to the approved URL so Git/libcurl cannot
     # honour a lowercase value baked into the image while the host
@@ -116,7 +123,14 @@ def _iter_ls_tree(repository: Path, commit: str) -> Iterator[bytes]:
                 try:
                     metadata, _name = record.split(b"\t", 1)
                     _mode, _kind, _oid, raw_size = metadata.split(b" ", 3)
-                    size = int(raw_size) if raw_size != b"-" else 0
+                    # After blob:none with GIT_NO_LAZY_FETCH=1, git prints
+                    # "-" (non-blob) or "BAD" (unresolved promisor blob)
+                    # instead of a numeric size.  Treat any non-numeric value
+                    # as unresolved (0) so callers can batch-resolve later.
+                    try:
+                        size = int(raw_size)
+                    except ValueError:
+                        size = 0
                 except (TypeError, ValueError):
                     raise MalformedInputError("Git tree returned malformed data") from None
                 total_bytes += max(size, 0)
@@ -133,13 +147,66 @@ def _iter_ls_tree(repository: Path, commit: str) -> Iterator[bytes]:
         process.wait(timeout=5)
 
 
+def _batch_check_sizes(
+    repository: Path, oids: list[tuple[str, str]], *, max_oids: int = 2000
+) -> dict[str, int]:
+    """Resolve blob sizes for a bounded set of OIDs via cat-file --batch-check.
+
+    Returns a mapping from OID to size.  Missing or invalid objects are
+    omitted.  Explicitly allows lazy-fetch for this call only so that
+    promisor blobs can report their size from the remote pack index
+    without fetching full content.
+    """
+    if not oids:
+        return {}
+    if len(oids) > max_oids:
+        raise InputLimitError("blob size resolution exceeds its OID budget")
+    env = _environment()
+    env["GIT_NO_LAZY_FETCH"] = "0"
+    env["GIT_ALLOW_LAZY_FETCH"] = "1"
+    process = subprocess.Popen(
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.version=2",
+         "-C", str(repository), "cat-file", "--batch-check=%(objectname) %(objectsize)"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    sizes: dict[str, int] = {}
+    try:
+        for oid, _suffix in oids:
+            process.stdin.write(oid.encode("ascii") + b"\n")
+        process.stdin.close()
+        for line in process.stdout:
+            line = line.strip()
+            if b" missing" in line:
+                continue
+            parts = line.split(b" ")
+            if len(parts) == 2:
+                try:
+                    sizes[parts[0].decode("ascii")] = int(parts[1])
+                except (ValueError, UnicodeDecodeError):
+                    continue
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+    return sizes
+
+
 def _materialize_blob(repository: Path, object_id: str, expected_size: int) -> bool:
     """Trigger a promisor fetch for one selected blob while discarding its bytes."""
+    env = _environment()
+    env["GIT_NO_LAZY_FETCH"] = "0"
+    env["GIT_ALLOW_LAZY_FETCH"] = "1"
     process = subprocess.Popen(
         ["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.version=2",
          "-C", str(repository), "cat-file", "blob", object_id],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        env=_environment(),
+        env=env,
     )
     assert process.stdout is not None
     received = 0
@@ -311,18 +378,46 @@ def acquire_main() -> None:
         raise SystemExit("acquired commit does not match the requested commit")
     selected = selected_bytes = 0
     try:
+        # Collect supported-suffix candidates with unresolved sizes for
+        # batch resolution.  GIT_NO_LAZY_FETCH=1 prevents ls-tree -l
+        # from silently fetching all blobs; sizes come back as "-".
+        candidates: list[tuple[str, str, int | None]] = []
+        unresolved_oids: list[tuple[str, str]] = []
         for record in _iter_ls_tree(destination, commit):
             metadata, raw_name = record.split(b"\t", 1)
             mode, kind, raw_oid, raw_size = metadata.split(b" ", 3)
-            size = int(raw_size) if raw_size != b"-" else 0
             suffix = PurePosixPath(raw_name.decode("utf-8", errors="surrogateescape")).suffix.casefold()
             if mode[:3] != b"100" or kind != b"blob" or suffix not in SUPPORTED_SUFFIXES:
                 continue
+            oid = raw_oid.decode("ascii")
+            try:
+                parsed_size: int | None = int(raw_size)
+            except ValueError:
+                # "-" (non-blob) or "BAD" (unresolved promisor blob)
+                parsed_size = None
+            if parsed_size is None:
+                candidates.append((oid, suffix, None))
+                unresolved_oids.append((oid, suffix))
+            else:
+                candidates.append((oid, suffix, parsed_size))
+
+        # Batch-resolve sizes for blobs whose sizes were not locally
+        # available (bounded to supported suffixes only).
+        if unresolved_oids:
+            resolved_sizes = _batch_check_sizes(destination, unresolved_oids)
+            candidates = [
+                (oid, sfx, resolved_sizes.get(oid, 0) if sz is None else sz)
+                for oid, sfx, sz in candidates
+            ]
+
+        for oid, _sfx, size in candidates:
+            if size is None:
+                size = 0
             if size < 0 or size > MAX_ARTIFACT_BYTES:
                 continue
             if selected >= args.artifact_budget or selected_bytes + size > args.byte_budget:
                 continue
-            if not _materialize_blob(destination, raw_oid.decode("ascii"), size):
+            if not _materialize_blob(destination, oid, size):
                 raise SystemExit("selected blob acquisition is unsupported or incomplete")
             selected += 1
             selected_bytes += size
@@ -351,13 +446,19 @@ def inventory_main() -> None:
     }
     suffix_counts: dict[str, int] = {}
     warning_codes: set[str] = set()
+    has_unresolved_sizes = False
     try:
       records = _iter_ls_tree(repository, commit)
       for record in records:
         try:
             metadata, raw_name = record.split(b"\t", 1)
             mode, object_type, object_id, raw_size = metadata.split(b" ", 3)
-            size = int(raw_size) if raw_size != b"-" else 0
+            try:
+                size = int(raw_size)
+            except ValueError:
+                # "-" (non-blob) or "BAD" (unresolved promisor blob)
+                size = 0
+                has_unresolved_sizes = True
         except (TypeError, ValueError):
             raise SystemExit("Git tree returned malformed inventory data") from None
         counts["file_count"] += 1
@@ -380,6 +481,8 @@ def inventory_main() -> None:
         suffix_counts[key] = suffix_counts.get(key, 0) + 1
     except (InputLimitError, MalformedInputError, ScanIncompleteError):
         raise SystemExit("Git tree inventory failed") from None
+    if has_unresolved_sizes:
+        warning_codes.add("oversized_blob")
     output = {
         "commit": commit,
         "tree_sha256": digest.hexdigest(),
@@ -488,7 +591,15 @@ def analyze_main() -> None:
         try:
             metadata, raw_name = record.split(b"\t", 1)
             mode, object_type, object_id, raw_size = metadata.split(b" ", 3)
-            size = int(raw_size)
+            # After blob:none with GIT_NO_LAZY_FETCH=1, sizes may be
+            # unavailable ("-" or "BAD").  Use 0 as a placeholder and
+            # verify actual size after cat-file retrieval.
+            try:
+                size = int(raw_size)
+                size_resolved = True
+            except ValueError:
+                size = 0
+                size_resolved = False
         except (TypeError, ValueError):
             raise SystemExit("Git tree returned malformed analysis data") from None
         name = raw_name.decode("utf-8", errors="surrogateescape")
@@ -504,14 +615,34 @@ def analyze_main() -> None:
             suffix_coverage["incomplete"] += 1
             limitations.append({"artifact_id": opaque_id, "suffix": suffix, "code": "artifact_budget_exceeded"})
             continue
-        if size < 0 or size > MAX_ARTIFACT_BYTES or analyzed_bytes + size > args.byte_budget:
+        if size_resolved and (size < 0 or size > MAX_ARTIFACT_BYTES or analyzed_bytes + size > args.byte_budget):
             complete = False
             suffix_coverage["incomplete"] += 1
             code = "artifact_size_exceeded" if size > MAX_ARTIFACT_BYTES else "analysis_byte_budget_exceeded"
             limitations.append({"artifact_id": opaque_id, "suffix": suffix, "code": code})
             continue
-        blob = _git(["-C", str(repository), "cat-file", "blob", object_id.decode("ascii")], binary=True)
-        if blob.returncode or not isinstance(blob.stdout, bytes) or len(blob.stdout) != size:
+        # Explicitly allow lazy-fetch for blob retrieval — _git() inherits
+        # GIT_NO_LAZY_FETCH=1 from _environment(), which blocks promisor
+        # fetches.  Materialized blobs need the fetch to succeed.
+        blob_env = _environment()
+        blob_env["GIT_NO_LAZY_FETCH"] = "0"
+        blob_env["GIT_ALLOW_LAZY_FETCH"] = "1"
+        blob = subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.version=2",
+             "-C", str(repository), "cat-file", "blob", object_id.decode("ascii")],
+            capture_output=True, check=False, env=blob_env,
+        )
+        actual_size = len(blob.stdout) if isinstance(blob.stdout, bytes) else 0
+        if not size_resolved:
+            # Post-fetch budget enforcement when ls-tree size was unavailable
+            if actual_size > MAX_ARTIFACT_BYTES or analyzed_bytes + actual_size > args.byte_budget:
+                complete = False
+                suffix_coverage["incomplete"] += 1
+                code = "artifact_size_exceeded" if actual_size > MAX_ARTIFACT_BYTES else "analysis_byte_budget_exceeded"
+                limitations.append({"artifact_id": opaque_id, "suffix": suffix, "code": code})
+                continue
+        expected = actual_size if not size_resolved else size
+        if blob.returncode or not isinstance(blob.stdout, bytes) or len(blob.stdout) != expected:
             complete = False
             suffix_coverage["incomplete"] += 1
             limitations.append({"artifact_id": opaque_id, "suffix": suffix, "code": "blob_read_failed"})

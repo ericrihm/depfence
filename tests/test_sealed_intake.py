@@ -36,7 +36,18 @@ def _resolution() -> bytes:
     }).encode()
 
 
-def _inventory(*, files: int = 2, bytes_total: int = 120) -> bytes:
+def _inventory(
+    *,
+    files: int = 2,
+    bytes_total: int = 120,
+    suffix_counts: dict[str, int] | None = None,
+    include_supported: bool = False,
+) -> bytes:
+    if suffix_counts is None:
+        if include_supported:
+            suffix_counts = {".py": 1, ".md": max(0, files - 2), ".woff2": 1}
+        else:
+            suffix_counts = {".py": 1, ".md": max(0, files - 1)}
     return json.dumps({
         "commit": COMMIT,
         "tree_sha256": "c" * 64,
@@ -46,7 +57,7 @@ def _inventory(*, files: int = 2, bytes_total: int = 120) -> bytes:
         "symlink_count": 0,
         "submodule_count": 0,
         "non_regular_count": 0,
-        "suffix_counts": {".py": 1, ".md": max(0, files - 1)},
+        "suffix_counts": suffix_counts,
         "warning_codes": [],
     }).encode()
 
@@ -93,7 +104,7 @@ def _fake_oci(
 
     monkeypatch.setattr(sealed_intake, "_run_bounded_subprocess", fake_run)
     monkeypatch.setattr(sealed_intake, "verify_image_signature", lambda *_args: None)
-    monkeypatch.setattr(sealed_intake.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sealed_intake, "_verify_network_exists", lambda *_args: None)
     return calls
 
 
@@ -140,7 +151,7 @@ def test_sealed_resolution_fetches_no_objects(
 
     monkeypatch.setattr(sealed_intake, "_run_bounded_subprocess", fake_run)
     monkeypatch.setattr(sealed_intake, "verify_image_signature", lambda *_args: None)
-    monkeypatch.setattr(sealed_intake.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sealed_intake, "_verify_network_exists", lambda *_args: None)
     project = tmp_path / "project"
     project.mkdir()
     state = PrivateState.open(project_root=project, root=tmp_path / "private")
@@ -272,7 +283,11 @@ def test_sealed_intake_reports_redacted_static_findings(
         "confidence": 0.84,
         "evidence_class": "structural_correlation",
     }
-    _fake_oci(monkeypatch, analysis=_analysis(findings=[finding]))
+    _fake_oci(
+        monkeypatch,
+        inventory=_inventory(files=3, include_supported=True),
+        analysis=_analysis(findings=[finding]),
+    )
     project = tmp_path / "project"
     project.mkdir()
     state = PrivateState.open(project_root=project, root=tmp_path / "private")
@@ -292,7 +307,11 @@ def test_sealed_intake_never_passes_incomplete_artifact_coverage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _fake_oci(monkeypatch, analysis=_analysis(complete=False))
+    _fake_oci(
+        monkeypatch,
+        inventory=_inventory(files=3, include_supported=True),
+        analysis=_analysis(complete=False),
+    )
     project = tmp_path / "project"
     project.mkdir()
     state = PrivateState.open(project_root=project, root=tmp_path / "private")
@@ -315,11 +334,7 @@ def test_sealed_intake_never_passes_incomplete_artifact_coverage(
 )
 def test_sealed_intake_rejects_unapproved_sources_before_oci(
     source: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from depfence.core import sealed_intake
-
-    monkeypatch.setattr(sealed_intake.platform, "system", lambda: "Linux")
     with pytest.raises(ValueError):
         _config().validate(source, COMMIT)
 

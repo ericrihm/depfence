@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import re
 import subprocess
 import uuid
@@ -126,10 +125,12 @@ class SealedResolutionConfig:
             raise ValueError("sealed resolution certificate issuer is invalid")
         if self.timeout_seconds <= 0 or self.timeout_seconds > 300:
             raise ValueError("sealed resolution timeout must be between 0 and 300 seconds")
-        if self.runtime is not None and self.runtime not in {"runsc", "kata", "kata-runtime"}:
-            raise ValueError("sealed resolution runtime must be runsc or Kata")
-        if platform.system() == "Linux" and self.runtime is None:
-            raise ValueError("native Linux sealed resolution requires gVisor (runsc) or Kata")
+        _VALID_RUNTIMES = {"runsc", "kata", "kata-runtime", "vm"}
+        if self.runtime is None or self.runtime not in _VALID_RUNTIMES:
+            raise ValueError(
+                "sealed resolution runtime must be runsc, kata, kata-runtime, or vm "
+                "(operator attestation of VM-mediated isolation)"
+            )
         _validated_seccomp(self.seccomp_profile, self.seccomp_sha256)
         return _validated_source_host(source, self.allowed_hosts)
 
@@ -172,10 +173,12 @@ class SealedIntakeConfig:
         host = _validated_source_host(source, self.allowed_hosts)
         if self.timeout_seconds <= 0 or self.timeout_seconds > 1800:
             raise ValueError("sealed intake timeout must be between 0 and 1800 seconds")
-        if self.runtime is not None and self.runtime not in {"runsc", "kata", "kata-runtime"}:
-            raise ValueError("sealed intake runtime must be runsc or Kata")
-        if platform.system() == "Linux" and self.runtime is None:
-            raise ValueError("native Linux sealed intake requires gVisor (runsc) or Kata")
+        _VALID_RUNTIMES = {"runsc", "kata", "kata-runtime", "vm"}
+        if self.runtime is None or self.runtime not in _VALID_RUNTIMES:
+            raise ValueError(
+                "sealed intake runtime must be runsc, kata, kata-runtime, or vm "
+                "(operator attestation of VM-mediated isolation)"
+            )
         _validated_seccomp(self.intake_seccomp_profile, self.intake_seccomp_sha256)
         _validated_seccomp(self.analysis_seccomp_profile, self.analysis_seccomp_sha256)
         return host
@@ -226,7 +229,7 @@ def _base_run(
         "--mount",
         f"type=volume,src={{volume}},dst=/quarantine{volume_mode}",
     ]
-    if config.runtime:
+    if config.runtime and config.runtime != "vm":
         command.extend(["--runtime", config.runtime])
     return command
 
@@ -270,7 +273,7 @@ def _resolution_run(
         "--tmpfs",
         "/tmp:rw,noexec,nosuid,nodev,size=16777216",  # noqa: S108 - container tmpfs
     ]
-    if config.runtime:
+    if config.runtime and config.runtime != "vm":
         command.extend(["--runtime", config.runtime])
     return command
 
@@ -312,6 +315,30 @@ def _validated_resolution(raw: bytes, expected_host: str) -> dict[str, object]:
     return cast(dict[str, object], document)
 
 
+def _verify_network_exists(engine: str, network: str, environment: dict[str, str]) -> None:
+    """Verify that the acquisition network exists and is internal at runtime."""
+    try:
+        result = subprocess.run(
+            [engine, "network", "inspect", network, "--format", "{{.Internal}}"],
+            capture_output=True,
+            timeout=10,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ScanIncompleteError(
+            f"acquisition network probe unavailable ({type(exc).__name__})"
+        ) from exc
+    if result.returncode != 0:
+        raise ScanIncompleteError(
+            f"acquisition network {network!r} does not exist or cannot be inspected"
+        )
+    internal = result.stdout.strip()
+    if internal != b"true":
+        raise ScanIncompleteError(
+            f"acquisition network {network!r} is not configured as internal"
+        )
+
+
 def resolve_source_sealed(
     source: str,
     *,
@@ -329,6 +356,7 @@ def resolve_source_sealed(
         config.certificate_identity,
         config.certificate_oidc_issuer,
     )
+    _verify_network_exists(config.engine, config.acquisition_network, environment)
     command = _resolution_run(config, container_name=container_name)
     command.extend([
         "--env",
@@ -606,6 +634,7 @@ def inspect_source_sealed(
         config.certificate_identity,
         config.certificate_oidc_issuer,
     )
+    _verify_network_exists(config.engine, config.acquisition_network, environment)
 
     create = [
         config.engine,
@@ -769,6 +798,30 @@ def inspect_source_sealed(
 
     assert inventory is not None
     assert analysis is not None
+    # Cross-correlate inventory suffix counts against analysis coverage.
+    # A worker claiming complete=true with candidate_count=0 must not pass
+    # when inventory reports files with supported suffixes.
+    _ANALYSIS_SUFFIXES = frozenset({
+        ".ttf", ".otf", ".ttc", ".woff", ".woff2",
+        ".html", ".htm", ".css", ".docx", ".pdf",
+    })
+    inv_suffixes = cast(dict[str, int], inventory.get("suffix_counts", {}))
+    inventory_supported = sum(
+        cast(int, count) for suffix, count in inv_suffixes.items()
+        if suffix in _ANALYSIS_SUFFIXES
+    )
+    analysis_candidates = cast(int, analysis["candidate_count"])
+    if analysis_candidates == 0 and inventory_supported > 0:
+        raise ScanIncompleteError(
+            "sealed analysis reports no candidates despite inventory containing supported artifacts"
+        )
+    coverage = cast(dict[str, dict[str, int]], analysis["coverage_by_suffix"])
+    for suffix, counts in coverage.items():
+        inv_count = cast(int, inv_suffixes.get(suffix, 0))
+        if cast(int, counts["total"]) > inv_count:
+            raise ScanIncompleteError(
+                f"sealed analysis coverage for {suffix} exceeds inventory count"
+            )
     for finding in cast(list[dict[str, object]], analysis["findings"]):
         finding["rule_version"] = RULE_VERSION
         finding["artifact_type"] = str(finding.get("suffix", "")).lstrip(".")
