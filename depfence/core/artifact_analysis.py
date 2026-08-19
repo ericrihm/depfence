@@ -151,6 +151,7 @@ def verify_image_signature(image: str, identity: str, issuer: str) -> None:
 
 
 def detect_media_type(path: Path, data: bytes) -> str:
+    """Return a MIME type for *data* using magic bytes and *path* suffix."""
     if data.startswith(b"%PDF-"):
         return "application/pdf"
     if data.startswith(b"wOFF"):
@@ -408,6 +409,7 @@ def _cmap_count(table: bytes) -> int:
 
 
 def summarize_font(data: bytes) -> FontSummary:
+    """Return a lightweight structural summary without FontTools dependency."""
     flavor, tables = _font_tables(data)
     if flavor in {"woff2", "ttc"}:
         return FontSummary(None, None, None, flavor, complete=False)
@@ -816,6 +818,7 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
 
 
 def scan_artifact_bytes(path: Path, data: bytes) -> tuple[list[Finding], list[str]]:
+    """Run host-side (Tier 1) deception analysis on in-memory artifact bytes."""
     if len(data) > MAX_ARTIFACT_BYTES:
         raise InputLimitError(f"artifact exceeds {MAX_ARTIFACT_BYTES} bytes")
     suffix = path.suffix.lower()
@@ -846,6 +849,7 @@ def scan_artifact_bytes(path: Path, data: bytes) -> tuple[list[Finding], list[st
 
 
 def scan_artifact_path(path: Path) -> tuple[list[Finding], list[str]]:
+    """Read an on-disk artifact safely and delegate to :func:`scan_artifact_bytes`."""
     try:
         data = _read_regular_file(path)
     except ScanIncompleteError:
@@ -1052,6 +1056,7 @@ def _sandbox_findings(document: object, artifact_name: str) -> list[Finding]:
 
 
 def run_sandbox_analysis(data: bytes, artifact_name: str, config: SandboxConfig) -> list[Finding]:
+    """Run sandboxed (Tier 2) rendered-vs-text comparison in an OCI container."""
     if len(data) > MAX_ARTIFACT_BYTES:
         raise InputLimitError(f"artifact exceeds {MAX_ARTIFACT_BYTES} bytes")
     config.validate()
