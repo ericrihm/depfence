@@ -18,7 +18,6 @@ from depfence.core.scan_scope import (
     ScopeEscapeError,
 )
 
-
 # -- Exception hierarchy --
 
 
