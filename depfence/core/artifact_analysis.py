@@ -22,6 +22,7 @@ import threading
 import time
 import uuid
 import zipfile
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
@@ -465,7 +466,7 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
                         mappings.setdefault(int(codepoint), set()).add(str(glyph))
             except (InputLimitError, MalformedInputError):
                 raise
-            except Exception:
+            except (TTLibError, struct.error, zlib.error, KeyError, IndexError, ValueError):
                 # FontTools lazy-load can raise TTLibError, struct.error, zlib.error,
                 # or other decoding failures during cmap traversal.
                 limitations.add("cmap_decode_incomplete")
@@ -574,7 +575,7 @@ def _parse_bounded_xml(data: bytes) -> ElementTree.Element:
     for encoding in ("utf-16-le", "utf-16-be"):
         try:
             decoded = head.decode(encoding, errors="ignore")
-        except Exception:
+        except (UnicodeDecodeError, LookupError):
             continue
         if re.search(r"<!DOCTYPE|<!ENTITY", decoded, re.IGNORECASE):
             raise MalformedInputError("DOCX XML declarations are unsafe")

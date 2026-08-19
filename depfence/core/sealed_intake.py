@@ -39,6 +39,7 @@ _WARNING_CODES = frozenset({
 })
 INTAKE_SECCOMP_SHA256 = "75f87909de0adeb58a327fc3cb1bebd21712594e3a58ebaaa36c7cc48f3c00a5"
 ANALYSIS_SECCOMP_SHA256 = "f6d4aafd4d37b8d9efe83da8b9660e633c4e63d24de05a62e83292c6ac8e5bf6"
+RULE_VERSION = "2026-08-17"
 
 
 def _validated_seccomp(path: str, expected_sha256: str) -> str:
@@ -384,6 +385,7 @@ def resolve_source_sealed(
             inspect_result = subprocess.run(
                 [config.engine, "inspect", container_name],
                 capture_output=True, timeout=10,
+                env=environment,
             )
             if inspect_result.returncode == 0:
                 raise ScanIncompleteError("sealed resolution cleanup was indeterminate")
@@ -768,7 +770,7 @@ def inspect_source_sealed(
     assert inventory is not None
     assert analysis is not None
     for finding in cast(list[dict[str, object]], analysis["findings"]):
-        finding["rule_version"] = "2026-08-17"
+        finding["rule_version"] = RULE_VERSION
         finding["artifact_type"] = str(finding.get("suffix", "")).lstrip(".")
         finding["carrier_type"] = "git_blob"
     warnings = list(cast(list[str], inventory.get("warning_codes", [])))
@@ -841,7 +843,7 @@ def inspect_source_sealed(
             "findings": analysis["findings"],
             "limitations": analysis["limitations"],
             "toolchain": analysis["toolchain"],
-            "rule_version": "2026-08-17",
+            "rule_version": RULE_VERSION,
             "coverage_units": {"artifacts": analysis["analyzed_count"]},
             "presentation_mechanisms_inspected": ["cmap", "gsub", "document_structure", "decoded_pdf_objects"],
         },
