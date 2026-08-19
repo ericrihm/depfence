@@ -66,30 +66,32 @@ The independent article, neutral live demo, and any sample publication remain ga
 completed exact-commit review, licensing review, claim audit, and independent technical and
 editorial sign-off.
 
-## Tracked architectural findings
+## Resolved architectural findings
 
-These were identified by cross-family code review and are not addressable without design
-work. Each is defense-in-depth — the current code fails closed via `unproven` or
-`ScanIncompleteError` rather than silently permitting.
+These were identified by cross-family code review and resolved in commit `f7532ee`.
 
-- **Platform isolation**: `artifact_analysis.py` and `sealed_intake.py` require gVisor/Kata
-  only on Linux. A macOS/OrbStack host running Linux containers via `runc` bypasses the
-  requirement. Fix requires runtime capability attestation independent of host OS.
-- **TTC pre-validation**: `TTCollection` is constructed before member-count limits validate.
-  Hostile fonts can trigger FontTools parsing before the limit fires. Fix requires
-  validating collection headers before FontTools construction.
-- **PDF form recursion**: Only a 500,000-operation limit bounds decoded PDF form traversal.
-  Deep forms or compressed streams can exhaust the host before the check. Fix requires
-  depth, object, and decoded-byte budgets enforced before recursion.
-- **Container stderr boundary**: Worker tracebacks and OCI diagnostics are piped into host
-  memory, bypassing the validated-metrics-only boundary. Fix requires a worker mode with
-  stderr to DEVNULL and error reporting via the JSON channel.
-- **Network validation**: `acquisition_network` is syntax-checked but not verified as
-  internal or proxied at execution time. Fix requires runtime network/proxy identity
-  verification.
-- **Inventory/coverage cross-correlation**: A worker claiming `complete=true` with
-  `candidate_count=0` passes even when inventory reports supported suffixes. Fix requires
-  reconciling inventory suffix counts against analysis coverage.
-- **`git ls-tree -l` with `blob:none`**: Tree objects do not contain blob sizes after a
-  partial clone. Git must lazy-fetch to report sizes, defeating the selective-materialization
-  design. Fix requires a bounded batch protocol for size/OID resolution.
+- **Platform isolation** *(resolved)*: Runtime attestation replaces `platform.system()`.
+  All four values — `runsc`, `kata`, `kata-runtime`, and `vm` — are always required. `vm` is
+  an operator attestation that the engine runs containers inside a hardware-isolated VM
+  (Docker Desktop, Podman Machine) and is not passed as a `--runtime` flag.
+- **TTC pre-validation** *(resolved)*: The TTC header `numFonts` field is validated via
+  `struct.unpack` before `TTCollection` construction, so FontTools cannot be triggered by a
+  hostile member count.
+- **PDF form recursion** *(resolved)*: `MAX_FORM_DEPTH=16` and `MAX_PDF_OBJECTS=10000`
+  limits are enforced before recursive form XObject and content stream inspection, in
+  addition to the existing 500,000-operation budget.
+- **Container stderr boundary** *(resolved)*: `_run_bounded_subprocess` accepts
+  `discard_stderr=True`, which routes stderr to `DEVNULL`. Sandbox analysis uses this mode
+  so worker tracebacks cannot cross the IPC boundary.
+- **Network validation** *(resolved)*: `_verify_network_exists()` runs
+  `docker network inspect --format {{.Internal}}` at execution time. Both
+  `resolve_source_sealed` and `inspect_source_sealed` call it after image signature
+  verification and before any container operation.
+- **Inventory/coverage cross-correlation** *(resolved)*: After sealed inspection, the host
+  verifies that `analysis["candidate_count"]` is consistent with inventory `suffix_counts`
+  for supported file types, and that per-suffix coverage does not exceed inventory counts.
+- **`git ls-tree -l` with `blob:none`** *(resolved)*: `GIT_NO_LAZY_FETCH=1` prevents
+  `ls-tree -l` from silently fetching all blobs. `_batch_check_sizes()` resolves sizes for
+  supported-suffix candidates only, with explicit `GIT_ALLOW_LAZY_FETCH=1` override per
+  call. Both `-` (non-blob) and `BAD` (unresolved promisor blob) are handled as unresolved
+  size markers.
