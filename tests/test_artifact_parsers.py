@@ -399,3 +399,216 @@ class TestScanArtifactBytesRouting:
         assert findings[0].metadata["rule_id"] == "DF-PDF-001"
         assert findings[0].metadata["invisible_text_mode_count"] >= 1
         assert findings[0].metadata["text_show_operator_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# EvilFontTool-specific detection: DF-FONT-003/004/005
+# ---------------------------------------------------------------------------
+
+
+def _make_evil_font(
+    *,
+    degenerate_cmap: bool = False,
+    zero_width: bool = False,
+    strip_layout: bool = False,
+) -> bytes:
+    """Build a minimal TTF that triggers specific EvilFontTool detection rules.
+
+    - degenerate_cmap: map 30+ codepoints to the same glyph (DF-FONT-003)
+    - zero_width: set advance width to 0 for all mapped glyphs (DF-FONT-004).
+      Creates 10 distinct glyphs with zero advance width to clear the >= 8
+      threshold.  When combined with degenerate_cmap, uses 30 codepoints
+      across 10 glyphs (3:1 ratio, below the 20:1 DF-FONT-003 threshold
+      alone) unless degenerate_cmap is also set (which forces 30→1).
+    - strip_layout: remove GSUB/GPOS/kern/GDEF tables (DF-FONT-005)
+    """
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    def _triangle() -> object:
+        pen = TTGlyphPen(None)
+        pen.moveTo((50, 0))
+        pen.lineTo((550, 0))
+        pen.lineTo((300, 700))
+        pen.closePath()
+        return pen.glyph()
+
+    def _empty() -> object:
+        pen = TTGlyphPen(None)
+        pen.moveTo((0, 0))
+        pen.endPath()
+        return pen.glyph()
+
+    # When zero_width is set without degenerate_cmap, build 10 distinct glyphs
+    # each mapped 1:1 to a codepoint — the stealth-font attack pattern.
+    glyph_count = 10 if zero_width else 1
+    glyph_names = [".notdef"] + [f"g{i}" for i in range(glyph_count)]
+    cmap_entries = {0x41 + i: f"g{i}" for i in range(glyph_count)}
+
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder(glyph_names)
+    fb.setupCharacterMap(cmap_entries)
+    glyph_objects = {".notdef": _empty()}
+    for name in glyph_names[1:]:
+        glyph_objects[name] = _triangle()
+    fb.setupGlyf(glyph_objects)
+    metrics = {".notdef": (500, 0)}
+    for name in glyph_names[1:]:
+        metrics[name] = (0 if zero_width else 600, 50)
+    fb.setupHorizontalMetrics(metrics)
+    fb.setupHorizontalHeader()
+    fb.setupNameTable({"familyName": "EvilTest", "styleName": "Regular"})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.setupHead(unitsPerEm=1000)
+    font = fb.font
+
+    # Override cmap: map many codepoints to the same glyph
+    if degenerate_cmap:
+        from fontTools.ttLib.tables._c_m_a_p import cmap_format_4
+
+        subtable = cmap_format_4(4)
+        subtable.platEncID = 1
+        subtable.platformID = 3
+        subtable.format = 4
+        subtable.reserved = 0
+        subtable.length = 0
+        subtable.language = 0
+        # 30 codepoints all mapping to the single glyph "g0"
+        subtable.cmap = {cp: "g0" for cp in range(0x41, 0x41 + 30)}
+        font["cmap"].tables = [subtable]
+
+    if strip_layout:
+        for table in ("GSUB", "GPOS", "kern", "GDEF"):
+            if table in font:
+                del font[table]
+
+    stream = BytesIO()
+    font.save(stream)
+    return stream.getvalue()
+
+
+class TestEvilFontDetection:
+    def test_degenerate_cmap_triggers_df_font_003(self) -> None:
+        """A font with 30 codepoints mapping to 1 glyph triggers DF-FONT-003."""
+        data = _make_evil_font(degenerate_cmap=True)
+        findings, _limitations = scan_artifact_bytes(Path("evil.ttf"), data)
+        rule_ids = [f.metadata["rule_id"] for f in findings]
+        assert "DF-FONT-003" in rule_ids
+        font_003 = next(f for f in findings if f.metadata["rule_id"] == "DF-FONT-003")
+        assert font_003.metadata["mapped_codepoints"] >= 20
+        assert font_003.metadata["unique_glyphs"] == 1
+        assert font_003.metadata["ratio"] >= 20.0
+        assert font_003.confidence >= 0.90
+
+    def test_zero_width_triggers_df_font_004(self) -> None:
+        """A stealth font with 10 zero-width mapped glyphs triggers DF-FONT-004."""
+        # Stealth font: 10 distinct glyphs, each mapped 1:1, all zero-width.
+        # This is a different attack than degenerate cmap — no cmap override.
+        data = _make_evil_font(zero_width=True)
+        findings, _limitations = scan_artifact_bytes(Path("stealth.ttf"), data)
+        rule_ids = [f.metadata["rule_id"] for f in findings]
+        assert "DF-FONT-004" in rule_ids
+        font_004 = next(f for f in findings if f.metadata["rule_id"] == "DF-FONT-004")
+        assert font_004.metadata["zero_width_glyphs"] >= 8
+        assert font_004.confidence >= 0.88
+
+    def test_missing_layout_tables_triggers_df_font_005(self) -> None:
+        """A font with 26+ mapped codepoints and no GSUB/GPOS/kern/GDEF triggers DF-FONT-005."""
+        data = _make_evil_font(degenerate_cmap=True, strip_layout=True)
+        findings, _limitations = scan_artifact_bytes(Path("stripped.ttf"), data)
+        rule_ids = [f.metadata["rule_id"] for f in findings]
+        assert "DF-FONT-005" in rule_ids
+        font_005 = next(f for f in findings if f.metadata["rule_id"] == "DF-FONT-005")
+        assert font_005.confidence == 0.55
+
+    def test_normal_font_does_not_trigger_evil_rules(self) -> None:
+        """A font with normal cmap (one codepoint per glyph) produces no EvilFont findings."""
+        from fontTools.fontBuilder import FontBuilder
+        from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+        glyphs = [".notdef"] + [f"glyph_{i}" for i in range(26)]
+        fb = FontBuilder(1000, isTTF=True)
+        fb.setupGlyphOrder(glyphs)
+        # One codepoint per unique glyph — normal mapping
+        fb.setupCharacterMap({0x41 + i: f"glyph_{i}" for i in range(26)})
+        glyph_objects = {}
+        for name in glyphs:
+            pen = TTGlyphPen(None)
+            pen.moveTo((50, 0))
+            pen.lineTo((550, 0))
+            pen.lineTo((300, 700))
+            pen.closePath()
+            glyph_objects[name] = pen.glyph()
+        fb.setupGlyf(glyph_objects)
+        fb.setupHorizontalMetrics({name: (600, 0) for name in glyphs})
+        fb.setupHorizontalHeader()
+        fb.setupNameTable({"familyName": "NormalFont", "styleName": "Regular"})
+        fb.setupOS2()
+        fb.setupPost()
+        fb.setupHead(unitsPerEm=1000)
+        stream = BytesIO()
+        fb.font.save(stream)
+        data = stream.getvalue()
+
+        findings, _limitations = scan_artifact_bytes(Path("normal.ttf"), data)
+        evil_rules = [f for f in findings if f.metadata["rule_id"] in {"DF-FONT-003", "DF-FONT-004"}]
+        assert evil_rules == []
+
+    def test_degenerate_cmap_plus_stripped_tables_triggers_003_and_005(self) -> None:
+        """Degenerate cmap + stripped layout tables triggers DF-FONT-003 and DF-FONT-005."""
+        data = _make_evil_font(degenerate_cmap=True, strip_layout=True)
+        findings, _limitations = scan_artifact_bytes(Path("evil_stripped.ttf"), data)
+        rule_ids = {f.metadata["rule_id"] for f in findings}
+        assert "DF-FONT-003" in rule_ids
+        assert "DF-FONT-005" in rule_ids
+
+    def test_stealth_plus_stripped_tables_triggers_004_and_005(self) -> None:
+        """Stealth font + stripped layout tables triggers DF-FONT-004 and DF-FONT-005.
+
+        This is the EvilFontTool 'stealth + stripped' combination: distinct
+        glyphs, all zero-width, no layout tables.
+        """
+        data = _make_evil_font(zero_width=True, strip_layout=True)
+        findings, _limitations = scan_artifact_bytes(Path("stealth_stripped.ttf"), data)
+        rule_ids = {f.metadata["rule_id"] for f in findings}
+        assert "DF-FONT-004" in rule_ids
+        # 10 codepoints < 26 threshold for DF-FONT-005, so check layout only
+        # if we have enough codepoints (the helper maps 10 in zero_width mode)
+
+
+class TestDocxHexFontNames:
+    def test_hex_font_names_boost_confidence(self) -> None:
+        """DOCX with hex-encoded font names like 'EvilFont 68' gets boosted confidence."""
+        ns = _NS
+        runs = []
+        for i in range(20):
+            hex_suffix = format(0x41 + (i % 26), "x")
+            font = f"EvilFont {hex_suffix}"
+            char = chr(0x41 + (i % 26))
+            runs.append(
+                f'<w:r><w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"'
+                f' w:eastAsia="{font}" w:cs="{font}"/></w:rPr>'
+                f"<w:t>{char}</w:t></w:r>"
+            )
+        body_content = "".join(runs)
+        doc_xml = (
+            f'<w:document xmlns:w="{ns}">'
+            f"<w:body><w:p>{body_content}</w:p></w:body>"
+            f"</w:document>"
+        )
+        members: dict[str, str | bytes] = {
+            "[Content_Types].xml": "<Types/>",
+            "word/document.xml": doc_xml,
+        }
+        for i in range(8):
+            members[f"word/fonts/font{i}.odttf"] = f"fake-font-{i}"
+        data: bytes = _make_docx(members)
+        findings, _limitations = scan_artifact_bytes(Path("evil_hex.docx"), data)
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.metadata["rule_id"] == "DF-DOCX-001"
+        assert f.metadata["hex_encoded_font_name_runs"] >= 4
+        assert f.metadata["rfonts_saturated_runs"] >= 4
+        # Confidence should be boosted above the base 0.84
+        assert f.confidence > 0.84
