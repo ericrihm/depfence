@@ -218,10 +218,10 @@ def compare(machine: str, visual: str, ocr_confidence: float, page_count: int) -
     character_error_rate = 1.0 - similarity
     findings: list[dict[str, object]] = []
     if (
-        compared >= 20
-        and character_error_rate >= 0.35
-        and ocr_confidence >= 0.85
-        and token_similarity <= 0.50
+        compared >= 20              # short text (page numbers, headers) is too noisy to compare
+        and character_error_rate >= 0.35  # 35%+ divergence: visual content materially differs
+        and ocr_confidence >= 0.85       # OCR quality must be high enough to trust the signal
+        and token_similarity <= 0.50     # fewer than half of word-level tokens match
     ):
         hazardous = bool(_HAZARD.search(machine_norm))
         findings.append({

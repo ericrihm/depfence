@@ -547,7 +547,7 @@ def _scan_web(path: Path, data: bytes) -> list[Finding]:
         "Suspicious per-character web-font construction",
         "The document combines many custom font faces with character-level or sparse-range font selection. No content was rendered.",
         Severity.MEDIUM,
-        0.78,
+        0.78,  # structural correlation only — no rendering to confirm
         font_face_count=len(faces),
         font_family_count=len(families),
         unicode_range_count=len(ranges),
@@ -691,7 +691,7 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
             "Suspicious embedded-font run switching in DOCX",
             "The document embeds multiple fonts and changes font families across single-character runs, a structural pattern capable of making visible text differ from stored text.",
             Severity.MEDIUM,
-            0.84,
+            0.84,  # higher than web-font: explicit font embedding is stronger signal
             embedded_font_count=len(embedded),
             story_count=len(story_infos),
             font_classes=sorted(font_classes),
@@ -831,7 +831,8 @@ def scan_artifact_bytes(path: Path, data: bytes) -> tuple[list[Finding], list[st
             findings.append(_finding(
                 path, "DF-FONT-002", "Conflicting Unicode glyph mappings",
                 "Unicode cmap subtables disagree about glyph identity. This is structural evidence and requires rendered reference comparison for confirmation.",
-                Severity.MEDIUM, 0.82, evidence_class="cmap_subtable_conflict",
+                Severity.MEDIUM, 0.82,  # structural; rendered reference comparison needed to confirm
+                evidence_class="cmap_subtable_conflict",
                 cmap_conflict_count=semantic.cmap_conflicts,
                 cmap_subtable_count=semantic.cmap_subtables,
                 member_count=semantic.member_count,
@@ -1027,6 +1028,9 @@ def _sandbox_findings(document: object, artifact_name: str) -> list[Finding]:
         ):
             raise ScanIncompleteError("sandbox finding does not meet host detection thresholds")
         severity = Severity.CRITICAL if hazardous else Severity.HIGH
+        # Base 0.75 for any confirmed sandbox mismatch, scaled up by
+        # divergence magnitude (CER) and OCR quality; capped at 0.99
+        # because OCR is never fully deterministic.
         confidence = min(
             0.99, 0.75 + character_error_rate * 0.2 + ocr_confidence * 0.05
         )
