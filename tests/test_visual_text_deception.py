@@ -476,3 +476,30 @@ def test_container_worker_reports_page_limit_as_incomplete(
     assert regions == []
     assert total == 11
     assert limitations == ["page_limit_exceeded"]
+
+
+# -- Integration: VTD scanner wired into engine.scan_directory --
+
+
+@pytest.mark.asyncio
+async def test_scan_directory_includes_visual_text_deception_findings(tmp_path: Path) -> None:
+    """Verify the VTD scanner is wired into engine.scan_directory correctly."""
+    from depfence.core.engine import scan_directory
+
+    # Build a project with enough sparse companion fonts to trigger DF-FONT-001.
+    for index in range(8):
+        (tmp_path / f"font{index}.ttf").write_bytes(
+            _table_font(cmap_entries=index + 1)
+        )
+    result = await scan_directory(
+        tmp_path,
+        project_scanners=True,
+        fetch_metadata=False,
+        enrich=False,
+    )
+    vtd_findings = [
+        f for f in result.findings
+        if f.finding_type == FindingType.VISUAL_TEXT_DECEPTION
+    ]
+    assert len(vtd_findings) == 1
+    assert vtd_findings[0].metadata["rule_id"] == "DF-FONT-001"

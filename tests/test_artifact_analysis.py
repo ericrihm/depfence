@@ -160,6 +160,44 @@ def test_verify_image_rejects_control_chars_in_issuer() -> None:
         verify_image_signature("img@sha256:" + "a" * 64, "id@example", "https://issuer\x01.example")
 
 
+# -- _force_remove_container --
+
+
+def test_force_remove_container_calls_engine_rm(monkeypatch: pytest.MonkeyPatch) -> None:
+    from depfence.core.artifact_analysis import _force_remove_container
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> None:
+        calls.append(cmd)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    _force_remove_container("docker", "test-container")
+    assert calls == [["docker", "rm", "--force", "test-container"]]
+
+
+def test_force_remove_container_survives_oserror(monkeypatch: pytest.MonkeyPatch) -> None:
+    from depfence.core.artifact_analysis import _force_remove_container
+
+    def raise_oserror(cmd: list[str], **_kwargs: object) -> None:
+        raise OSError("engine not found")
+
+    monkeypatch.setattr("subprocess.run", raise_oserror)
+    _force_remove_container("missing-engine", "ctr")  # should not raise
+
+
+def test_force_remove_container_survives_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess as sp
+
+    from depfence.core.artifact_analysis import _force_remove_container
+
+    def raise_timeout(cmd: list[str], **_kwargs: object) -> None:
+        raise sp.TimeoutExpired(cmd, 15)
+
+    monkeypatch.setattr("subprocess.run", raise_timeout)
+    _force_remove_container("docker", "hung-container")  # should not raise
+
+
 def test_font_semantic_summary_is_a_frozen_dataclass_with_expected_fields() -> None:
     # Boundary check on the public shape rather than a live inspection, since
     # inspect_font_semantics requires a byte-accurate sfnt/ttc fixture.
