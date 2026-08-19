@@ -706,7 +706,12 @@ def analyze_main() -> None:
             })
         for finding in artifact_findings[:16]:
             rule_id = str(finding.metadata.get("rule_id", ""))
-            if rule_id not in {"DF-FONT-001", "DF-FONT-002", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"}:
+            if rule_id not in {
+                "DF-FONT-001", "DF-FONT-002", "DF-FONT-003", "DF-FONT-004", "DF-FONT-005",
+                "DF-WEB-001",
+                "DF-DOCX-001", "DF-DOCX-002",
+                "DF-PDF-001", "DF-PDF-002", "DF-PDF-003",
+            }:
                 continue
             findings.append({
                 "artifact_id": opaque_id,

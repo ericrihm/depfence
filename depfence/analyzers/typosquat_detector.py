@@ -188,10 +188,10 @@ _QWERTY_POS: dict[str, tuple[int, float]] = {
 # Homoglyph substitution table
 _HOMOGLYPHS: dict[str, list[str]] = {
     "l": ["1", "I"],
-    "o": ["0"],
+    "o": ["0", "о", "ο"],
     "i": ["1", "l"],
-    "e": ["3"],
-    "a": ["@", "4"],
+    "e": ["3", "е"],
+    "a": ["@", "4", "а", "α"],
     "s": ["5", "$"],
     "b": ["6"],
     "g": ["9"],
@@ -202,6 +202,42 @@ _HOMOGLYPHS: dict[str, list[str]] = {
     "w": ["vv"],
     "cl": ["d"],
     "d": ["cl"],
+    # --- Unicode homoglyphs (Cyrillic → Latin lookalikes) ---
+    # augur confusable.go — Cyrillic letters that visually match Latin
+    "а": ["a"],  # Cyrillic а → Latin a
+    "е": ["e"],  # Cyrillic е → Latin e
+    "о": ["o"],  # Cyrillic о → Latin o
+    "р": ["p"],  # Cyrillic р → Latin p
+    "с": ["c"],  # Cyrillic с → Latin c
+    "у": ["y"],  # Cyrillic у → Latin y
+    "х": ["x"],  # Cyrillic х → Latin x
+    "А": ["A"],  # Cyrillic А → Latin A
+    "В": ["B"],  # Cyrillic В → Latin B
+    "Е": ["E"],  # Cyrillic Е → Latin E
+    "К": ["K"],  # Cyrillic К → Latin K
+    "М": ["M"],  # Cyrillic М → Latin M
+    "Н": ["H"],  # Cyrillic Н → Latin H
+    "О": ["O"],  # Cyrillic О → Latin O
+    "Р": ["P"],  # Cyrillic Р → Latin P
+    "С": ["C"],  # Cyrillic С → Latin C
+    "Т": ["T"],  # Cyrillic Т → Latin T
+    "Х": ["X"],  # Cyrillic Х → Latin X
+    # --- Unicode homoglyphs (Greek → Latin lookalikes) ---
+    "ο": ["o"],  # Greek ο → Latin o
+    "α": ["a"],  # Greek α → Latin a (close)
+    "Α": ["A"],  # Greek Α → Latin A
+    "Β": ["B"],  # Greek Β → Latin B
+    "Ε": ["E"],  # Greek Ε → Latin E
+    "Η": ["H"],  # Greek Η → Latin H
+    "Ι": ["I"],  # Greek Ι → Latin I
+    "Κ": ["K"],  # Greek Κ → Latin K
+    "Μ": ["M"],  # Greek Μ → Latin M
+    "Ν": ["N"],  # Greek Ν → Latin N
+    "Ο": ["O"],  # Greek Ο → Latin O
+    "Ρ": ["P"],  # Greek Ρ → Latin P
+    "Τ": ["T"],  # Greek Τ → Latin T
+    "Χ": ["X"],  # Greek Χ → Latin X
+    "Ζ": ["Z"],  # Greek Ζ → Latin Z
 }
 
 
@@ -334,7 +370,11 @@ def _insertion_variants(name: str) -> set[str]:
 def _homoglyph_variants(name: str) -> set[str]:
     variants: set[str] = set()
     for i, ch in enumerate(name):
-        for replacement in _HOMOGLYPHS.get(ch.lower(), []):
+        # Exact-case lookup first — needed for Unicode homoglyphs where case
+        # carries meaning (e.g. Greek "Ο" → Latin "O"), then fall back to the
+        # lowercase ASCII table so existing digit/symbol substitutions still work.
+        replacements = _HOMOGLYPHS.get(ch, _HOMOGLYPHS.get(ch.lower(), []))
+        for replacement in replacements:
             v = name[:i] + replacement + name[i + 1:]
             if v != name:
                 variants.add(v)

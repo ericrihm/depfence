@@ -29,10 +29,18 @@ not treated as identity, and semantic outline claims require trusted rendered re
 
 DOCX inspection bounds ZIP/XML expansion and walks document, header, footer, footnote,
 endnote, comment, glossary, field, revision, hidden-text, and text-box structures. It records
-all four `rFonts` classes. PDF inspection uses decoded objects and content operations,
+all four `rFonts` classes. DF-DOCX-002 independently flags documents with 3+ hidden runs
+(`w:vanish`/`w:webHidden`/white text color) or 5+ revision-tracking nodes, even without
+font-switching. White/near-white text (`w:color` values FFFFFF, FEFEFE, FDFDFD, FCFCFC)
+counts as a hidden run because it is invisible on a white background.
+PDF inspection uses decoded objects and content operations,
 including recursive form XObjects, Type 3 fonts, `ToUnicode`, rendering mode, clipping,
-transforms, optional layers, and `ActualText`. Render comparison aligns PDF evidence per
-page so a mismatch late in a document is not averaged away.
+transforms, optional layers, `ActualText`, and white-on-white fill color. DF-PDF-001 now
+detects both invisible rendering mode (Tr 3) and white fill color (`1 1 1 rg` or `1 g`
+with values ≥ 0.98). DF-PDF-002 detects active content (JavaScript, `/OpenAction`, `/AA`
+auto-actions). DF-PDF-003 flags incremental saves (multiple `%%EOF` markers) that can
+shadow earlier content. Render comparison aligns PDF evidence per page so a mismatch late
+in a document is not averaged away.
 
 Local HTML can be rendered in the separate Chromium worker with JavaScript and networking
 disabled. Accessibility, selection, and clipboard collection are not yet implemented, so

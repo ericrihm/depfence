@@ -725,6 +725,14 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
                     child_local = child.tag.rsplit("}", 1)[-1]
                     if child_local in {"vanish", "webHidden"}:
                         hidden_runs += 1
+                    # White/near-white text color (augur ooxml.go)
+                    if child_local == "color":
+                        color_val = child.attrib.get(
+                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val",
+                            "",
+                        ).upper()
+                        if color_val in {"FFFFFF", "FEFEFE", "FDFDFD", "FCFCFC"}:
+                            hidden_runs += 1
                     if child_local == "rFonts":
                         candidates = []
                         for key, value in child.attrib.items():
@@ -746,51 +754,96 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
                         single_character_runs += 1
         switches = sum(a != b for a, b in zip(run_fonts, run_fonts[1:]))
         switch_density = switches / max(1, len(run_fonts) - 1)
-        if len(embedded) < 4 or single_character_runs < 8 or switch_density < 0.5:
-            return []
-        # Boost confidence when additional EvilFontTool signatures are present.
-        # Hex-encoded font names and rFonts saturation are strong corroborating
-        # signals that increase specificity beyond generic font switching.
-        confidence = 0.84
-        if hex_name_runs >= 4:
-            confidence = min(confidence + 0.04, 0.98)
-        if rfonts_saturated_runs >= 4:
-            confidence = min(confidence + 0.02, 0.98)
-        return [_finding(
-            path,
-            "DF-DOCX-001",
-            "Suspicious embedded-font run switching in DOCX",
-            "The document embeds multiple fonts and changes font families across single-character runs, a structural pattern capable of making visible text differ from stored text.",
-            Severity.MEDIUM,
-            confidence,
-            embedded_font_count=len(embedded),
-            story_count=len(story_infos),
-            font_classes=sorted(font_classes),
-            hidden_run_count=hidden_runs,
-            revision_node_count=revision_nodes,
-            field_node_count=field_nodes,
-            text_box_count=text_box_nodes,
-            font_run_count=len(run_fonts),
-            single_character_run_count=single_character_runs,
-            font_switch_density=round(switch_density, 4),
-            hex_encoded_font_name_runs=hex_name_runs,
-            rfonts_saturated_runs=rfonts_saturated_runs,
-            evidence_class="structural_correlation",
-        )]
+        findings: list[Finding] = []
+
+        # DF-DOCX-002: Hidden document content (independent of font switching)
+        if hidden_runs >= 3 or revision_nodes >= 5:
+            detail_parts = []
+            if hidden_runs >= 3:
+                detail_parts.append(f"{hidden_runs} hidden text runs (vanish/webHidden)")
+            if revision_nodes >= 5:
+                detail_parts.append(f"{revision_nodes} tracked-change nodes")
+            findings.append(_finding(
+                path,
+                "DF-DOCX-002",
+                "DOCX contains hidden or revision-tracked content",
+                "The document contains " + " and ".join(detail_parts) + ". "
+                "Hidden text and excessive tracked changes can conceal modifications "
+                "from visual inspection while remaining in the document's data.",
+                Severity.MEDIUM,
+                0.65,
+                hidden_run_count=hidden_runs,
+                revision_node_count=revision_nodes,
+                story_count=len(story_infos),
+                evidence_class="hidden_document_content",
+            ))
+
+        # DF-DOCX-001: Font-switching detection (existing logic)
+        if len(embedded) >= 4 and single_character_runs >= 8 and switch_density >= 0.5:
+            # Boost confidence when additional EvilFontTool signatures are present.
+            # Hex-encoded font names and rFonts saturation are strong corroborating
+            # signals that increase specificity beyond generic font switching.
+            confidence = 0.84
+            if hex_name_runs >= 4:
+                confidence = min(confidence + 0.04, 0.98)
+            if rfonts_saturated_runs >= 4:
+                confidence = min(confidence + 0.02, 0.98)
+            findings.append(_finding(
+                path,
+                "DF-DOCX-001",
+                "Suspicious embedded-font run switching in DOCX",
+                "The document embeds multiple fonts and changes font families across single-character runs, a structural pattern capable of making visible text differ from stored text.",
+                Severity.MEDIUM,
+                confidence,
+                embedded_font_count=len(embedded),
+                story_count=len(story_infos),
+                font_classes=sorted(font_classes),
+                hidden_run_count=hidden_runs,
+                revision_node_count=revision_nodes,
+                field_node_count=field_nodes,
+                text_box_count=text_box_nodes,
+                font_run_count=len(run_fonts),
+                single_character_run_count=single_character_runs,
+                font_switch_density=round(switch_density, 4),
+                hex_encoded_font_name_runs=hex_name_runs,
+                rfonts_saturated_runs=rfonts_saturated_runs,
+                evidence_class="structural_correlation",
+            ))
+
+        return findings
 
 
 def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
+    # DF-PDF-003 pre-parse: count %%EOF markers on raw bytes before parsing,
+    # since incremental saves may produce PDFs that strict-mode readers reject.
+    eof_count = data.count(b"%%EOF")
+
     try:
         from pypdf import PdfReader
         from pypdf.errors import PdfReadError
         from pypdf.generic import ContentStream, DictionaryObject
         reader = PdfReader(BytesIO(data), strict=True)
     except (PdfReadError, ValueError, TypeError, OSError) as exc:
+        # If the PDF can't be parsed but has incremental saves, report that.
+        if eof_count > 1:
+            return [_finding(
+                path,
+                "DF-PDF-003",
+                "PDF has multiple revision layers (incremental saves)",
+                "The PDF contains multiple %%EOF markers indicating incremental updates. "
+                "Later revisions can shadow or modify content from earlier revisions, "
+                "a technique used to hide modifications from casual inspection. "
+                "Additionally, the PDF object graph could not be fully decoded.",
+                Severity.MEDIUM,
+                0.70,
+                eof_marker_count=eof_count,
+                evidence_class="incremental_save",
+            )]
         raise MalformedInputError(f"PDF object graph could not be decoded: {path}") from exc
     if len(reader.pages) > 250:
         raise InputLimitError("PDF exceeds its page budget")
     invisible = images = text_ops = actual_text = type3_fonts = missing_tounicode = 0
-    clipping_ops = transform_ops = alpha_states = form_xobjects = 0
+    clipping_ops = transform_ops = alpha_states = form_xobjects = white_text = 0
     operations_seen = 0
 
     MAX_FORM_DEPTH = 16       # form XObject nesting cap
@@ -833,7 +886,7 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
                     inspect_stream(obj, obj.get("/Resources") or resources, seen, depth + 1)
 
     def inspect_stream(stream: object, resources: object, seen: set[int], depth: int = 0) -> None:
-        nonlocal invisible, text_ops, actual_text, clipping_ops, transform_ops
+        nonlocal invisible, white_text, text_ops, actual_text, clipping_ops, transform_ops
         nonlocal alpha_states, operations_seen
         try:
             content = ContentStream(stream, reader)
@@ -858,6 +911,20 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
                         actual_text += 1
             elif operator == b"gs":
                 alpha_states += 1
+            # White fill color — text drawn in white on white background
+            elif operator == b"rg" and len(operands) == 3:
+                try:
+                    r, g_val, b_val = (float(o) for o in operands)
+                    if r >= 0.98 and g_val >= 0.98 and b_val >= 0.98:
+                        white_text += 1
+                except (ValueError, TypeError):
+                    pass
+            elif operator == b"g" and len(operands) == 1:
+                try:
+                    if float(operands[0]) >= 0.98:
+                        white_text += 1
+                except (ValueError, TypeError):
+                    pass
         inspect_resources(resources, seen, depth)
 
     seen: set[int] = set()
@@ -868,34 +935,102 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
             inspect_stream(contents, resources, seen, 0)
         else:
             inspect_resources(resources, seen, 0)
-    optional_layers = int("/OCProperties" in reader.trailer.get("/Root", {}))
+    try:
+        root_for_layers = reader.trailer.get("/Root", {})
+        if hasattr(root_for_layers, "get_object"):
+            root_for_layers = root_for_layers.get_object()
+        optional_layers = int("/OCProperties" in root_for_layers)
+    except (PdfReadError, ValueError, TypeError, KeyError):
+        optional_layers = 0
+    findings: list[Finding] = []
+
+    # DF-PDF-001: invisible/substituted text (includes white-on-white)
     suspicious = bool(
-        text_ops and (invisible or actual_text or (type3_fonts and missing_tounicode))
+        text_ops and (
+            invisible or white_text or actual_text
+            or (type3_fonts and missing_tounicode)
+        )
     )
-    if not suspicious:
-        return []
-    return [_finding(
-        path,
-        "DF-PDF-001",
-        "PDF contains a structurally divergent text presentation",
-        "Decoded PDF objects contain invisible, substituted, or semantically redirected text. Legitimate OCR and accessibility tagging are confounders; rendered regional comparison is required.",
-        Severity.MEDIUM,
-        0.62,
-        invisible_text_mode_count=invisible,
-        image_object_count=images,
-        text_show_operator_count=text_ops,
-        actual_text_count=actual_text,
-        type3_font_count=type3_fonts,
-        missing_tounicode_count=missing_tounicode,
-        recursive_form_xobject_count=form_xobjects,
-        clipping_operator_count=clipping_ops,
-        transform_operator_count=transform_ops,
-        graphics_state_count=alpha_states,
-        optional_layer_count=optional_layers,
-        page_count=len(reader.pages),
-        requires_render_comparison=True,
-        evidence_class="hidden_text_topology",
-    )]
+    if suspicious:
+        findings.append(_finding(
+            path,
+            "DF-PDF-001",
+            "PDF contains a structurally divergent text presentation",
+            "Decoded PDF objects contain invisible, substituted, or semantically redirected text. Legitimate OCR and accessibility tagging are confounders; rendered regional comparison is required.",
+            Severity.MEDIUM,
+            0.62,
+            invisible_text_mode_count=invisible,
+            white_fill_color_count=white_text,
+            image_object_count=images,
+            text_show_operator_count=text_ops,
+            actual_text_count=actual_text,
+            type3_font_count=type3_fonts,
+            missing_tounicode_count=missing_tounicode,
+            recursive_form_xobject_count=form_xobjects,
+            clipping_operator_count=clipping_ops,
+            transform_operator_count=transform_ops,
+            graphics_state_count=alpha_states,
+            optional_layer_count=optional_layers,
+            page_count=len(reader.pages),
+            requires_render_comparison=True,
+            evidence_class="hidden_text_topology",
+        ))
+
+    # DF-PDF-002: PDF active content (JavaScript / auto-actions)
+    js_count = 0
+    root_catalog_unreadable = False
+    try:
+        root = reader.trailer.get("/Root")
+        if root is not None:
+            root_obj = root.get_object() if hasattr(root, "get_object") else root
+            if isinstance(root_obj, DictionaryObject):
+                if "/OpenAction" in root_obj:
+                    js_count += 1
+                if "/AA" in root_obj:
+                    js_count += 1
+    except (PdfReadError, ValueError, TypeError, KeyError):
+        # The root catalog couldn't be decoded; page-level /JS detection
+        # below still runs, but any /OpenAction or /AA on a malformed
+        # catalog is missed. Record that gap in the finding evidence.
+        root_catalog_unreadable = True
+    for page in reader.pages:
+        for key in ("/JS", "/JavaScript", "/AA"):
+            if key in page:
+                js_count += 1
+    if js_count:
+        findings.append(_finding(
+            path,
+            "DF-PDF-002",
+            "PDF contains active content (JavaScript or auto-actions)",
+            "The PDF contains JavaScript, auto-action triggers, or open-actions "
+            "that execute when the document is opened or interacted with. "
+            "Active content in supply-chain artifacts is a deception vector.",
+            Severity.HIGH,
+            0.90,
+            javascript_action_count=js_count,
+            page_count=len(reader.pages),
+            evidence_class="active_content",
+            root_catalog_unreadable=root_catalog_unreadable,
+        ))
+
+    # DF-PDF-003: PDF incremental saves
+    eof_count = data.count(b"%%EOF")
+    if eof_count > 1:
+        findings.append(_finding(
+            path,
+            "DF-PDF-003",
+            "PDF has multiple revision layers (incremental saves)",
+            "The PDF contains multiple %%EOF markers indicating incremental updates. "
+            "Later revisions can shadow or modify content from earlier revisions, "
+            "a technique used to hide modifications from casual inspection.",
+            Severity.MEDIUM,
+            0.70,
+            eof_marker_count=eof_count,
+            page_count=len(reader.pages),
+            evidence_class="incremental_save",
+        ))
+
+    return findings
 
 
 def scan_artifact_bytes(path: Path, data: bytes) -> tuple[list[Finding], list[str]]:

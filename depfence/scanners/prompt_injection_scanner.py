@@ -142,11 +142,87 @@ _HIDING_PATTERNS: list[tuple[re.Pattern, str, Severity]] = [
     (re.compile(rb"\x1b\[1A\x1b\[2K"), "ANSI single-line overwrite", Severity.HIGH),
     # Zero-width Unicode in source (not just MCP configs)
     (re.compile(r"[​‌‍⁠﻿]{2,}".encode()), "Zero-width character cluster", Severity.HIGH),
-    # Bidirectional overrides — can make code read differently than it executes
-    (re.compile(r"[‪-‮⁦-⁩]".encode()), "Bidirectional text override", Severity.HIGH),
+    # Braille Pattern Blank (U+2800) — renders as empty but is a Letter, not Cf,
+    # so it passes every format-category check (augur hidden.go)
+    (re.compile("⠀".encode()), "Braille Pattern Blank (invisible letter)", Severity.HIGH),
+    # Exotic whitespace — non-standard Unicode spaces used for fingerprinting
+    # or to evade word-boundary-based filters. NO-BREAK SPACE (U+00A0) is
+    # excluded (too common in legitimate text). LOW because these indicate
+    # fingerprinting, not attacks (augur space.go). 16 exotic codepoints:
+    # U+2000–200A (General Punctuation spaces), U+202F (NARROW NO-BREAK SPACE),
+    # U+205F (MEDIUM MATH SPACE), U+3000 (IDEOGRAPHIC SPACE), U+180E
+    # (MONGOLIAN VOWEL SEPARATOR), U+1680 (OGHAM SPACE MARK).
+    (re.compile(
+        rb"(?:\xe2\x80[\x80-\x8a\xaf]|\xe2\x81\x9f|\xe3\x80\x80"
+        rb"|\xe1\xa0\x8e|\xe1\x9a\x80)+"
+    ), "Exotic Unicode whitespace (fingerprint indicator)", Severity.LOW),
+    # Bidirectional overrides (Trojan Source) — LRE/RLE/LRO/RLO can make code
+    # read differently than it executes (augur bidi severity calibration)
+    (re.compile("[‪‫‭‮]".encode()),
+     "Bidirectional text override (Trojan Source vector)", Severity.HIGH),
+    # Bidirectional isolates — FSI/LRI/RLI/PDF/PDI are legitimate multilingual
+    # markers, not override attacks; LOW severity
+    (re.compile("[‬⁦-⁩]".encode()),
+     "Bidirectional isolate/terminator (multilingual text)", Severity.LOW),
     # Homoglyph mixing (Cyrillic + Latin in same identifier-like context)
     (re.compile(rb"[a-zA-Z][\xd0-\xd3][\x80-\xbf]|[\xd0-\xd3][\x80-\xbf][a-zA-Z]"),
      "Latin/Cyrillic homoglyph mixing", Severity.MEDIUM),
+    # Unicode tag characters — steganography carrier (augur hidden.go)
+    (re.compile("[\U000E0020-\U000E007F]+".encode()), "Unicode tag character sequence (steganography carrier)", Severity.HIGH),
+    # Variation selector clusters — stego/C2PA carrier (augur hidden.go)
+    (re.compile("[︀-️\U000E0100-\U000E01EF]{3,}".encode()), "Variation selector cluster (steganography carrier)", Severity.HIGH),
+    # Bare carriage return — line overwrite trick (augur control.go)
+    (re.compile(rb"\r(?!\n)"), "Bare carriage return (line overwrite)", Severity.MEDIUM),
+    # UTF-8 BOM in source file (augur encoding.go)
+    (re.compile(rb"\xef\xbb\xbf"), "UTF-8 BOM in source file", Severity.LOW),
+    # Mathematical styled text — detects words spelled in bold/italic/script/
+    # fraktur/etc. Unicode alphabets that are visually legible but invisible to
+    # text-matching filters (augur styled.go). Matches 2+ consecutive styled
+    # characters from the Mathematical Alphanumeric Symbols block
+    # (U+1D400-U+1D7FF) or small-capital letters from Phonetic Extensions
+    # (U+1D00-U+1D2B) and IPA Extensions (U+0250-U+02AF, e.g. U+0299) used by
+    # "fancy text" generators. The byte ranges below are the exact UTF-8
+    # encodings of those codepoint ranges — a plain character class on raw
+    # bytes can't express a multi-byte codepoint range directly. Excludes CJK
+    # fullwidth forms (U+FF01-U+FF60), legitimate East Asian typography, which
+    # encode to a disjoint byte prefix.
+    (re.compile(
+        rb"(?:\xf0\x9d[\x90-\x9f][\x80-\xbf]"     # Mathematical Alphanumeric Symbols
+        rb"|\xe1\xb4[\x80-\xab]"                   # Phonetic Extensions small capitals
+        rb"|\xc9[\x90-\xbf]|\xca[\x80-\xaf]){2,}"  # IPA Extensions small capitals
+        rb"[\S]*"
+    ), "Styled Unicode text (mathematical/small capitals)", Severity.HIGH),
+    # --- Markup/CSS concealment patterns (augur markup.go) ---
+    # These detect HTML/CSS techniques that hide content from human readers
+    # while keeping it visible to AI agents processing the raw text.
+    # Zero-size text (font-size:0, font-size: 0px, font-size:0%)
+    (re.compile(rb"font-size\s*:\s*0(?:px|em|rem|%|pt)?\s*[;\"']", re.IGNORECASE),
+     "CSS font-size:0 (invisible text)", Severity.HIGH),
+    # Fully transparent or clipped content
+    (re.compile(rb"opacity\s*:\s*0(?:\.0+)?\s*[;\"']", re.IGNORECASE),
+     "CSS opacity:0 (invisible element)", Severity.HIGH),
+    (re.compile(rb"color\s*:\s*(?:transparent|rgba\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0(?:\.0*)?\s*\))\s*[;\"']", re.IGNORECASE),
+     "CSS transparent text color", Severity.HIGH),
+    # Large negative text-indent pushes text off-screen
+    (re.compile(rb"text-indent\s*:\s*-\d{4,}px", re.IGNORECASE),
+     "CSS text-indent off-screen (hidden text)", Severity.HIGH),
+    # display:none / visibility:hidden — legitimate layout use but also
+    # concealment; MEDIUM because these have valid uses
+    (re.compile(rb"display\s*:\s*none\s*[;\"']", re.IGNORECASE),
+     "CSS display:none (hidden element)", Severity.MEDIUM),
+    (re.compile(rb"visibility\s*:\s*hidden\s*[;\"']", re.IGNORECASE),
+     "CSS visibility:hidden (hidden element)", Severity.MEDIUM),
+    # aria-hidden or hidden attribute in HTML — conceals from assistive tech
+    (re.compile(rb'aria-hidden\s*=\s*["\']true["\']', re.IGNORECASE),
+     "HTML aria-hidden (content hidden from assistive technology)", Severity.MEDIUM),
+    # Markdown reference-link comment syntax used to hide text
+    (re.compile(rb"\[//\]\s*:\s*#\s*\("),
+     "Markdown comment (hidden reference-link text)", Severity.MEDIUM),
+    (re.compile(rb"\[comment\]\s*:\s*<>\s*\(", re.IGNORECASE),
+     "Markdown comment (hidden annotation)", Severity.MEDIUM),
+    # HTML comment in source/markdown files — can carry hidden instructions
+    (re.compile(rb"<!--\s*(?:system|ignore|instruction|prompt|override|admin|secret)", re.IGNORECASE),
+     "HTML comment with suspicious directive keyword", Severity.HIGH),
 ]
 
 # File extensions to scan
@@ -473,6 +549,12 @@ class PromptInjectionScanner:
         try:
             raw = fpath.read_bytes()
         except OSError:
+            return findings
+
+        # Binary file guard: if NUL bytes in the first 8 KB the file is binary
+        # and text-level analysis would produce false positives from garbled data.
+        is_binary = b"\x00" in raw[:8192]
+        if is_binary:
             return findings
 
         for pattern, label, severity in _HIDING_PATTERNS:

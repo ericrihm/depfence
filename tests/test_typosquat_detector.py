@@ -6,6 +6,7 @@ import pytest
 
 from depfence.analyzers.typosquat_detector import (
     TyposquatMatch,
+    _homoglyph_variants,
     batch_check,
     check_against_popular,
     common_substitutions,
@@ -265,6 +266,36 @@ class TestCheckAgainstPopular:
         """A unique long name should not be flagged as a typosquat."""
         match = check_against_popular("mycompany-internal-toolkit", "npm")
         assert match is None
+
+
+# ---------------------------------------------------------------------------
+# Unicode confusables (Cyrillic / Greek homoglyphs)
+# ---------------------------------------------------------------------------
+
+class TestUnicodeConfusables:
+    """Tests for Cyrillic/Greek homoglyph detection in typosquatting."""
+
+    def test_cyrillic_a_detected_as_homoglyph_of_latin_a(self) -> None:
+        """Package 'rеquests' (Cyrillic е) is a homoglyph variant of 'requests'."""
+        # The Cyrillic е (U+0435) looks identical to Latin e
+        variants = _homoglyph_variants("rеquests")
+        assert "requests" in variants
+
+    def test_cyrillic_o_detected_as_homoglyph_of_latin_o(self) -> None:
+        """Package 'nоde' (Cyrillic о) is a homoglyph variant of 'node'."""
+        variants = _homoglyph_variants("nоde")
+        assert "node" in variants
+
+    def test_greek_capital_o_detected(self) -> None:
+        """Package 'LΟG' (Greek Ο) is a homoglyph of 'LOG'."""
+        variants = _homoglyph_variants("LΟG")
+        assert "LOG" in variants
+
+    def test_reverse_latin_to_cyrillic(self) -> None:
+        """Verify reverse mappings — Latin 'a' generates Cyrillic 'а' variant."""
+        variants = _homoglyph_variants("cat")
+        # Should contain variant with Cyrillic а
+        assert "cаt" in variants or any("а" in v for v in variants)
 
 
 # ---------------------------------------------------------------------------

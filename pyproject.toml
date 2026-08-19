@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "depfence"
 version = "0.8.0"
-description = "AI-aware dependency security scanner. 56 scanners: prompt injection detection, slopsquatting defense, MCP auditing, agent skill attack detection, fabricated-pin resolution, AI model security (pickle/GGUF SSTI/ONNX/TFLite), AI-BOM generation, build-time code execution (Rust/Go/PHP/Python/Maven/Gradle/SPM/CocoaPods), supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Dart/Flutter, Docker, HuggingFace, and MCP ecosystems."
+description = "AI-aware dependency security scanner. 57 scanners: prompt injection detection, visual text deception defense (font/PDF/DOCX analysis), slopsquatting defense, MCP auditing, agent skill attack detection, fabricated-pin resolution, AI model security (pickle/GGUF SSTI/ONNX/TFLite), AI-BOM generation, build-time code execution (Rust/Go/PHP/Python/Maven/Gradle/SPM/CocoaPods), supply chain attack detection, SBOM (CycloneDX/SPDX/SARIF), and policy-as-code for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems, Composer, Swift/SPM, Dart/Flutter, Docker, HuggingFace, and MCP ecosystems."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
     {name = "Eric Rihm"}
 ]
-keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom", "prompt-injection", "mcp", "ai-safety", "slopsquatting"]
+keywords = ["security", "dependencies", "supply-chain", "npm", "pypi", "scanner", "sbom", "prompt-injection", "mcp", "ai-safety", "slopsquatting", "visual-text-deception", "font-deception", "document-analysis"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

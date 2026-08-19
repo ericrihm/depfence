@@ -494,3 +494,58 @@ def test_validated_seccomp_rejects_non_deny_default(tmp_path: Path) -> None:
     sha = hashlib.sha256(content.encode()).hexdigest()
     with pytest.raises(ValueError, match="default deny"):
         _validated_seccomp(str(profile), sha)
+
+
+# -- Sealed schema allowlist expansion --
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "severity", "evidence_class"),
+    [
+        ("DF-FONT-002", "medium", "cmap_subtable_conflict"),
+        ("DF-FONT-003", "high", "degenerate_cmap"),
+        ("DF-FONT-004", "high", "zero_width_stealth"),
+        ("DF-FONT-005", "low", "missing_layout_tables"),
+        ("DF-WEB-001", "medium", "structural_correlation"),
+        ("DF-PDF-001", "medium", "hidden_text_topology"),
+        ("DF-PDF-002", "high", "active_content"),
+        ("DF-PDF-003", "medium", "incremental_save"),
+        ("DF-DOCX-002", "medium", "hidden_document_content"),
+    ],
+)
+def test_sealed_intake_accepts_expanded_rule_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rule_id: str,
+    severity: str,
+    evidence_class: str,
+) -> None:
+    """Findings with augur-derived and EvilFont rule IDs pass sealed validation."""
+    finding = {
+        "artifact_id": "sealed-artifact-sha256:" + "f" * 64,
+        "suffix": (
+            ".pdf" if rule_id.startswith("DF-PDF")
+            else ".docx" if rule_id.startswith("DF-DOCX")
+            else ".html" if rule_id.startswith("DF-WEB")
+            else ".ttf"
+        ),
+        "rule_id": rule_id,
+        "severity": severity,
+        "confidence": 0.80,
+        "evidence_class": evidence_class,
+    }
+    _fake_oci(
+        monkeypatch,
+        inventory=_inventory(files=3, include_supported=True),
+        analysis=_analysis(findings=[finding]),
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    state = PrivateState.open(project_root=project, root=tmp_path / "private")
+
+    result = inspect_source_sealed(SOURCE, COMMIT, approved_commit=COMMIT, state=state, config=_config())
+
+    assert result["status"] == "FAIL"
+    reported = result["analysis"]["findings"][0]
+    assert reported["rule_id"] == rule_id
+    assert reported["severity"] == severity

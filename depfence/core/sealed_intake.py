@@ -547,11 +547,25 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
     if not isinstance(limitations, list) or len(limitations) > 2_000:
         raise ScanIncompleteError("sealed analysis limitations are invalid")
     artifact_pattern = re.compile(r"sealed-artifact-sha256:[0-9a-f]{64}")
-    allowed_rules = {"DF-FONT-001", "DF-FONT-002", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"}
-    allowed_evidence_classes = {
-        "sparse_font_cluster", "conflicting_cmap", "per_character_webfont",
-        "embedded_font_switching", "structural_correlation",
+    allowed_rules = {
+        "DF-FONT-001", "DF-FONT-002", "DF-FONT-003", "DF-FONT-004", "DF-FONT-005",
+        "DF-WEB-001",
+        "DF-DOCX-001", "DF-DOCX-002",
+        "DF-PDF-001", "DF-PDF-002", "DF-PDF-003",
     }
+    allowed_evidence_classes = {
+        "sparse_font_cluster",
+        "cmap_subtable_conflict",
+        "structural_correlation",
+        "degenerate_cmap",
+        "zero_width_stealth",
+        "missing_layout_tables",
+        "active_content",
+        "incremental_save",
+        "hidden_document_content",
+        "hidden_text_topology",
+    }
+    allowed_severities = {"medium", "high", "low"}
     suffix_pattern = re.compile(r"^\.[a-z0-9]{1,16}$")
     for finding in findings:
         if not isinstance(finding, dict) or set(finding) != {
@@ -564,7 +578,7 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
         if (
             not artifact_pattern.fullmatch(str(finding.get("artifact_id", "")))
             or finding.get("rule_id") not in allowed_rules
-            or finding.get("severity") != "medium"
+            or finding.get("severity") not in allowed_severities
             or not isinstance(confidence, (int, float))
             or isinstance(confidence, bool)
             or not 0 <= float(confidence) <= 1
