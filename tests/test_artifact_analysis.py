@@ -122,6 +122,44 @@ def test_scan_artifact_bytes_rejects_docx_with_a_doctype_declaration() -> None:
         scan_artifact_bytes(Path("bad.docx"), stream.getvalue())
 
 
+# -- verify_image_signature input validation --
+
+
+def test_verify_image_rejects_unpinned_image() -> None:
+    from depfence.core.artifact_analysis import verify_image_signature
+
+    with pytest.raises(ValueError, match="sha256"):
+        verify_image_signature("latest", "id@example", "https://issuer.example")
+
+
+def test_verify_image_rejects_empty_identity() -> None:
+    from depfence.core.artifact_analysis import verify_image_signature
+
+    with pytest.raises(ValueError, match="identity"):
+        verify_image_signature("img@sha256:" + "a" * 64, "", "https://issuer.example")
+
+
+def test_verify_image_rejects_control_chars_in_identity() -> None:
+    from depfence.core.artifact_analysis import verify_image_signature
+
+    with pytest.raises(ValueError, match="identity"):
+        verify_image_signature("img@sha256:" + "a" * 64, "id\x00evil", "https://issuer.example")
+
+
+def test_verify_image_rejects_non_https_issuer() -> None:
+    from depfence.core.artifact_analysis import verify_image_signature
+
+    with pytest.raises(ValueError, match="issuer"):
+        verify_image_signature("img@sha256:" + "a" * 64, "id@example", "http://issuer.example")
+
+
+def test_verify_image_rejects_control_chars_in_issuer() -> None:
+    from depfence.core.artifact_analysis import verify_image_signature
+
+    with pytest.raises(ValueError, match="issuer"):
+        verify_image_signature("img@sha256:" + "a" * 64, "id@example", "https://issuer\x01.example")
+
+
 def test_font_semantic_summary_is_a_frozen_dataclass_with_expected_fields() -> None:
     # Boundary check on the public shape rather than a live inspection, since
     # inspect_font_semantics requires a byte-accurate sfnt/ttc fixture.
