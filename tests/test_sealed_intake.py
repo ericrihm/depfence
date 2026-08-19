@@ -8,9 +8,11 @@ from click.testing import CliRunner
 
 from depfence.cli.main import cli
 from depfence.core.local_state import PrivateState
+from depfence.core.scan_scope import ScanIncompleteError
 from depfence.core.sealed_intake import (
     SealedIntakeConfig,
     SealedResolutionConfig,
+    _strict_json_object,
     inspect_source_sealed,
     resolve_source_sealed,
 )
@@ -418,3 +420,24 @@ def test_sealed_worker_bounds_font_collection_members(
     payloads, limitations = _sanitized_font_payloads(oversized_collection, ".ttc")
     assert payloads == []
     assert limitations == ["font_collection_limit"]
+
+
+def test_strict_json_rejects_duplicate_keys() -> None:
+    with pytest.raises(ScanIncompleteError, match="duplicate key"):
+        _strict_json_object(b'{"a":1,"a":2}')
+
+
+def test_strict_json_rejects_non_object() -> None:
+    with pytest.raises(ScanIncompleteError):
+        _strict_json_object(b"[1,2,3]")
+
+
+def test_strict_json_rejects_malformed() -> None:
+    with pytest.raises(ScanIncompleteError):
+        _strict_json_object(b"{bad")
+
+
+def test_strict_json_accepts_valid() -> None:
+    result = _strict_json_object(b'{"key":"value"}')
+
+    assert result == {"key": "value"}
