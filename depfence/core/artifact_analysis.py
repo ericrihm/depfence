@@ -79,6 +79,9 @@ class FontSemanticSummary:
     cmap_subtables: int
     cmap_conflicts: int
     mapped_codepoints: int
+    unique_glyphs: int
+    zero_width_glyphs: int
+    missing_layout_tables: bool
     presentation_mechanisms: tuple[str, ...]
     limitations: tuple[str, ...]
 
@@ -454,8 +457,11 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
 
     subtables = conflicts = 0
     codepoints: set[int] = set()
+    all_glyph_ids: set[str] = set()
+    zero_width_count = 0
     mechanisms: set[str] = set()
     limitations: set[str] = set()
+    has_layout_tables = False
     try:
         for font in fonts:
             if "cmap" not in font:
@@ -474,6 +480,7 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
                         if not 0 <= int(codepoint) <= 0x10FFFF:
                             raise MalformedInputError("font cmap contains an invalid codepoint")
                         codepoints.add(int(codepoint))
+                        all_glyph_ids.add(str(glyph))
                         mappings.setdefault(int(codepoint), set()).add(str(glyph))
             except (InputLimitError, MalformedInputError):
                 raise
@@ -482,6 +489,32 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
                 # or other decoding failures during cmap traversal.
                 limitations.add("cmap_decode_incomplete")
             conflicts += sum(len(values) > 1 for values in mappings.values())
+
+            # Detect zero advance width glyphs (stealth font signal).
+            # EvilFontTool creates a stealth variant where all glyphs
+            # have advance width 0 so characters render as invisible.
+            try:
+                if "hmtx" in font:
+                    hmtx = font["hmtx"].metrics
+                    mapped_glyphs = set()
+                    for glyph_sets in mappings.values():
+                        mapped_glyphs.update(glyph_sets)
+                    for glyph_name in mapped_glyphs:
+                        if glyph_name in hmtx:
+                            width, _ = hmtx[glyph_name]
+                            if width == 0 and glyph_name != ".notdef":
+                                zero_width_count += 1
+            except (TTLibError, struct.error, KeyError, IndexError, ValueError):
+                limitations.add("hmtx_decode_incomplete")
+
+            # Check for layout table presence/absence.
+            # EvilFontTool strips GSUB, GPOS, kern, and GDEF to prevent
+            # substitution interference.  A font mapping 26+ ASCII
+            # codepoints with none of these tables is unusual.
+            for layout_table in ("GSUB", "GPOS", "kern", "GDEF"):
+                if layout_table in font:
+                    has_layout_tables = True
+
             for table, label in {
                 "GSUB": "gsub", "fvar": "variations", "gvar": "variations",
                 "CFF ": "cff", "CFF2": "cff2", "SVG ": "svg",
@@ -501,9 +534,18 @@ def inspect_font_semantics(data: bytes) -> FontSemanticSummary:
     finally:
         for font in fonts:
             font.close()
+
+    # Flag missing layout tables only when cmap has meaningful coverage.
+    # A font mapping 26+ codepoints (full Latin alphabet) without any
+    # of GSUB/GPOS/kern/GDEF is structurally unusual for production fonts.
+    missing_layout = not has_layout_tables and len(codepoints) >= 26
+
     return FontSemanticSummary(
         member_count=len(fonts), cmap_subtables=subtables, cmap_conflicts=conflicts,
         mapped_codepoints=len(codepoints),
+        unique_glyphs=len(all_glyph_ids),
+        zero_width_glyphs=zero_width_count,
+        missing_layout_tables=missing_layout,
         presentation_mechanisms=tuple(sorted(mechanisms)),
         limitations=tuple(sorted(limitations)),
     )
@@ -656,6 +698,9 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
         single_character_runs = 0
         hidden_runs = revision_nodes = field_nodes = text_box_nodes = 0
         font_classes: set[str] = set()
+        hex_name_runs = 0
+        rfonts_saturated_runs = 0
+        _HEX_FONT_NAME = re.compile(r"\s+[0-9a-fA-F]+$")
         for story_info in story_infos:
             try:
                 raw = _bounded_zip_member(archive, story_info, MAX_XML_BYTES)
@@ -688,6 +733,13 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
                                 font_classes.add(font_class)
                                 candidates.append(str(value))
                         font = candidates[0] if candidates else None
+                        # Detect EvilFontTool hex-encoded font names
+                        # (e.g., "FontName 68" where 68 is the hex of the target char)
+                        if font and _HEX_FONT_NAME.search(font):
+                            hex_name_runs += 1
+                        # Detect all four rFonts classes set to same non-default font
+                        if len(candidates) == 4 and len(set(candidates)) == 1:
+                            rfonts_saturated_runs += 1
                 if font:
                     run_fonts.append(font.casefold())
                     if len(text_value.strip()) == 1:
@@ -696,13 +748,21 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
         switch_density = switches / max(1, len(run_fonts) - 1)
         if len(embedded) < 4 or single_character_runs < 8 or switch_density < 0.5:
             return []
+        # Boost confidence when additional EvilFontTool signatures are present.
+        # Hex-encoded font names and rFonts saturation are strong corroborating
+        # signals that increase specificity beyond generic font switching.
+        confidence = 0.84
+        if hex_name_runs >= 4:
+            confidence = min(confidence + 0.04, 0.98)
+        if rfonts_saturated_runs >= 4:
+            confidence = min(confidence + 0.02, 0.98)
         return [_finding(
             path,
             "DF-DOCX-001",
             "Suspicious embedded-font run switching in DOCX",
             "The document embeds multiple fonts and changes font families across single-character runs, a structural pattern capable of making visible text differ from stored text.",
             Severity.MEDIUM,
-            0.84,  # higher than web-font: explicit font embedding is stronger signal
+            confidence,
             embedded_font_count=len(embedded),
             story_count=len(story_infos),
             font_classes=sorted(font_classes),
@@ -713,6 +773,8 @@ def _scan_docx(path: Path, data: bytes) -> list[Finding]:
             font_run_count=len(run_fonts),
             single_character_run_count=single_character_runs,
             font_switch_density=round(switch_density, 4),
+            hex_encoded_font_name_runs=hex_name_runs,
+            rfonts_saturated_runs=rfonts_saturated_runs,
             evidence_class="structural_correlation",
         )]
 
@@ -853,6 +915,60 @@ def scan_artifact_bytes(path: Path, data: bytes) -> tuple[list[Finding], list[st
                 evidence_class="cmap_subtable_conflict",
                 cmap_conflict_count=semantic.cmap_conflicts,
                 cmap_subtable_count=semantic.cmap_subtables,
+                member_count=semantic.member_count,
+                presentation_mechanisms=list(semantic.presentation_mechanisms),
+            ))
+        # Glyph-to-codepoint ratio: many codepoints mapping to very few
+        # unique glyphs is the core EvilFontTool technique.  A font where
+        # 20+ codepoints all resolve to the same glyph ID is structurally
+        # impossible in legitimate typography.
+        if (
+            semantic.unique_glyphs > 0
+            and semantic.mapped_codepoints >= 20
+            and semantic.mapped_codepoints / semantic.unique_glyphs > 20
+        ):
+            findings.append(_finding(
+                path, "DF-FONT-003", "Degenerate glyph-to-codepoint mapping",
+                "Many Unicode codepoints map to very few unique glyph IDs. "
+                "This is the structural signature of a font engineered to "
+                "display one character regardless of the codepoint used.",
+                Severity.HIGH, 0.92,  # extremely high specificity for deception
+                evidence_class="degenerate_cmap",
+                mapped_codepoints=semantic.mapped_codepoints,
+                unique_glyphs=semantic.unique_glyphs,
+                ratio=round(semantic.mapped_codepoints / semantic.unique_glyphs, 2),
+                member_count=semantic.member_count,
+            ))
+        # Zero advance width: a non-symbol font with many zero-width
+        # mapped glyphs is used by EvilFontTool's "stealth font" variant
+        # to render all characters as invisible.
+        if semantic.zero_width_glyphs >= 8:
+            findings.append(_finding(
+                path, "DF-FONT-004", "Stealth font with zero-width mapped glyphs",
+                "Multiple mapped codepoints have advance width zero. A font "
+                "that renders all characters as invisible spaces is a "
+                "mechanism for hiding machine-readable text from visual "
+                "inspection.",
+                Severity.HIGH, 0.90,
+                evidence_class="zero_width_stealth",
+                zero_width_glyphs=semantic.zero_width_glyphs,
+                mapped_codepoints=semantic.mapped_codepoints,
+                member_count=semantic.member_count,
+            ))
+        # Missing layout tables: a font mapping 26+ codepoints without
+        # any of GSUB/GPOS/kern/GDEF is unusual for production fonts.
+        # EvilFontTool strips these to prevent substitution interference.
+        if semantic.missing_layout_tables:
+            findings.append(_finding(
+                path, "DF-FONT-005", "Font lacks expected layout tables",
+                "A font mapping Latin characters contains none of "
+                "GSUB, GPOS, kern, or GDEF. Production fonts include "
+                "these for ligatures, kerning, and mark positioning. "
+                "Stripped layout tables are a confounder for deception "
+                "fonts that must prevent glyph substitution.",
+                Severity.LOW, 0.55,  # legitimate fonts can lack these; lower confidence
+                evidence_class="missing_layout_tables",
+                mapped_codepoints=semantic.mapped_codepoints,
                 member_count=semantic.member_count,
                 presentation_mechanisms=list(semantic.presentation_mechanisms),
             ))

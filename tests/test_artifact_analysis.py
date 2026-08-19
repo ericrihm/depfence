@@ -206,10 +206,16 @@ def test_font_semantic_summary_is_a_frozen_dataclass_with_expected_fields() -> N
         cmap_subtables=0,
         cmap_conflicts=0,
         mapped_codepoints=0,
+        unique_glyphs=0,
+        zero_width_glyphs=0,
+        missing_layout_tables=False,
         presentation_mechanisms=(),
         limitations=("cmap_missing",),
     )
     assert summary.member_count == 1
     assert summary.limitations == ("cmap_missing",)
+    assert summary.unique_glyphs == 0
+    assert summary.zero_width_glyphs == 0
+    assert summary.missing_layout_tables is False
     with pytest.raises(AttributeError):
         summary.member_count = 2  # type: ignore[misc]
