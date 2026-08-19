@@ -476,7 +476,7 @@ def analyze_main() -> None:
     findings: list[dict[str, object]] = []
     limitations: list[dict[str, str]] = []
     coverage: dict[str, dict[str, int]] = {}
-    font_groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    font_groups: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     candidates = analyzed = analyzed_bytes = 0
     complete = True
     try:
@@ -541,8 +541,9 @@ def analyze_main() -> None:
                         and summary.cmap_entries is not None
                         and summary.cmap_entries <= 8
                     ):
+                        content_digest = hashlib.sha256(scan_payload).hexdigest()
                         font_groups[summary.family.casefold()].append(
-                            (opaque_id, suffix)
+                            (opaque_id, suffix, content_digest)
                         )
         except InputLimitError:
             artifact_findings, artifact_limitations = [], ["input_limit"]
@@ -585,10 +586,12 @@ def analyze_main() -> None:
         raise SystemExit("Git tree analysis inventory failed") from None
 
     for members in font_groups.values():
-        distinct = list(dict.fromkeys(members))
-        if len(distinct) < 8:
+        # Require unique content — identical copies sharing a family name
+        # should not inflate the cluster count.
+        unique_digests = {digest for _oid, _sfx, digest in members}
+        if len(unique_digests) < 8:
             continue
-        opaque_id, suffix = distinct[0]
+        opaque_id, suffix, _digest = members[0]
         findings.append({
             "artifact_id": opaque_id,
             "suffix": suffix,
