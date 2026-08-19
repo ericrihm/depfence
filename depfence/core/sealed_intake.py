@@ -42,8 +42,11 @@ ANALYSIS_SECCOMP_SHA256 = "f6d4aafd4d37b8d9efe83da8b9660e633c4e63d24de05a62e8329
 
 
 def _validated_seccomp(path: str, expected_sha256: str) -> str:
-    profile = Path(path).expanduser().resolve(strict=True)
-    if not profile.is_file() or profile.is_symlink():
+    raw_profile = Path(path).expanduser()
+    if raw_profile.is_symlink():
+        raise ValueError("seccomp profile must be a regular non-symlink file")
+    profile = raw_profile.resolve(strict=True)
+    if not profile.is_file():
         raise ValueError("seccomp profile must be a regular non-symlink file")
     raw = profile.read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
@@ -550,6 +553,7 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
             raise ScanIncompleteError("sealed analysis limitation shape is invalid")
         if (
             not artifact_pattern.fullmatch(str(limitation.get("artifact_id", "")))
+            or not suffix_pattern.fullmatch(str(limitation.get("suffix", "")))
             or limitation.get("code") not in allowed_limitations
         ):
             raise ScanIncompleteError("sealed analysis limitation is invalid")
