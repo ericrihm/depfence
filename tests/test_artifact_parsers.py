@@ -245,6 +245,41 @@ class TestScanDocx:
         with pytest.raises(MalformedInputError, match="symbolic-link"):
             scan_artifact_bytes(Path("test.docx"), stream.getvalue())
 
+    def test_detects_embedded_font_switching(self) -> None:
+        """A DOCX with 4+ embedded fonts and 8+ single-char runs with >50% switch
+        density triggers DF-DOCX-001."""
+        ns = _NS
+        # Build runs that alternate between fonts for single characters
+        runs = []
+        fonts = ["EvilFont-A", "EvilFont-B", "EvilFont-C", "EvilFont-D"]
+        for i in range(20):
+            font = fonts[i % len(fonts)]
+            char = chr(0x41 + (i % 26))
+            runs.append(
+                f'<w:r><w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/></w:rPr>'
+                f"<w:t>{char}</w:t></w:r>"
+            )
+        body_content = "".join(runs)
+        doc_xml = (
+            f'<w:document xmlns:w="{ns}">'
+            f"<w:body><w:p>{body_content}</w:p></w:body>"
+            f"</w:document>"
+        )
+        members: dict[str, str | bytes] = {
+            "[Content_Types].xml": "<Types/>",
+            "word/document.xml": doc_xml,
+        }
+        # Add 4 embedded font entries (content doesn't matter for detection)
+        for i in range(4):
+            members[f"word/fonts/font{i}.odttf"] = f"fake-font-{i}"
+        data: bytes = _make_docx(members)
+        findings, limitations = scan_artifact_bytes(Path("evil.docx"), data)
+        assert len(findings) == 1
+        assert findings[0].metadata["rule_id"] == "DF-DOCX-001"
+        assert findings[0].metadata["embedded_font_count"] == 4
+        assert findings[0].metadata["single_character_run_count"] >= 8
+        assert findings[0].metadata["font_switch_density"] >= 0.5
+
 
 # ---------------------------------------------------------------------------
 # _scan_web — per-character font detection
@@ -327,3 +362,40 @@ class TestScanArtifactBytesRouting:
         # Empty font data is too short for FontTools to decode
         with pytest.raises(MalformedInputError, match="font could not be decoded"):
             scan_artifact_bytes(Path("empty.ttf"), b"")
+
+    def test_pdf_with_invisible_text_triggers_finding(self) -> None:
+        """A PDF with Tr 3 (invisible text rendering) + Tj triggers DF-PDF-001."""
+        from pypdf import PdfWriter
+        from pypdf.generic import (
+            DecodedStreamObject,
+            DictionaryObject,
+            NameObject,
+        )
+
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=612, height=792)
+        # Add a Type1 font resource
+        font_dict = DictionaryObject()
+        font_dict[NameObject("/Type")] = NameObject("/Font")
+        font_dict[NameObject("/Subtype")] = NameObject("/Type1")
+        font_dict[NameObject("/BaseFont")] = NameObject("/Helvetica")
+        font_ref = writer._add_object(font_dict)
+        resources = DictionaryObject()
+        fonts = DictionaryObject()
+        fonts[NameObject("/F1")] = font_ref
+        resources[NameObject("/Font")] = fonts
+        page[NameObject("/Resources")] = resources
+        # Add a content stream with invisible text (Tr 3 = invisible rendering)
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 12 Tf 3 Tr (hidden text) Tj ET")
+        stream_ref = writer._add_object(stream)
+        page[NameObject("/Contents")] = stream_ref
+        output = BytesIO()
+        writer.write(output)
+        pdf_data: bytes = output.getvalue()
+
+        findings, limitations = scan_artifact_bytes(Path("invisible.pdf"), pdf_data)
+        assert len(findings) == 1
+        assert findings[0].metadata["rule_id"] == "DF-PDF-001"
+        assert findings[0].metadata["invisible_text_mode_count"] >= 1
+        assert findings[0].metadata["text_show_operator_count"] >= 1
