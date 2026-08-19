@@ -134,7 +134,11 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
     from depfence.scanners.secrets_scanner import SecretsScanner
     from depfence.scanners.spm_plugin_scanner import SpmPluginScanner
     from depfence.scanners.terraform_scanner import TerraformScanner
-    from depfence.scanners.visual_text_deception_scanner import VisualTextDeceptionScanner
+    try:
+        from depfence.scanners.visual_text_deception_scanner import VisualTextDeceptionScanner
+        _vtd_available = True
+    except ImportError:
+        _vtd_available = False
 
     instances = [
         DockerfileScanner(), TerraformScanner(), GhaWorkflowScanner(),
@@ -150,7 +154,7 @@ async def _run_project_scanners(project_dir: Path) -> tuple[list[Finding], list[
         ModelScanner(), ModelFormatScanner(), ModelIntegrityScanner(),
         PromptInjectionScanner(), AgentSkillScanner(), McpScanner(),
         AiBomGenerator(),
-        VisualTextDeceptionScanner(),
+        *([VisualTextDeceptionScanner()] if _vtd_available else []),
     ]
     findings: list[Finding] = []
     errors: list[str] = []

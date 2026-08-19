@@ -309,11 +309,8 @@ version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "fonttools", extra = ["woff"] },
     { name = "httpx" },
-    { name = "jsonschema" },
     { name = "packaging" },
-    { name = "pypdf" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
@@ -321,9 +318,12 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "fonttools", extra = ["woff"] },
+    { name = "jsonschema" },
     { name = "mypy" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pypdf" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -336,6 +336,11 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+evilfont = [
+    { name = "fonttools", extra = ["woff"] },
+    { name = "jsonschema" },
+    { name = "pypdf" },
+]
 ml = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -346,14 +351,14 @@ ml = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
-    { name = "depfence", extras = ["dev", "ml"], marker = "extra == 'all'" },
-    { name = "fonttools", extras = ["woff"], specifier = ">=4.59" },
+    { name = "depfence", extras = ["dev", "ml", "evilfont"], marker = "extra == 'all'" },
+    { name = "fonttools", extras = ["woff"], marker = "extra == 'evilfont'", specifier = ">=4.59" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "jsonschema", specifier = ">=4.23" },
+    { name = "jsonschema", marker = "extra == 'evilfont'", specifier = ">=4.23" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", marker = "extra == 'ml'", specifier = ">=1.26" },
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pypdf", specifier = ">=5.9" },
+    { name = "pypdf", marker = "extra == 'evilfont'", specifier = ">=5.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -362,7 +367,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
-provides-extras = ["dev", "ml", "all"]
+provides-extras = ["evilfont", "dev", "ml", "all"]
 
 [[package]]
 name = "exceptiongroup"

@@ -17,11 +17,17 @@ def cli() -> None:
     """AI-aware dependency security scanner."""
 
 
-from depfence.cli.artifact_commands import register_artifact_commands
-from depfence.cli.fleet_commands import register_intake_commands
+try:
+    from depfence.cli.artifact_commands import register_artifact_commands
+    register_artifact_commands(cli)
+except ImportError:
+    pass
 
-register_artifact_commands(cli)
-register_intake_commands(cli)
+try:
+    from depfence.cli.fleet_commands import register_intake_commands
+    register_intake_commands(cli)
+except ImportError:
+    pass
 
 
 @cli.command()
