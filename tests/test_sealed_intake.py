@@ -441,3 +441,41 @@ def test_strict_json_accepts_valid() -> None:
     result = _strict_json_object(b'{"key":"value"}')
 
     assert result == {"key": "value"}
+
+
+# -- _validated_seccomp --
+
+
+def test_validated_seccomp_rejects_symlink(tmp_path: Path) -> None:
+    """The TOCTOU fix must check is_symlink() on the raw path before resolve()."""
+    from depfence.core.sealed_intake import _validated_seccomp
+
+    real = tmp_path / "real-profile.json"
+    real.write_text('{"defaultAction": "SCMP_ACT_ERRNO"}')
+    link = tmp_path / "link-profile.json"
+    link.symlink_to(real)
+    # Even though the target is valid, the symlink itself must be rejected
+    with pytest.raises(ValueError, match="non-symlink"):
+        _validated_seccomp(str(link), "any-sha256")
+
+
+def test_validated_seccomp_rejects_hash_mismatch(tmp_path: Path) -> None:
+    from depfence.core.sealed_intake import _validated_seccomp
+
+    profile = tmp_path / "profile.json"
+    profile.write_text('{"defaultAction": "SCMP_ACT_ERRNO"}')
+    with pytest.raises(ValueError, match="hash"):
+        _validated_seccomp(str(profile), "0" * 64)
+
+
+def test_validated_seccomp_rejects_non_deny_default(tmp_path: Path) -> None:
+    import hashlib
+
+    from depfence.core.sealed_intake import _validated_seccomp
+
+    content = '{"defaultAction": "SCMP_ACT_ALLOW"}'
+    profile = tmp_path / "permissive.json"
+    profile.write_text(content)
+    sha = hashlib.sha256(content.encode()).hexdigest()
+    with pytest.raises(ValueError, match="default deny"):
+        _validated_seccomp(str(profile), sha)
