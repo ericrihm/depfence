@@ -470,8 +470,9 @@ def test_container_worker_reports_page_limit_as_incomplete(
     from depfence import artifact_worker
 
     monkeypatch.setattr(artifact_worker, "_pdf_page_count", lambda _path: 11)
-    machine, visual, confidence, processed, total, limitations = (
-        artifact_worker._render_pdf(tmp_path / "inert.pdf", tmp_path)
+    regions, total, limitations = (
+        artifact_worker._render_pdf_regions(tmp_path / "inert.pdf", tmp_path)
     )
-    assert (machine, visual, confidence, processed, total) == ("", "", 0.0, 0, 11)
+    assert regions == []
+    assert total == 11
     assert limitations == ["page_limit_exceeded"]

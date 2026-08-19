@@ -95,37 +95,6 @@ def _pdf_page_count(pdf: Path) -> int:
     return count
 
 
-def _render_pdf(
-    pdf: Path, directory: Path
-) -> tuple[str, str, float, int, int, list[str]]:
-    total_pages = _pdf_page_count(pdf)
-    if total_pages > MAX_RENDER_PAGES:
-        return "", "", 0.0, 0, total_pages, ["page_limit_exceeded"]
-    machine = _run([_tool("pdftotext"), str(pdf), "-"]).decode("utf-8", errors="replace")
-    prefix = directory / "page"
-    _run([
-        _tool("pdftoppm"), "-png", "-r", "150", "-f", "1", "-l", str(total_pages),
-        str(pdf), str(prefix),
-    ], timeout=120.0)
-    pages = sorted(directory.glob("page-*.png"))
-    if len(pages) != total_pages:
-        return "", "", 0.0, len(pages), total_pages, ["page_render_incomplete"]
-    ocr_parts: list[str] = []
-    confidences: list[float] = []
-    for page in pages:
-        text, confidence = _ocr_tsv(page)
-        ocr_parts.append(text)
-        confidences.append(confidence)
-    return (
-        machine,
-        " ".join(ocr_parts),
-        sum(confidences) / len(confidences),
-        len(pages),
-        total_pages,
-        [],
-    )
-
-
 def _render_pdf_regions(
     pdf: Path, directory: Path
 ) -> tuple[list[tuple[str, str, float, int]], int, list[str]]:

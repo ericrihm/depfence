@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
@@ -86,7 +87,7 @@ def _git(arguments: list[str], *, binary: bool = False) -> subprocess.CompletedP
     )
 
 
-def _iter_ls_tree(repository: Path, commit: str):
+def _iter_ls_tree(repository: Path, commit: str) -> Iterator[bytes]:
     """Stream and bound NUL-delimited tree records instead of buffering a tree."""
     command = [
         "git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
@@ -416,6 +417,7 @@ def _sanitized_font_payloads(data: bytes, suffix: str) -> tuple[list[bytes], lis
         with tempfile.TemporaryDirectory(prefix="depfence-woff2-") as wd:
             src = Path(wd) / "input.woff2"
             src.write_bytes(data)
+            os.chmod(src, 0o600)
             code, _, _ = _run_bounded_subprocess(
                 [decompressor, str(src)],
                 b"",
@@ -435,6 +437,7 @@ def _sanitized_font_payloads(data: bytes, suffix: str) -> tuple[list[bytes], lis
         directory = Path(raw_directory)
         source = directory / f"input{suffix}"
         source.write_bytes(data)
+        os.chmod(source, 0o600)
         for index in indexes:
             destination = directory / f"sanitized-{index}.ttf"
             command = [executable, str(source), str(destination)]
