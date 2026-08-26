@@ -116,7 +116,7 @@ runs:
 
     - name: Upload SARIF
       if: ${{ inputs.upload-sarif == 'true' && inputs.format == 'sarif' && always() }}
-      uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3
+      uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v3
       with:
         sarif_file: depfence-results.sarif
         category: depfence
