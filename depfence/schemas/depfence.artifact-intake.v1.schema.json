@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depfence.dev/schemas/depfence.artifact-intake/v1.json",
+  "type": "object",
+  "required": ["schema_version", "artifact_id", "sha256", "media_type", "byte_count", "analysis_mode", "created_at", "promoted"],
+  "properties": {
+    "schema_version": {"const": "depfence.artifact-intake/v1"},
+    "artifact_id": {"type": "string", "pattern": "^artifact-hmac-sha256:[0-9a-f]{64}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "media_type": {"type": "string", "minLength": 1, "maxLength": 127},
+    "byte_count": {"type": "integer", "minimum": 0, "maximum": 67108864},
+    "analysis_mode": {"enum": ["static", "sandboxed"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "promoted": {"const": false},
+    "payload_retained": {"type": "boolean"},
+    "retention_days": {"type": "integer", "minimum": 1, "maximum": 30},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "secure_erasure": {"const": false}
+  },
+  "additionalProperties": false
+}
+
+

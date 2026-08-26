@@ -1,0 +1,113 @@
+name: Container contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "containers/**"
+      - "tools/intake-vm/**"
+      - "depfence/artifact_worker.py"
+      - "depfence/sealed_git_worker.py"
+      - "depfence/core/artifact_analysis.py"
+      - "pyproject.toml"
+      - ".github/workflows/container-contracts.yml"
+      - ".github/workflows/publish-analysis-images.yml"
+      - "tests/test_container_release_contracts.py"
+  push:
+    branches: [main]
+    paths:
+      - "containers/**"
+      - "tools/intake-vm/**"
+      - "depfence/artifact_worker.py"
+      - "depfence/sealed_git_worker.py"
+      - "depfence/core/artifact_analysis.py"
+      - "pyproject.toml"
+      - ".github/workflows/container-contracts.yml"
+      - ".github/workflows/publish-analysis-images.yml"
+      - "tests/test_container_release_contracts.py"
+
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Validate container source contracts
+        run: python -m unittest tests.test_container_release_contracts -v
+      - name: Check entrypoint shell
+        run: shellcheck containers/bin/depfence-worker-entrypoint
+
+  image-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [intake, static, render]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Build purpose-scoped image
+        run: |
+          docker build \
+            --target "${{ matrix.target }}" \
+            --build-arg "DEPFENCE_VERSION=contract" \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --tag "depfence-${{ matrix.target }}:contract" \
+            --file containers/Dockerfile .
+      - name: Run non-root offline self-test
+        run: |
+          profile=containers/seccomp-analysis.json
+          if [ "${{ matrix.target }}" = intake ]; then
+            profile=containers/seccomp-intake.json
+          fi
+          docker run --rm \
+            --network none \
+            --read-only \
+            --user 65532:65532 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --security-opt "seccomp=${profile}" \
+            --pids-limit 64 \
+            --memory 768m \
+            --cpus 1 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
+            "depfence-${{ matrix.target }}:contract" --self-test
+      - name: Import every allowed worker entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            intake) commands=(depfence-sealed-git-resolve depfence-sealed-git-acquire depfence-sealed-git-inventory) ;;
+            static) commands=(depfence-sealed-git-inventory depfence-sealed-git-analyze) ;;
+            render) commands=(depfence-artifact-analyzer) ;;
+          esac
+          profile=containers/seccomp-analysis.json
+          if [ "${{ matrix.target }}" = intake ]; then
+            profile=containers/seccomp-intake.json
+          fi
+          for command in "${commands[@]}"; do
+            docker run --rm \
+              --network none \
+              --read-only \
+              --user 65532:65532 \
+              --cap-drop ALL \
+              --security-opt no-new-privileges \
+              --security-opt "seccomp=${profile}" \
+              --pids-limit 64 \
+              --memory 768m \
+              --cpus 1 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
+              "depfence-${{ matrix.target }}:contract" "$command" --help >/dev/null
+          done
+      - name: Prove dispatcher rejects a shell
+        run: |
+          if docker run --rm --network none "depfence-${{ matrix.target }}:contract" sh -c id; then
+            echo "worker dispatcher unexpectedly permitted a shell" >&2
+            exit 1
+          fi
+
+
