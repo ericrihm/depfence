@@ -47,6 +47,31 @@ disabled. Accessibility, selection, and clipboard collection are not yet impleme
 HTML rendered analysis remains explicitly `unproven`; static web-font correlation is only
 a heuristic.
 
+## Detection rules
+
+| Rule | Description | Tier | Confidence | Severity | Evidence Class |
+|------|-------------|------|------------|----------|----------------|
+| DF-FONT-001 | Sparse companion-font cluster | 1 | 0.76 | MEDIUM | `sparse_font_cluster` |
+| DF-FONT-002 | Conflicting Unicode glyph mappings | 1 | 0.82 | MEDIUM | `cmap_subtable_conflict` |
+| DF-FONT-003 | Degenerate glyph-to-codepoint mapping (>20:1) | 1 | 0.92 | HIGH | `degenerate_cmap` |
+| DF-FONT-004 | Stealth font zero-width glyphs (≥8) | 1 | 0.90 | HIGH | `zero_width_stealth` |
+| DF-FONT-005 | Missing layout tables (26+ codepoints) | 1 | 0.55 | LOW | `missing_layout_tables` |
+| DF-WEB-001 | Per-character web-font construction | 1 | 0.78 | MEDIUM | `structural_correlation` |
+| DF-DOCX-001 | Embedded-font run switching | 1 | 0.84-0.98 | MEDIUM | `structural_correlation` |
+| DF-DOCX-002 | DOCX hidden/revision-tracked content | 1 | 0.65 | MEDIUM | `hidden_document_content` |
+| DF-PDF-001 | PDF invisible text topology | 1 | 0.62 | MEDIUM | `hidden_text_topology` |
+| DF-PDF-002 | PDF active content (JS/auto-actions) | 1 | 0.90 | HIGH | `active_content` |
+| DF-PDF-003 | PDF incremental saves (multiple `%%EOF`) | 1 | 0.70 | MEDIUM | `incremental_save` |
+| DF-VIS-001 | Rendered vs machine text disagreement | 2 | 0.75-0.99 | HIGH/CRIT | `rendered_text_comparison` |
+
+The sealed intake validator accepts these ten evidence classes:
+`sparse_font_cluster`, `cmap_subtable_conflict`, `structural_correlation`,
+`degenerate_cmap`, `zero_width_stealth`, `missing_layout_tables`, `active_content`,
+`incremental_save`, `hidden_document_content`, and `hidden_text_topology`.
+
+DF-FONT-002, DF-FONT-003, DF-FONT-004, and DF-FONT-005 are distinct rule IDs even when
+their findings are summarized together as font-structure evidence.
+
 ## Containment
 
 Resolution uses `ls-remote HEAD` and fetches no objects. After explicit exact-commit
