@@ -6,7 +6,7 @@ Static analysis for dependency and CI/CD supply chain security. Catches attack c
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Scanners: 57](https://img.shields.io/badge/scanners-57-orange)](docs/site/docs.html)
-[![Tests: 3767](https://img.shields.io/badge/tests-3767-brightgreen)](tests/)
+[![Tests: 3936](https://img.shields.io/badge/tests-3936-brightgreen)](tests/)
 
 <!-- <p align="center">
   <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
@@ -35,6 +35,7 @@ depfence scan .
 | Phantom Gyp attacks | `binding_gyp` | `binding.gyp` without native code — stealth install hook |
 | Protestware | `protestware` | Geofenced payloads, date-bombs, political messages in install hooks |
 | Anti-analysis evasion | `prompt_injection` | [Gaslight](https://thehackernews.com/2026/06/new-gaslight-macos-malware-uses-prompt.html)-style fake system messages, CBRN refusal triggers, classification markings, legal threats designed to make AI security agents abort analysis |
+| Visual text deception | `visual_text_deception_scanner` | Font, PDF, and DOCX deception where rendered text disagrees with machine-readable text |
 
 ---
 
@@ -51,7 +52,7 @@ Existing dependency scanners (Snyk, Dependabot, OSV-Scanner, Grype) focus on kno
 - **Fabricated pin verification** — SHA pins and version numbers that don't exist in any registry, often hallucinated by coding assistants into CI workflows.
 - **Cordyceps-class CI/CD attacks** — `workflow_run` privilege escalation and `issue_comment` TOCTOU races in GitHub Actions.
 
-depfence operates entirely via static analysis — no package code is executed, no source code leaves the local machine. All 56 scanners run concurrently with async metadata fetching across 14 package ecosystems.
+depfence operates entirely via static analysis — no package code is executed, no source code leaves the local machine. All 57 scanners run concurrently with async metadata fetching across 14 package ecosystems.
 
 ---
 
@@ -62,7 +63,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
                                             |
                               +-------------+-------------+
                      entry-point scanners      project scanners
-                     (53, via pip registry)    (32, filesystem-based)
+                     (54, via pip registry)    (33, filesystem-based)
                               |                       |
                      operate on PackageMeta    operate on project dir
                      (name, version, metadata) (walk .github/workflows/,
@@ -71,7 +72,7 @@ lockfile detection -> metadata fetch -> scanner execution -> enrichment
 
 1. **Lockfile detection** — auto-discovers `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`, `uv.lock`, `packages.config`, `Gemfile.lock`, `composer.lock`, `Package.resolved`, `Podfile.lock`, `pubspec.lock`, `pom.xml`, `libs.versions.toml`.
 2. **Metadata fetch** — async batch fetch (20 concurrent) from npm, PyPI, etc.
-3. **Scanner execution** — 53 entry-point scanners + 32 project scanners run concurrently.
+3. **Scanner execution** — 54 entry-point scanners + 33 project scanners run concurrently.
 4. **Enrichment** — EPSS exploit probability, CISA KEV status, OpenSSF Scorecard, and reachability analysis.
 
 After enrichment, `depfence:ignore` suppressions and baseline snapshots are applied. Output formats: table, JSON, SARIF, HTML, CycloneDX, SPDX.
@@ -84,7 +85,7 @@ After enrichment, `depfence:ignore` suppressions and baseline snapshots are appl
 
 ## Scanners
 
-53 entry-point scanners + 32 project scanners. 56 scanner files total — many serve both roles.
+54 entry-point scanners + 33 project scanners. 57 scanner files total — many serve both roles.
 
 <details>
 <summary><strong>Prompt injection and AI safety</strong> (6 scanners)</summary>
@@ -644,7 +645,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3537 test functions across 136 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+3816 test functions across 148 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
@@ -652,7 +653,7 @@ pytest
 depfence/          ~46K LOC
   cli/             CLI commands (click)
   core/            Engine, lockfile parsing, policy, caching, enrichment
-  scanners/        56 scanner modules (53 entry-point, 32 project)
+  scanners/        57 scanner modules (54 entry-point, 33 project)
   reporters/       SARIF, CycloneDX, SPDX, HTML, JSON formatters
   analyzers/       AST analysis, install script analysis
   integrations/    Pre-commit hook, Claude Code PreToolUse hook

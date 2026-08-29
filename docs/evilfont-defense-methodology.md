@@ -47,6 +47,31 @@ disabled. Accessibility, selection, and clipboard collection are not yet impleme
 HTML rendered analysis remains explicitly `unproven`; static web-font correlation is only
 a heuristic.
 
+## Detection rules
+
+| Rule | Description | Tier | Confidence | Severity | Evidence Class |
+|------|-------------|------|------------|----------|----------------|
+| DF-FONT-001 | Sparse companion-font cluster | 1 | 0.76 | MEDIUM | `sparse_font_cluster` |
+| DF-FONT-002 | Conflicting Unicode glyph mappings | 1 | 0.82 | MEDIUM | `cmap_subtable_conflict` |
+| DF-FONT-003 | Degenerate glyph-to-codepoint mapping (>20:1) | 1 | 0.92 | HIGH | `degenerate_cmap` |
+| DF-FONT-004 | Stealth font zero-width glyphs (≥8) | 1 | 0.90 | HIGH | `zero_width_stealth` |
+| DF-FONT-005 | Missing layout tables (26+ codepoints) | 1 | 0.55 | LOW | `missing_layout_tables` |
+| DF-WEB-001 | Per-character web-font construction | 1 | 0.78 | MEDIUM | `structural_correlation` |
+| DF-DOCX-001 | Embedded-font run switching | 1 | 0.84-0.90 | MEDIUM | `structural_correlation` |
+| DF-DOCX-002 | DOCX hidden/revision-tracked content | 1 | 0.65 | MEDIUM | `hidden_document_content` |
+| DF-PDF-001 | PDF invisible text topology | 1 | 0.62 | MEDIUM | `hidden_text_topology` |
+| DF-PDF-002 | PDF active content (JS/auto-actions) | 1 | 0.90 | HIGH | `active_content` |
+| DF-PDF-003 | PDF incremental saves (multiple `%%EOF`) | 1 | 0.70 | MEDIUM | `incremental_save` |
+| DF-VIS-001 | Rendered vs machine text disagreement | 2 | 0.75-0.99 | HIGH/CRIT | `rendered_text_comparison` |
+
+The sealed intake validator accepts these ten evidence classes:
+`sparse_font_cluster`, `cmap_subtable_conflict`, `structural_correlation`,
+`degenerate_cmap`, `zero_width_stealth`, `missing_layout_tables`, `active_content`,
+`incremental_save`, `hidden_document_content`, and `hidden_text_topology`.
+
+DF-FONT-002, DF-FONT-003, DF-FONT-004, and DF-FONT-005 are distinct rule IDs even when
+their findings are summarized together as font-structure evidence.
+
 ## Containment
 
 Resolution uses `ls-remote HEAD` and fetches no objects. After explicit exact-commit
@@ -73,6 +98,39 @@ consented calibration corpus and are not currently made.
 The independent article, neutral live demo, and any sample publication remain gated on a
 completed exact-commit review, licensing review, claim audit, and independent technical and
 editorial sign-off.
+
+## Resolved contract and packaging findings
+
+Identified by cross-family review on 2026-08-29 and resolved in the same pass.
+
+- **Optional extra was never installed** *(resolved)*: `fontTools`, `pypdf`, and
+  `jsonschema` live in the `[evilfont]` extra, but CI installed `.[dev]` and both
+  container images installed the bare package. The artifact modules import those
+  libraries at module scope, so ~243 tests failed to collect and the `static`
+  worker could not perform semantic font or PDF inspection at all. `[dev]` now
+  depends on `depfence[evilfont]`, CI names the extra explicitly, and both
+  Dockerfiles build and install `.[evilfont]`.
+- **Missing `pypdf` raised `NameError`** *(resolved)*: `_scan_pdf` imported
+  `PdfReader` and `PdfReadError` inside the same `try` whose handler referenced
+  `PdfReadError`. Without `pypdf`, the import raised `ImportError` and evaluating
+  the handler tuple then raised `NameError`, which escaped `scan_artifact_bytes`
+  and caused the caller to discard every finding from the scanner. The import is
+  now separate and raises `ScanIncompleteError`, matching `inspect_font_semantics`.
+- **Sealed-intake schema contradicted its emitters** *(resolved)*: the JSON Schema
+  admitted 5 rule IDs, pinned `severity` to the constant `medium`, and listed five
+  evidence classes that no producer emits — omitting `cmap_subtable_conflict`, the
+  exact value DF-FONT-002 emits. Any DF-FONT-002 finding therefore failed schema
+  validation. The schema now carries all 11 rule IDs, the 10 real evidence classes,
+  and a `low`/`medium`/`high` severity enum, matching the Python validator.
+- **Worker flattened severity** *(resolved)*: `sealed_git_worker` hard-coded
+  `"severity": "medium"` for every finding, silently downgrading DF-FONT-003,
+  DF-FONT-004, and DF-PDF-002 (HIGH) and upgrading DF-FONT-005 (LOW), which
+  contradicted the severity column above. The worker now carries each rule's real
+  severity, clamped to the sealed-intake vocabulary.
+- **Tier-2 allowlist implied unreachable capability** *(resolved)*: the host
+  accepted five rule IDs and then rejected everything that was not `DF-VIS-001`,
+  leaving four unreachable entries and four unreachable title strings. Both now
+  state the real contract: Tier 2 confirms `DF-VIS-001` only.
 
 ## Resolved architectural findings
 

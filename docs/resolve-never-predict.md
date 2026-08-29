@@ -71,7 +71,7 @@ structurally impossible to author.
 |---|---|---|
 | 1. Author | Claude Code `PreToolUse` hook (`depfence/integrations/pretooluse_hook.py`) resolves any newly-written `uses:@<sha>` in a workflow and warns on fabricated pins; `DEPFENCE_PRETOOLUSE_BLOCK=1` escalates to deny | **shipped** (warn-only default, reversible) |
 | 2. Commit | `.pre-commit-hooks.yaml` now triggers on `.github/workflows/*` and the hook drops `--no-fetch` so project scanners (incl. resolve_existence) run; `depfence scan --fail-on high` blocks on FABRICATED_REF | **shipped** |
-| 3. CI | `action-pins` job (`verify-action-pins.sh`) + the depfence action + `zizmor` + `ratchet --check` — independent resolvers, fail-closed | **shipped** in depfence CI |
+| 3. CI | `action-pins` job (`verify-action-pins.sh`) + the depfence action — independent resolvers, fail-closed. `zizmor` and `ratchet --check` are named in `scripts/verify-action-pins.sh` as complementary tools but are **not** wired into any workflow | **partial** — `action-pins` shipped; `zizmor`/`ratchet` not in CI |
 | 4. Merge | Renovate `pinGitHubActionDigestsToSemver` + org "require SHA-pinned actions" policy; credit GitHub Immutable Releases | designed |
 | 5. Runtime | StepSecurity Harden-Runner egress monitoring — backstop for an existing-but-malicious commit | designed |
 

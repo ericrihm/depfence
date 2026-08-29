@@ -3,7 +3,7 @@ message: "If you use this software, please cite it as below."
 type: software
 title: "depfence"
 abstract: >-
-  AI-aware dependency security scanner with 56 scanners covering prompt
+  AI-aware dependency security scanner with 57 scanners covering prompt
   injection detection, slopsquatting defense, MCP auditing, agent skill
   attack detection, AI model security, supply chain attack detection,
   and SBOM generation for npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems,
