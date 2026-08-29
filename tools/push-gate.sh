@@ -15,12 +15,27 @@ REMOTE="${1:-origin}"
 BRANCH="${2:-$(git rev-parse --abbrev-ref HEAD)}"
 RANGE="${REMOTE}/${BRANCH}..HEAD"
 
+# A typo in the remote name must not look like a first push. Verify the remote
+# itself exists before treating a missing tracking branch as "nothing pushed
+# yet" -- otherwise `push-gate origin-typo main` scans HEAD, finds nothing new
+# to compare against, and reports clean.
+if ! git remote get-url "${REMOTE}" >/dev/null 2>&1; then
+  echo "push-gate: BLOCKED -- no such remote '${REMOTE}'." >&2
+  exit 3
+fi
+
 if ! git rev-parse --verify --quiet "${REMOTE}/${BRANCH}" >/dev/null; then
-  echo "push-gate: ${REMOTE}/${BRANCH} does not exist; scanning all of HEAD" >&2
+  echo "push-gate: ${REMOTE}/${BRANCH} not on the remote; treating as a first" >&2
+  echo "push-gate: push and scanning all of HEAD." >&2
   RANGE="HEAD"
 fi
 
-COUNT=$(git rev-list --count "${RANGE}" 2>/dev/null || echo 0)
+# A bad range previously collapsed to COUNT=0 and reported "nothing to push",
+# so a typo in the remote or branch name silently passed the gate.
+if ! COUNT=$(git rev-list --count "${RANGE}" 2>/dev/null); then
+  echo "push-gate: BLOCKED -- '${RANGE}' is not a valid commit range." >&2
+  exit 3
+fi
 if [ "${COUNT}" = "0" ]; then
   echo "push-gate: nothing to push."
   exit 0
@@ -44,9 +59,17 @@ gitleaks detect --log-opts="${RANGE}" \
 RC=$?
 set -e
 
-FOUND=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "${REPORT}" 2>/dev/null || echo "?")
+# An unreadable report is an UNKNOWN result, and unknown must not mean pass.
+# The previous form used "?" as a sentinel and then excluded it from the
+# blocking condition, so a truncated or malformed report exited 0 -- the exact
+# "incomplete analysis is indistinguishable from clean" defect this repo hunts.
+if ! FOUND=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "${REPORT}" 2>/dev/null); then
+  echo "push-gate: BLOCKED -- gitleaks report at ${REPORT} is missing or unparseable." >&2
+  echo "push-gate: an unreadable scan is not a clean scan." >&2
+  exit 3
+fi
 
-if [ "${RC}" -ne 0 ] || { [ "${FOUND}" != "0" ] && [ "${FOUND}" != "?" ]; }; then
+if [ "${RC}" -ne 0 ] || [ "${FOUND}" != "0" ]; then
   echo "push-gate: BLOCKED -- ${FOUND} finding(s) in the outgoing commits." >&2
   python3 - "${REPORT}" <<'PY' >&2 || true
 import json, sys
