@@ -713,11 +713,18 @@ def analyze_main() -> None:
                 "DF-PDF-001", "DF-PDF-002", "DF-PDF-003",
             }:
                 continue
+            # Carry the rule's real severity. Flattening every finding to
+            # "medium" contradicted the documented per-rule severity column and
+            # silently downgraded DF-FONT-003/004 and DF-PDF-002 (HIGH) and
+            # DF-FONT-005 (LOW). Clamp to the sealed-intake vocabulary.
+            severity = getattr(finding.severity, "value", str(finding.severity))
+            if severity not in {"medium", "high", "low"}:
+                severity = "medium"
             findings.append({
                 "artifact_id": opaque_id,
                 "suffix": suffix,
                 "rule_id": rule_id,
-                "severity": "medium",
+                "severity": severity,
                 "confidence": round(float(finding.confidence), 6),
                 "evidence_class": str(finding.metadata.get("evidence_class", "structural"))[:64],
             })

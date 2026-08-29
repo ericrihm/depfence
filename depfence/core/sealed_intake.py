@@ -481,15 +481,17 @@ def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
         "file_count", "byte_count", "regular_files", "symlink_count",
         "submodule_count", "non_regular_count",
     )
+    counts: dict[str, int] = {}
     for field in integer_fields:
         value = document.get(field)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ScanIncompleteError(f"sealed intake field is invalid: {field}")
+        counts[field] = value
     accounted = sum(
-        int(document[field])
+        counts[field]
         for field in ("regular_files", "symlink_count", "submodule_count", "non_regular_count")
     )
-    if accounted != document["file_count"]:
+    if accounted != counts["file_count"]:
         raise ScanIncompleteError("sealed intake file counts do not reconcile")
     suffixes = document.get("suffix_counts", {})
     if not isinstance(suffixes, dict) or len(suffixes) > 256:

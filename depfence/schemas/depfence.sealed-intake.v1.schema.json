@@ -67,13 +67,13 @@
             "properties": {
               "artifact_id": {"type": "string", "pattern": "^sealed-artifact-sha256:[0-9a-f]{64}$"},
               "suffix": {"type": "string", "pattern": "^\\.[a-z0-9]{1,16}$"},
-              "rule_id": {"enum": ["DF-FONT-001", "DF-FONT-002", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001"]},
+              "rule_id": {"enum": ["DF-FONT-001", "DF-FONT-002", "DF-FONT-003", "DF-FONT-004", "DF-FONT-005", "DF-WEB-001", "DF-DOCX-001", "DF-DOCX-002", "DF-PDF-001", "DF-PDF-002", "DF-PDF-003"]},
               "rule_version": {"const": "2026-08-17"},
               "artifact_type": {"enum": ["otf", "ttf", "ttc", "woff", "woff2", "pdf", "docx", "html", "htm", "css"]},
               "carrier_type": {"const": "git_blob"},
-              "severity": {"const": "medium"},
+              "severity": {"enum": ["low", "medium", "high"]},
               "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-              "evidence_class": {"enum": ["sparse_font_cluster", "conflicting_cmap", "per_character_webfont", "embedded_font_switching", "structural_correlation"]}
+              "evidence_class": {"enum": ["sparse_font_cluster", "cmap_subtable_conflict", "structural_correlation", "degenerate_cmap", "zero_width_stealth", "missing_layout_tables", "active_content", "incremental_save", "hidden_document_content", "hidden_text_topology"]}
             },
             "additionalProperties": false
           }

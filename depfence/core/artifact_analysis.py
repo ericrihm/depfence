@@ -818,10 +818,18 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
     # since incremental saves may produce PDFs that strict-mode readers reject.
     eof_count = data.count(b"%%EOF")
 
+    # Import separately from the parse. Folded together, a missing pypdf raises
+    # ImportError, and evaluating the handler tuple then raises NameError
+    # because PdfReadError was never bound -- the error escapes scan_artifact_bytes
+    # and the caller discards every finding from this scanner.
     try:
         from pypdf import PdfReader
         from pypdf.errors import PdfReadError
         from pypdf.generic import ContentStream, DictionaryObject
+    except ImportError as exc:
+        raise ScanIncompleteError("pypdf is required for PDF inspection") from exc
+
+    try:
         reader = PdfReader(BytesIO(data), strict=True)
     except (PdfReadError, ValueError, TypeError, OSError) as exc:
         # If the PDF can't be parsed but has incremental saves, report that.
@@ -861,7 +869,8 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
         if not isinstance(resources, DictionaryObject):
             return
         fonts = resources.get("/Font")
-        fonts = fonts.get_object() if hasattr(fonts, "get_object") else fonts
+        if fonts is not None and hasattr(fonts, "get_object"):
+            fonts = fonts.get_object()
         if isinstance(fonts, DictionaryObject):
             for reference in fonts.values():
                 font = reference.get_object()
@@ -870,7 +879,8 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
                 if "/ToUnicode" not in font:
                     missing_tounicode += 1
         xobjects = resources.get("/XObject")
-        xobjects = xobjects.get_object() if hasattr(xobjects, "get_object") else xobjects
+        if xobjects is not None and hasattr(xobjects, "get_object"):
+            xobjects = xobjects.get_object()
         if isinstance(xobjects, DictionaryObject):
             for reference in xobjects.values():
                 obj = reference.get_object()
@@ -1237,6 +1247,10 @@ def _sandbox_findings(document: object, artifact_name: str) -> list[Finding]:
             f"sandbox analysis incomplete ({processed_units}/{total_units}; {codes})"
         )
     findings: list[Finding] = []
+    # Tier-1 IDs are listed deliberately. They are still rejected below -- Tier 2
+    # confirms DF-VIS-001 only -- but recognising them here separates "a rule ID
+    # we have never heard of" from "a real Tier-1 rule that a sandbox result
+    # cannot establish", which is the more precise diagnostic.
     allowed_rules = {"DF-FONT-001", "DF-WEB-001", "DF-DOCX-001", "DF-PDF-001", "DF-VIS-001"}
     seen_regions: set[int] = set()
     for raw in document["findings"]:
@@ -1303,13 +1317,7 @@ def _sandbox_findings(document: object, artifact_name: str) -> list[Finding]:
         confidence = min(
             0.99, 0.75 + character_error_rate * 0.2 + ocr_confidence * 0.05
         )
-        title = {
-            "DF-FONT-001": "Confirmed deceptive font mapping",
-            "DF-WEB-001": "Confirmed per-character web-font deception",
-            "DF-DOCX-001": "Confirmed embedded-font document deception",
-            "DF-PDF-001": "Confirmed deceptive PDF text layer",
-            "DF-VIS-001": "Rendered text differs from machine-readable text",
-        }[rule_id]
+        title = "Rendered text differs from machine-readable text"
         findings.append(Finding(
             finding_type=FindingType.VISUAL_TEXT_DECEPTION,
             severity=severity,

@@ -245,7 +245,10 @@ def compare_regions(regions: list[tuple[str, str, float, int]]) -> dict[str, obj
     findings: list[dict[str, object]] = []
     for machine, visual, confidence, region in regions:
         result = compare(machine, visual, confidence, len(regions))
-        for finding in result["findings"]:
+        raw_findings = result["findings"]
+        if not isinstance(raw_findings, list):
+            continue
+        for finding in raw_findings:
             metrics = finding.get("metrics")
             if isinstance(metrics, dict):
                 metrics["region_index"] = region
