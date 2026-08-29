@@ -264,6 +264,27 @@ class TestPdfActiveContent:
         rule_ids = [f.metadata.get("rule_id") for f in findings]
         assert "DF-PDF-002" not in rule_ids
 
+    def test_openaction_destination_is_not_active_content(self) -> None:
+        """A bare /OpenAction destination (open at fit-width) is navigation,
+        not active content. fpdf2, LaTeX hyperref and Word exports all emit
+        one, so counting its mere presence flags benign documents HIGH."""
+        from pypdf.generic import ArrayObject, NameObject, NullObject, NumberObject
+        # [<page ref> /FitH null] -- the fpdf2 shape. Use a page number stand-in;
+        # scan only needs the value to be an array, not a JavaScript action.
+        dest = ArrayObject([NumberObject(0), NameObject("/FitH"), NullObject()])
+        pdf_bytes = _make_pdf(**{"/OpenAction": dest})
+        findings, _ = scan_artifact_bytes(Path("test.pdf"), pdf_bytes)
+        rule_ids = [f.metadata.get("rule_id") for f in findings]
+        assert "DF-PDF-002" not in rule_ids
+
+    def test_real_fpdf_document_is_not_flagged_active_content(self) -> None:
+        """Regression: the shipped fpdf.pdf fixture -- a benign fpdf2 document --
+        fired DF-PDF-002 HIGH on a fit-width /OpenAction."""
+        fixture = Path(__file__).parent / "fixtures" / "pdf" / "fpdf.pdf"
+        findings, _ = scan_artifact_bytes(fixture, fixture.read_bytes())
+        rule_ids = [f.metadata.get("rule_id") for f in findings]
+        assert "DF-PDF-002" not in rule_ids
+
     @staticmethod
     def _make_pdf_with_page_js() -> bytes:
         """Build a PDF with a page-level /JS entry (not a root-catalog action)."""

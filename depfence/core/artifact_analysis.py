@@ -994,7 +994,16 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
         if root is not None:
             root_obj = root.get_object() if hasattr(root, "get_object") else root
             if isinstance(root_obj, DictionaryObject):
-                if "/OpenAction" in root_obj:
+                # /OpenAction is either an action dictionary (/S names the
+                # action type) or a navigation destination (an array, or a
+                # named destination). Only the action form is active content;
+                # a bare "open at fit-width" destination is benign and is what
+                # fpdf2, LaTeX hyperref and Word all emit. Counting its mere
+                # presence flagged every such document HIGH.
+                open_action = root_obj.get("/OpenAction")
+                if open_action is not None and hasattr(open_action, "get_object"):
+                    open_action = open_action.get_object()
+                if isinstance(open_action, DictionaryObject) and "/S" in open_action:
                     js_count += 1
                 if "/AA" in root_obj:
                     js_count += 1
