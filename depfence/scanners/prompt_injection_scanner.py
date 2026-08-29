@@ -246,7 +246,23 @@ _METADATA_FILES = {
     "setup.cfg", "pyproject.toml", "package.json", "Cargo.toml",
     "CMakeLists.txt", "Makefile", "build.gradle", "build.gradle.kts",
     "pom.xml", "Dockerfile", ".dockerignore",
+    # Agent instruction files. These carry no suffix, so the extension check
+    # above never matches them, yet they are parsed as project context by
+    # coding agents. TrapDoor (Socket, 2026-05-25) planted hidden instructions
+    # in exactly these files across 34 packages.
+    ".cursorrules", ".clinerules", ".windsurfrules", ".aiderrules",
 }
+
+# Agent instruction directories. The project root is walked non-recursively
+# (see _find_files), so nested instruction files are otherwise unreachable.
+# These are listed explicitly rather than widening the root walk, which would
+# drag .git, build output and vendored trees into scope.
+_AGENT_INSTRUCTION_DIRS = (
+    ".claude",
+    ".cursor",
+    ".github/instructions",
+    ".windsurf",
+)
 
 _MAX_FILES = 10_000
 _MAX_FILE_SIZE = 1_000_000  # 1MB
@@ -521,6 +537,9 @@ class PromptInjectionScanner:
         ]
         # Also search project root (top-level source files)
         search_dirs.append(project_dir)
+        # ...and the agent instruction directories, which are nested and so
+        # invisible to the root's non-recursive walk.
+        search_dirs.extend(project_dir / d for d in _AGENT_INSTRUCTION_DIRS)
 
         for d in search_dirs:
             if not d.exists():

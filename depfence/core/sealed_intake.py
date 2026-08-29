@@ -509,6 +509,37 @@ def _validated_inventory(raw: bytes, expected_commit: str) -> dict[str, object]:
     return document
 
 
+_FONT_SUFFIXES = frozenset({".otf", ".ttf", ".ttc", ".woff", ".woff2"})
+_WEB_SUFFIXES = frozenset({".html", ".htm", ".css"})
+_DOCX_SUFFIXES = frozenset({".docx"})
+_PDF_SUFFIXES = frozenset({".pdf"})
+
+# Host-owned rule contract: rule_id -> (evidence_class, severity, carriers).
+#
+# The analyzer runs in a container against untrusted documents, so everything it
+# returns is attacker-influenced. Checking rule_id, severity, evidence_class and
+# suffix independently against flat allowlists accepts any cross-product of them
+# -- a compromised worker could report DF-PDF-002 / high / active_content against
+# a .ttf and the host would pass it through with its trusted wrapper fields.
+#
+# Severity is host-owned. The worker's claim is verified against this table, never
+# trusted, so a compromised worker can neither escalate a finding to inflate a
+# downstream signal nor deflate one to hide it.
+_RULE_CONTRACT: dict[str, tuple[str, str, frozenset[str]]] = {
+    "DF-FONT-001": ("sparse_font_cluster", "medium", _FONT_SUFFIXES),
+    "DF-FONT-002": ("cmap_subtable_conflict", "medium", _FONT_SUFFIXES),
+    "DF-FONT-003": ("degenerate_cmap", "high", _FONT_SUFFIXES),
+    "DF-FONT-004": ("zero_width_stealth", "high", _FONT_SUFFIXES),
+    "DF-FONT-005": ("missing_layout_tables", "low", _FONT_SUFFIXES),
+    "DF-WEB-001": ("structural_correlation", "medium", _WEB_SUFFIXES),
+    "DF-DOCX-001": ("structural_correlation", "medium", _DOCX_SUFFIXES),
+    "DF-DOCX-002": ("hidden_document_content", "medium", _DOCX_SUFFIXES),
+    "DF-PDF-001": ("hidden_text_topology", "medium", _PDF_SUFFIXES),
+    "DF-PDF-002": ("active_content", "high", _PDF_SUFFIXES),
+    "DF-PDF-003": ("incremental_save", "medium", _PDF_SUFFIXES),
+}
+
+
 def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
     if len(raw) > MAX_ANALYSIS_MANIFEST_BYTES:
         raise InputLimitError("sealed analysis manifest exceeded its byte budget")
@@ -588,6 +619,20 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
             or evidence_val not in allowed_evidence_classes
         ):
             raise ScanIncompleteError("sealed analysis finding value is invalid")
+        # Individually valid fields are not enough: they must agree with the
+        # host's own contract for this rule.
+        contract = _RULE_CONTRACT.get(str(finding.get("rule_id", "")))
+        if contract is None:
+            raise ScanIncompleteError("sealed analysis rule has no host contract")
+        expected_evidence, expected_severity, carriers = contract
+        if (
+            evidence_val != expected_evidence
+            or finding.get("severity") != expected_severity
+            or suffix_val not in carriers
+        ):
+            raise ScanIncompleteError(
+                "sealed analysis finding contradicts the host rule contract"
+            )
     allowed_limitations = {
         "artifact_budget_exceeded", "artifact_size_exceeded", "analysis_byte_budget_exceeded",
         "blob_read_failed", "deep_analysis_required", "font_sanitizer_unavailable",

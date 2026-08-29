@@ -549,3 +549,87 @@ def test_sealed_intake_accepts_expanded_rule_ids(
     reported = result["analysis"]["findings"][0]
     assert reported["rule_id"] == rule_id
     assert reported["severity"] == severity
+
+
+# ---------------------------------------------------------------------------
+# Sealed-worker rule contract
+#
+# The analyzer runs in a container against untrusted documents, so its output
+# is attacker-influenced. Validating rule_id, severity, evidence_class and
+# suffix independently against flat allowlists lets a compromised worker assert
+# any cross-product of them -- e.g. a .ttf finding claiming DF-PDF-002 / high /
+# active_content. Severity is host-owned: the worker's claim is verified, never
+# trusted.
+# ---------------------------------------------------------------------------
+
+def _analysis_doc(findings, commit="a" * 40):
+    return {
+        "schema_version": "depfence.sealed-analysis/v1",
+        "commit": commit,
+        "complete": True,
+        "candidate_count": 1,
+        "analyzed_count": 1,
+        "analyzed_bytes": 100,
+        "coverage_by_suffix": {".ttf": {"total": 1, "analyzed": 1, "incomplete": 0}},
+        "findings": findings,
+        "limitations": [],
+        "toolchain": {"depfence": "0.8.0"},
+    }
+
+
+_AID = "sealed-artifact-sha256:" + "b" * 64
+
+
+def _finding(**over):
+    base = {
+        "artifact_id": _AID,
+        "suffix": ".ttf",
+        "rule_id": "DF-FONT-003",
+        "severity": "high",
+        "confidence": 0.92,
+        "evidence_class": "degenerate_cmap",
+    }
+    base.update(over)
+    return base
+
+
+def _validate(findings):
+    import json as _json
+
+    from depfence.core.sealed_intake import _validated_analysis
+
+    return _validated_analysis(
+        _json.dumps(_analysis_doc(findings)).encode(), "a" * 40
+    )
+
+
+def test_sealed_analysis_accepts_a_consistent_finding() -> None:
+    doc = _validate([_finding()])
+
+    assert doc["findings"][0]["rule_id"] == "DF-FONT-003"
+
+
+def test_sealed_analysis_rejects_rule_on_wrong_artifact_type() -> None:
+    """A PDF rule reported against a font artifact is not a real finding."""
+    with pytest.raises(ScanIncompleteError):
+        _validate([_finding(rule_id="DF-PDF-002", evidence_class="active_content")])
+
+
+def test_sealed_analysis_rejects_mismatched_evidence_class() -> None:
+    """Each rule emits exactly one evidence class."""
+    with pytest.raises(ScanIncompleteError):
+        _validate([_finding(evidence_class="active_content")])
+
+
+def test_sealed_analysis_rejects_worker_supplied_severity_escalation() -> None:
+    """A compromised worker must not be able to inflate severity."""
+    with pytest.raises(ScanIncompleteError):
+        _validate([_finding(rule_id="DF-FONT-005",
+                            evidence_class="missing_layout_tables",
+                            severity="high")])
+
+
+def test_sealed_analysis_rejects_worker_supplied_severity_downgrade() -> None:
+    """Nor deflate it, which would hide a real finding."""
+    with pytest.raises(ScanIncompleteError):
+        _validate([_finding(severity="low")])
