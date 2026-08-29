@@ -537,6 +537,7 @@ _RULE_CONTRACT: dict[str, tuple[str, str, frozenset[str]]] = {
     "DF-PDF-001": ("hidden_text_topology", "medium", _PDF_SUFFIXES),
     "DF-PDF-002": ("active_content", "high", _PDF_SUFFIXES),
     "DF-PDF-003": ("incremental_save", "medium", _PDF_SUFFIXES),
+    "DF-PDF-004": ("glyph_unicode_mismatch", "high", _PDF_SUFFIXES),
 }
 
 
@@ -584,7 +585,7 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
         "DF-FONT-001", "DF-FONT-002", "DF-FONT-003", "DF-FONT-004", "DF-FONT-005",
         "DF-WEB-001",
         "DF-DOCX-001", "DF-DOCX-002",
-        "DF-PDF-001", "DF-PDF-002", "DF-PDF-003",
+        "DF-PDF-001", "DF-PDF-002", "DF-PDF-003", "DF-PDF-004",
     }
     allowed_evidence_classes = {
         "sparse_font_cluster",
@@ -597,6 +598,7 @@ def _validated_analysis(raw: bytes, expected_commit: str) -> dict[str, object]:
         "incremental_save",
         "hidden_document_content",
         "hidden_text_topology",
+        "glyph_unicode_mismatch",
     }
     allowed_severities = {"medium", "high", "low"}
     suffix_pattern = re.compile(r"^\.[a-z0-9]{1,16}$")

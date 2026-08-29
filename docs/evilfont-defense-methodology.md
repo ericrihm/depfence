@@ -62,6 +62,7 @@ a heuristic.
 | DF-PDF-001 | PDF invisible text topology | 1 | 0.62 | MEDIUM | `hidden_text_topology` |
 | DF-PDF-002 | PDF active content (JS/auto-actions) | 1 | 0.90 | HIGH | `active_content` |
 | DF-PDF-003 | PDF incremental saves (multiple `%%EOF`) | 1 | 0.70 | MEDIUM | `incremental_save` |
+| DF-PDF-004 | Glyph draws a different character than `/ToUnicode` claims | 1 | 0.95 | HIGH | `glyph_unicode_mismatch` |
 | DF-VIS-001 | Rendered vs machine text disagreement | 2 | 0.75-0.99 | HIGH/CRIT | `rendered_text_comparison` |
 
 The sealed intake validator accepts these ten evidence classes:

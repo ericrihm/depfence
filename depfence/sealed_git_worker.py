@@ -710,7 +710,7 @@ def analyze_main() -> None:
                 "DF-FONT-001", "DF-FONT-002", "DF-FONT-003", "DF-FONT-004", "DF-FONT-005",
                 "DF-WEB-001",
                 "DF-DOCX-001", "DF-DOCX-002",
-                "DF-PDF-001", "DF-PDF-002", "DF-PDF-003",
+                "DF-PDF-001", "DF-PDF-002", "DF-PDF-003", "DF-PDF-004",
             }:
                 continue
             # Carry the rule's real severity. Flattening every finding to

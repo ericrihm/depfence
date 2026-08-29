@@ -1025,6 +1025,35 @@ def _scan_pdf(path: Path, data: bytes) -> list[Finding]:
 
     # DF-PDF-003: PDF incremental saves
     eof_count = data.count(b"%%EOF")
+    # DF-PDF-004: the embedded font program disagrees with /ToUnicode.
+    # Imported lazily: the module raises ScanIncompleteError at import time when
+    # the [evilfont] extra is absent, and a module-scope import here would break
+    # `depfence --help` for a bare install.
+    try:
+        from depfence.core.pdf_glyph_truth import glyph_truth_mismatches
+    except ScanIncompleteError:
+        mismatches = []
+    else:
+        mismatches = glyph_truth_mismatches(data)
+    if mismatches:
+        sample = "; ".join(
+            f"a glyph draws {m.drawn!r} but the document claims {m.claimed!r}"
+            for m in mismatches[:3]
+        )
+        findings.append(_finding(
+            path,
+            "DF-PDF-004",
+            "PDF glyphs disagree with their declared Unicode",
+            "The embedded font program states that a drawn glyph renders one "
+            "character while the document's /ToUnicode map claims another, so "
+            "extracted text differs from what a reader sees. "
+            f"{sample}.",
+            Severity.HIGH,
+            0.95,
+            mismatch_count=len(mismatches),
+            evidence_class="glyph_unicode_mismatch",
+        ))
+
     if eof_count > 1:
         findings.append(_finding(
             path,

@@ -67,3 +67,26 @@ def test_malformed_pdf_returns_empty_rather_than_raising() -> None:
 
 def test_empty_input_returns_empty() -> None:
     assert glyph_truth_mismatches(b"") == []
+
+
+# ---------------------------------------------------------------------------
+# DF-PDF-004 wiring
+# ---------------------------------------------------------------------------
+
+def test_scan_artifact_bytes_emits_df_pdf_004() -> None:
+    from depfence.core.artifact_analysis import scan_artifact_bytes
+
+    findings, _ = scan_artifact_bytes(Path("stealth.pdf"), _read("stealth.pdf"))
+
+    hits = [f for f in findings if f.metadata.get("rule_id") == "DF-PDF-004"]
+    assert hits, "glyph/Unicode disagreement was not reported"
+    assert hits[0].metadata["evidence_class"] == "glyph_unicode_mismatch"
+    assert hits[0].metadata["mismatch_count"] == 1
+
+
+def test_benign_pdf_emits_no_df_pdf_004() -> None:
+    from depfence.core.artifact_analysis import scan_artifact_bytes
+
+    findings, _ = scan_artifact_bytes(Path("orig.pdf"), _read("orig.pdf"))
+
+    assert "DF-PDF-004" not in [f.metadata.get("rule_id") for f in findings]
