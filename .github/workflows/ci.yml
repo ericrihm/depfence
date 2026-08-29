@@ -13,6 +13,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Measured 2026-08-29 on an M-series Mac Studio: 61 min single-threaded for
+    # the full suite. tests/test_cli_integration.py alone accounts for most of it
+    # and is timing-variable (143s-300s+ between runs). GitHub runners are slower,
+    # so this is deliberately generous -- it exists to bound a hang, not to be a
+    # performance budget. See the xdist note in CONTRIBUTING before tightening.
+    timeout-minutes: 150
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
@@ -25,7 +31,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        # [dev] pulls in [evilfont] (fontTools/pypdf/jsonschema). Named
+        # explicitly so this stays true if the extras are ever restructured --
+        # without them ~243 artifact tests fail to collect and CI reports 0 tests.
+        run: pip install -e ".[dev,evilfont]"
 
       - name: Lint
         run: ruff check depfence/ tests/
@@ -35,6 +44,7 @@ jobs:
 
   security-self-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -45,11 +55,34 @@ jobs:
         # Scan source only — tests/ contains intentional malicious payloads
         run: depfence scan depfence/ --format json --fail-on critical --no-fetch
 
+  # The artifact/EvilFont modules parse untrusted binaries, so they carry a type
+  # gate the rest of the tree does not. Repo-wide mypy is deliberately not gated
+  # (see CONTRIBUTING.md) -- scoping it here keeps the gate honest and passing.
+  types-and-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,evilfont]"
+      - name: Type-check artifact analysis surface
+        run: |
+          mypy depfence/core/artifact_analysis.py \
+               depfence/artifact_worker.py \
+               depfence/core/sealed_intake.py \
+               depfence/sealed_git_worker.py \
+               depfence/scanners/visual_text_deception_scanner.py
+      - name: Verify documented claims match the repo
+        run: bash tools/docs-check.sh
+
   # Prove every pinned action SHA is a real commit (catches fabricated/typo pins
   # that a person or an LLM might write from memory). Resolves over the API —
   # it does not trust the text in the file. See scripts/verify-action-pins.sh.
   action-pins:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Verify action pins resolve to real commits

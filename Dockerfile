@@ -13,9 +13,11 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY pyproject.toml README.md ./
 COPY depfence/ ./depfence/
 
-# Install production deps only (no [dev] or [ml] extras) into /opt/venv
+# Production deps plus [evilfont] (no [dev] or [ml]) into /opt/venv.
+# visual_text_deception runs in a default `depfence scan`; without the extra it
+# degrades silently and raises on the first PDF encountered.
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir .
+    && /opt/venv/bin/pip install --no-cache-dir ".[evilfont]"
 
 # Stage 2: lean runtime image
 FROM python:3.12-slim AS runtime

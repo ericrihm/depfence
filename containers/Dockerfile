@@ -9,8 +9,11 @@ FROM ${PYTHON_BASE} AS wheel
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY depfence/ ./depfence/
+# The [evilfont] extra (fontTools/pypdf/jsonschema) is required: the static
+# worker runs depfence-sealed-git-analyze -> scan_artifact_bytes, which cannot
+# do semantic font or PDF inspection without it.
 RUN python -m pip wheel --disable-pip-version-check --no-cache-dir \
-      --wheel-dir /wheelhouse .
+      --wheel-dir /wheelhouse ".[evilfont]"
 
 FROM ${PYTHON_BASE} AS runtime
 ARG DEPFENCE_VERSION=dev
@@ -33,7 +36,7 @@ ENV PATH="/opt/depfence/bin:/usr/local/bin:/usr/bin:/bin" \
 COPY --from=wheel /wheelhouse /wheelhouse
 RUN python -m venv /opt/depfence \
     && /opt/depfence/bin/pip install --disable-pip-version-check --no-cache-dir \
-       --no-index --find-links /wheelhouse depfence \
+       --no-index --find-links /wheelhouse "depfence[evilfont]" \
     && rm -rf /wheelhouse /root/.cache
 COPY --chmod=0555 containers/bin/depfence-worker-entrypoint /usr/local/bin/depfence-worker-entrypoint
 WORKDIR /work

@@ -41,6 +41,11 @@ evilfont = [
     "jsonschema>=4.23",
 ]
 dev = [
+    # The EvilFont artifact modules import fontTools/pypdf/jsonschema at module
+    # scope; without them ~243 tests fail to collect. Dev tooling therefore
+    # includes the extra so the documented `pip install -e ".[dev]"` path can
+    # actually run the suite.
+    "depfence[evilfont]",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
