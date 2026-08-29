@@ -79,6 +79,30 @@ class MaintainerInfo:
     recent_ownership_change: bool = False
 
 
+def package_display_name(package: object) -> str:
+    """Human-readable package name for a finding.
+
+    Package-shaped findings carry a PackageId. Artifact findings set `package`
+    to a plain string such as "artifact:docs/evil.ttf", so reporters that reach
+    straight for `.name` raise AttributeError on exactly the findings the
+    artifact scanners produce.
+    """
+    name = getattr(package, "name", None)
+    return name if isinstance(name, str) else str(package)
+
+
+def package_version(package: object) -> str:
+    """Version for a finding's package, or "" when it has none."""
+    version = getattr(package, "version", None)
+    return version if isinstance(version, str) else ""
+
+
+def package_ecosystem(package: object) -> str:
+    """Ecosystem for a finding's package, or "" for artifact-shaped findings."""
+    ecosystem = getattr(package, "ecosystem", None)
+    return ecosystem if isinstance(ecosystem, str) else ""
+
+
 @dataclass
 class PackageMeta:
     pkg: PackageId

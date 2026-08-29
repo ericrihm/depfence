@@ -6,7 +6,15 @@ import html
 from datetime import datetime, timezone
 
 from depfence import __version__
-from depfence.core.models import Finding, FindingType, ScanResult, Severity
+from depfence.core.models import (
+    Finding,
+    FindingType,
+    ScanResult,
+    Severity,
+    package_display_name,
+    package_ecosystem,
+    package_version,
+)
 
 # ---------------------------------------------------------------------------
 # Display configuration
@@ -229,10 +237,10 @@ def _build_findings_table(sorted_findings: list[Finding]) -> str:
     rows = []
     for f in sorted_findings:
         sev = f.severity.name.upper()
-        pkg_name = _h(f.package.name)
-        pkg_ver = _h(f.package.version or "")
+        pkg_name = _h(package_display_name(f.package))
+        pkg_ver = _h(package_version(f.package))
         pkg_display = f"{pkg_name}@{pkg_ver}" if pkg_ver else pkg_name
-        eco = _h(f.package.ecosystem)
+        eco = _h(package_ecosystem(f.package))
         cve = _h(f.cve or "")
         cve_cell = (
             f'<span class="cve-tag">{cve}</span>' if cve
@@ -269,7 +277,7 @@ def _build_findings_table(sorted_findings: list[Finding]) -> str:
             f'</tr>'
         )
 
-    ecosystems = sorted({f.package.ecosystem for f in sorted_findings})
+    ecosystems = sorted({package_ecosystem(f.package) for f in sorted_findings})
     eco_options = '<option value="all">All Ecosystems</option>' + "".join(
         f'<option value="{_h(e.lower())}">{_h(e)}</option>' for e in ecosystems
     )
@@ -396,7 +404,7 @@ def _rec_fixable_packages(findings: list[Finding]) -> str | None:
     if not fixable:
         return None
     names = ", ".join(
-        f"<code>{_h(f.package.name)}</code> &#8594; <code>{_h(f.fix_version)}</code>"
+        f"<code>{_h(package_display_name(f.package))}</code> &#8594; <code>{_h(f.fix_version)}</code>"
         for f in sorted(fixable, key=lambda x: _SEV_ORDER.get(x.severity.name.upper(), 9))[:3]
     )
     return (
@@ -418,7 +426,7 @@ def _rec_malicious_packages(findings: list[Finding]) -> str | None:
     malicious = [f for f in findings if f.finding_type == FindingType.MALICIOUS]
     if not malicious:
         return None
-    pkgs = ", ".join(f"<code>{_h(f.package.name)}</code>" for f in malicious[:3])
+    pkgs = ", ".join(f"<code>{_h(package_display_name(f.package))}</code>" for f in malicious[:3])
     return (
         f"<strong>Remove malicious package(s) immediately: {pkgs}.</strong> "
         "Treat the environment as potentially compromised."

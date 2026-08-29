@@ -6,7 +6,7 @@ Static analysis for dependency and CI/CD supply chain security. Catches attack c
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Scanners: 57](https://img.shields.io/badge/scanners-57-orange)](docs/site/docs.html)
-[![Tests: 3956](https://img.shields.io/badge/tests-3956-brightgreen)](tests/)
+[![Tests: 3961](https://img.shields.io/badge/tests-3961-brightgreen)](tests/)
 
 <!-- <p align="center">
   <img src="docs/demo.gif" alt="depfence scanning a vulnerable project" width="800">
@@ -645,7 +645,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-3836 test functions across 149 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+3841 test functions across 150 test files (parametrized cases push the badge higher; this number is what a dependency-free count can assert). Run `ruff check` before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Project structure
 
