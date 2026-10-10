@@ -13,134 +13,126 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from packaging.specifiers import SpecifierSet
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
+
 from depfence.core.models import Finding, FindingType, Severity
 
+# Source-pinned adjudication of every original row is in the W1 section of
+# docs/2026-07-01-gap-analysis-simply-cyber-audit.md. Unsupported rows are
+# quarantined there, not promoted to runtime findings.
 _KNOWN_VULNS: list[dict] = [
     {
-        "package": "langchain",
-        "versions": ["<0.0.325"],
+        "package": "langchain-experimental",
+        "versions": ["<=0.0.14"],
         "severity": Severity.CRITICAL,
-        "title": "Arbitrary code execution via LCEL",
+        "title": "PALChain arbitrary code execution via __import__",
         "cve": "CVE-2023-44467",
+        "fix_version": None,
+        "references": ["https://github.com/advisories/GHSA-gjjr-63x4-v8cq"],
     },
     {
         "package": "langchain",
-        "versions": ["<0.0.312"],
+        "versions": ["<0.0.247"],
         "severity": Severity.CRITICAL,
-        "title": "Prompt injection via PALChain",
+        "title": "Arbitrary code execution via PALChain",
         "cve": "CVE-2023-36188",
+        "fix_version": "0.0.247",
+        "references": ["https://github.com/advisories/GHSA-57fc-8q82-gfp3"],
     },
     {
         "package": "transformers",
         "versions": ["<4.36.0"],
-        "severity": Severity.HIGH,
-        "title": "Unsafe pickle deserialization in model loading",
+        "severity": Severity.CRITICAL,
+        "title": "Deserialization of untrusted data in model loading",
         "cve": "CVE-2023-7018",
+        "fix_version": "4.36.0",
+        "references": ["https://cveawg.mitre.org/api/cve/CVE-2023-7018"],
     },
     {
-        "package": "torch",
-        "versions": ["<2.1.0"],
-        "severity": Severity.HIGH,
-        "title": "Arbitrary code execution via torch.load",
-        "cve": "CVE-2024-5480",
-    },
-    {
-        "package": "llama-index",
-        "versions": ["<0.9.0"],
-        "severity": Severity.HIGH,
-        "title": "Server-side request forgery in data connectors",
+        "package": "langchain-core",
+        "versions": ["<0.1.35"],
+        "severity": Severity.MEDIUM,
+        "title": "XML entity expansion in XMLOutputParser",
         "cve": "CVE-2024-1455",
+        "fix_version": "0.1.35",
+        "references": ["https://github.com/advisories/GHSA-q84m-rmw3-4382"],
     },
     {
         "package": "gradio",
-        "versions": ["<4.0"],
-        "severity": Severity.HIGH,
-        "title": "Path traversal allows arbitrary file read",
+        "versions": ["<4.11.0"],
+        "severity": Severity.MEDIUM,
+        "title": "File traversal in the /file route",
         "cve": "CVE-2023-51449",
+        "fix_version": "4.11.0",
+        "references": ["https://cveawg.mitre.org/api/cve/CVE-2023-51449"],
     },
     {
         "package": "tensorflow",
-        "versions": ["<2.14.0"],
-        "severity": Severity.HIGH,
-        "title": "Multiple memory corruption vulnerabilities",
-        "cve": "CVE-2023-25668",
-    },
-    {
-        "package": "onnx",
-        "versions": ["<1.14.0"],
+        "versions": ["<2.11.1"],
         "severity": Severity.MEDIUM,
-        "title": "Directory traversal in model path handling",
-        "cve": "CVE-2023-32577",
+        "title": "Heap out-of-bounds read in QuantizeAndDequantize",
+        "cve": "CVE-2023-25668",
+        "fix_version": "2.11.1",
+        "references": [
+            "https://github.com/tensorflow/tensorflow/security/advisories/GHSA-gw97-ff7c-9v96",
+            "https://cveawg.mitre.org/api/cve/CVE-2023-25668",
+        ],
     },
     {
         "package": "mlflow",
-        "versions": ["<2.9.0"],
-        "severity": Severity.CRITICAL,
-        "title": "Remote code execution via crafted model artifact",
+        "versions": ["<2.9.2"],
+        "severity": Severity.HIGH,
+        "title": "Path traversal in MLflow",
         "cve": "CVE-2023-6831",
+        "fix_version": "2.9.2",
+        "references": ["https://cveawg.mitre.org/api/cve/CVE-2023-6831"],
     },
     {
         "package": "ray",
-        "versions": ["<2.8.1"],
+        "versions": ["==2.6.3", "==2.8.0"],
         "severity": Severity.CRITICAL,
-        "title": "Unauthenticated RCE on Ray dashboard",
+        "title": "Disputed: arbitrary code execution via Ray job submission API",
         "cve": "CVE-2023-48022",
-    },
-    {
-        "package": "auto-gpt",
-        "versions": ["<0.6.0"],
-        "severity": Severity.CRITICAL,
-        "title": "Arbitrary code execution in AutoGPT plugin system",
-        "cve": "CVE-2026-33233",
+        "fix_version": None,
+        "detail": "The CVE names Ray 2.6.3 and 2.8.0 and is disputed by the vendor. "
+                  "Ray requires a controlled network and trusted clients. No patched "
+                  "version is established; optional token authentication in 2.52.0 "
+                  "is defense in depth, not a replacement for network isolation.",
+        "references": [
+            "https://cveawg.mitre.org/api/cve/CVE-2023-48022",
+            "https://docs.ray.io/en/latest/ray-security/index.html",
+        ],
     },
     {
         "package": "lerobot",
-        "versions": ["<0.4.0"],
-        "severity": Severity.HIGH,
-        "title": "Unsafe pickle deserialization in LeRobot model loading",
+        "versions": [">=0,<=0.5.1"],
+        "severity": Severity.CRITICAL,
+        "title": "Unsafe deserialization over unauthenticated gRPC in LeRobot",
         "cve": "CVE-2026-25874",
+        "fix_version": None,
+        "references": ["https://cveawg.mitre.org/api/cve/CVE-2026-25874"],
     },
     {
         "package": "onnx",
-        "versions": ["<1.17.0"],
-        "severity": Severity.HIGH,
-        "title": "Hub.load bypass allows loading from arbitrary URLs",
+        "versions": ["<=1.20.1"],
+        "severity": Severity.MEDIUM,
+        "title": "Trust check bypass in onnx.hub.load via silent=True",
         "cve": "CVE-2026-28500",
-    },
-    {
-        "package": "sglang",
-        "versions": ["<0.4.0"],
-        "severity": Severity.CRITICAL,
-        "title": "GGUF Jinja2 SSTI enables full RCE via chat templates",
-        "cve": "CVE-2026-5760",
-    },
-    {
-        "package": "transformers",
-        "versions": ["<4.48.0"],
-        "severity": Severity.CRITICAL,
-        "title": "RCE via from_pretrained with crafted model repos",
-        "cve": "CVE-2025-47250",
-    },
-    {
-        "package": "pytorch-lightning",
-        "versions": ["<2.5.0"],
-        "severity": Severity.CRITICAL,
-        "title": "Supply chain compromise via malicious checkpoint loading",
-        "cve": "CVE-2026-XXXXX",
-    },
-    {
-        "package": "litellm",
-        "versions": ["<1.55.0"],
-        "severity": Severity.HIGH,
-        "title": "SSRF and credential exposure in proxy endpoint",
-        "cve": "CVE-2026-XXXXX",
+        "fix_version": "1.21.0",
+        "references": [
+            "https://github.com/onnx/onnx/security/advisories/GHSA-hqmj-h5c6-369m",
+        ],
     },
     {
         "package": "gradio",
-        "versions": ["<5.0.0"],
+        "versions": ["<5.6.0"],
         "severity": Severity.HIGH,
-        "title": "Multiple path traversal and SSRF vulnerabilities",
+        "title": "Blocked path ACL bypass on case-insensitive file systems",
         "cve": "CVE-2025-23042",
+        "fix_version": "5.6.0",
+        "references": ["https://cveawg.mitre.org/api/cve/CVE-2025-23042"],
     },
 ]
 
@@ -209,19 +201,27 @@ class AiVulnScanner:
         return findings
 
     def check_package_version(self, name: str, version: str) -> list[Finding]:
-        """Check if a specific AI package version has known vulns."""
+        """Match the reviewed local catalogue, not all known AI vulnerabilities."""
         findings = []
+        package_name = canonicalize_name(name)
         for vuln in _KNOWN_VULNS:
-            if vuln["package"] == name.lower():
+            if vuln["package"] == package_name:
                 if self._version_matches(version, vuln["versions"]):
+                    fix_version = vuln["fix_version"]
+                    remediation = (
+                        f"The cited advisory identifies {fix_version} as a patched version."
+                        if fix_version else "No patched version is established in the cited record."
+                    )
                     findings.append(Finding(
                         finding_type=FindingType.KNOWN_VULN,
                         severity=vuln["severity"],
                         package=f"pypi:{name}@{version}",
                         title=vuln["title"],
-                        detail=f"Upgrade to a version that fixes {vuln.get('cve', 'this issue')}.",
-                        cve=vuln.get("cve"),
-                        fix_version=self._extract_fix_version(vuln["versions"][0]),
+                        detail=vuln.get("detail", f"Version matches {vuln['cve']}. "
+                                        f"{remediation} Check the advisory for deployment applicability."),
+                        cve=vuln["cve"],
+                        fix_version=fix_version,
+                        references=list(vuln["references"]),
                     ))
         return findings
 
@@ -252,26 +252,10 @@ class AiVulnScanner:
 
     @staticmethod
     def _version_matches(current: str, constraints: list[str]) -> bool:
-        """Simple version constraint checking."""
-        from depfence.core.sbom_diff import _version_tuple
-
-        current_t = _version_tuple(current)
-        for constraint in constraints:
-            if constraint.startswith("<"):
-                target = constraint[1:]
-                target_t = _version_tuple(target)
-                if current_t < target_t:
-                    return True
-            elif constraint.startswith(">="):
-                target = constraint[2:]
-                target_t = _version_tuple(target)
-                if current_t >= target_t:
-                    return True
-        return False
-
-    @staticmethod
-    def _extract_fix_version(constraint: str) -> str | None:
-        """Extract the minimum safe version from a constraint like '<0.0.325'."""
-        if constraint.startswith("<"):
-            return constraint[1:]
-        return None
+        """Match any affected interval; comma-separated bounds intersect."""
+        try:
+            parsed = Version(current)
+        except InvalidVersion:
+            return False
+        return any(SpecifierSet(constraint).contains(parsed, prereleases=True)
+                   for constraint in constraints)

@@ -2,6 +2,28 @@
 
 All notable changes to depfence are documented here.
 
+## [Unreleased]
+
+### Security
+
+- W1 advisory truth repair (**LOCAL_VERIFIED**, bounded API/offline CLI proof):
+  adjudicated every original AI version-catalogue row against primary CVE and
+  security advisory records; quarantined unsupported/placeholder/rejected claims
+  rather than promoting them as known vulnerabilities. Corrected supported
+  package identities, affected intervals, issue titles and source-selected
+  severity. Findings carry citations and explicit optional patched versions;
+  Ray's disputed report no longer invents a fix. PyPI-normalized CLI mappings
+  and semantic boundary regressions preserve the separate behavioral scanner.
+  Full disposition and unresolved source conflicts are recorded in the W1
+  section of `docs/2026-07-01-gap-analysis-simply-cyber-audit.md`.
+  Catalogue omission is not a package-safety verdict.
+- Corrected `ai-scan` input accounting: `packages_scanned` now counts distinct
+  recognized/versioned AI package inputs offered to the catalogue, not packages
+  that happened to produce findings. Mixed and no-finding actual CLI paths passed.
+  Parent used native Python3.14.8 with existing pure pytest tooling (no install);
+  40 selected checks passed, then two affected accounting checks passed. This is
+  not full dependency coverage, exploit proof or a package-safety certification.
+
 ## [0.8.0] - 2026-06-28
 
 ### Added
