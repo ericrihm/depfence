@@ -1179,8 +1179,9 @@ def ai_scan(path: str, fmt: str, fail_on: str) -> None:
     all_findings.extend(ai_findings)
 
     # Check known AI package versions
-    from depfence.core.lockfile import detect_ecosystem, parse_lockfile
     from packaging.utils import canonicalize_name
+
+    from depfence.core.lockfile import detect_ecosystem, parse_lockfile
     lockfiles = detect_ecosystem(project_dir)
     ai_packages = {"langchain", "langchain-core", "langchain-experimental",
                    "transformers", "torch", "tensorflow", "llama-index", "lerobot",
