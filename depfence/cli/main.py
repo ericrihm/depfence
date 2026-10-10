@@ -1179,20 +1179,26 @@ def ai_scan(path: str, fmt: str, fail_on: str) -> None:
     all_findings.extend(ai_findings)
 
     # Check known AI package versions
+    from packaging.utils import canonicalize_name
+
     from depfence.core.lockfile import detect_ecosystem, parse_lockfile
     lockfiles = detect_ecosystem(project_dir)
-    ai_packages = {"langchain", "transformers", "torch", "tensorflow", "llama-index",
+    ai_packages = {"langchain", "langchain-core", "langchain-experimental",
+                   "transformers", "torch", "tensorflow", "llama-index", "lerobot",
                    "gradio", "mlflow", "ray", "onnx", "openai", "anthropic", "litellm"}
+    scanned_packages = set()
     for eco, lf in lockfiles:
         if eco == "pypi":
             pkgs = parse_lockfile(eco, lf)
             for pkg in pkgs:
-                if pkg.name.lower() in ai_packages and pkg.version:
+                package_name = canonicalize_name(pkg.name)
+                if package_name in ai_packages and pkg.version:
+                    scanned_packages.add((package_name, pkg.version))
                     all_findings.extend(ai_vuln_scanner.check_package_version(pkg.name, pkg.version))
 
     result = ScanResult(target=str(project_dir), ecosystem="ai")
     result.findings = all_findings
-    result.packages_scanned = len(set(f.package for f in all_findings)) or 0
+    result.packages_scanned = len(scanned_packages)
 
     click.echo(render_result(result, fmt))
     if _should_fail(result, fail_on):

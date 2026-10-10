@@ -23,6 +23,37 @@ def project_with_lockfile(tmp_path):
     return tmp_path
 
 
+def test_ai_scan_adjudicated_package_mappings(runner, tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "langchain_core==0.1.34\nlangchain-experimental==0.0.14\n"
+        "lerobot==0.5.1\npytorch-lightning==2.4.0\nlitellm==1.54.0\n"
+    )
+    result = runner.invoke(cli, ["ai-scan", str(tmp_path), "--format", "json",
+                                 "--fail-on", "none"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["packages_scanned"] == 4
+    findings = data["findings"]
+    by_cve = {f["cve"]: f for f in findings if f.get("cve")}
+    assert by_cve["CVE-2024-1455"]["fix_version"] == "0.1.35"
+    assert by_cve["CVE-2023-44467"]["fix_version"] is None
+    assert by_cve["CVE-2026-25874"]["fix_version"] is None
+    assert not any(f["package"].startswith(("pypi:litellm@", "pypi:pytorch-lightning@"))
+                   for f in findings)
+
+
+def test_ai_scan_counts_eligible_packages_without_findings(runner, tmp_path):
+    (tmp_path / "requirements.txt").write_text(
+        "mlflow==2.9.2\nlitellm==1.54.0\nrequests==2.31.0\n"
+    )
+    result = runner.invoke(cli, ["ai-scan", str(tmp_path), "--format", "json",
+                                 "--fail-on", "none"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["packages_scanned"] == 2
+    assert data["findings"] == []
+
+
 @pytest.fixture
 def project_with_npm(tmp_path):
     """Create a minimal project with package-lock.json."""
